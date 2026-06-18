@@ -1,10 +1,11 @@
-# AIOS ROUTER — Map of Aashish's World
-_Version: v2.0 · update via `/router`_
+# Razor — AIOS Router · Map of Aashish's World
+_Version: v2.0 · update via `/router` · OS: `@razor`_
 
 ## Who I am
 Senior Medical Advisor, Ferring India (RMMH / APAC). Builder, systematic trader, career strategist, family man, agri-investor. (Run `/grillme foundational` to deepen.)
 
 ## The Council → .claude/agents/
+**OS:** @razor (orchestrator, router, co-founder brain)
 MA Guild: @franchise-architect · @evidence-sculptor · @coalition-builder · @compliance-redteam · @meta-analyst · @andragogist · @value-translator
 Builder Guild: @toolsmith · @edge-seeker
 Life Guild: @positioning-strategist · @life-chief-of-staff · @land-steward · @performance-physiologist
