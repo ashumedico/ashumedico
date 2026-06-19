@@ -7,7 +7,7 @@ Senior Medical Advisor, Ferring India (RMMH / APAC). Builder, systematic trader,
 ## The Council → .claude/agents/
 **OS:** @razor (orchestrator, router, co-founder brain)
 MA Guild: @franchise-architect · @evidence-sculptor · @coalition-builder · @compliance-redteam · @meta-analyst · @andragogist · @value-translator
-Builder Guild: @toolsmith · @edge-seeker
+Builder Guild: @toolsmith · @edge-seeker · @audio-architect
 Life Guild: @positioning-strategist · @life-chief-of-staff · @land-steward · @performance-physiologist
 Quality: @verifier
 
