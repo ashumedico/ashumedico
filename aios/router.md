@@ -1,33 +1,67 @@
-# Razor — AIOS Router · Map of Aashish's World
-_Version: v2.0 · update via `/router` · OS: `@razor`_
+# T-BONE — AIOS v3.0 · Live System Dashboard
+_JARVIS-class AI OS · update via `/router` · kernel: `@t-bone`_
 
-## Who I am
-Senior Medical Advisor, Ferring India (RMMH / APAC). Builder, systematic trader, career strategist, family man, agri-investor. (Run `/grillme foundational` to deepen.)
+---
 
-## The Council → .claude/agents/
-**OS:** @razor (orchestrator, router, co-founder brain)
-MA Guild: @franchise-architect · @evidence-sculptor · @coalition-builder · @compliance-redteam · @meta-analyst · @andragogist · @value-translator
-Builder Guild: @toolsmith · @edge-seeker · @audio-architect
-Life Guild: @positioning-strategist · @life-chief-of-staff · @land-steward · @performance-physiologist
-Quality: @verifier
+## OPERATOR
+**Aashish Rajput** — Senior Medical Advisor, Ferring India (RMMH / APAC). Systems-builder, systematic trader, career strategist, family man, agri-investor.
+Run `/grillme foundational` to deepen world-model.
 
-## Commands → .claude/commands/
-/grillme · /council · /debate · /skill · /decide · /triage · /verify · /ledger · /router
+---
 
-## Active projects → aios/projects/
-| Project | Guild | Status | Next action | Ledger |
+## THE COUNCIL → .claude/agents/
+```
+KERNEL:  @t-bone (orchestrator · router · co-founder brain)
+
+MA GUILD:     @franchise-architect · @evidence-sculptor · @coalition-builder
+              @compliance-redteam · @meta-analyst · @andragogist · @value-translator
+
+BUILDER GUILD: @toolsmith · @edge-seeker · @audio-architect
+
+LIFE GUILD:    @positioning-strategist · @life-chief-of-staff
+               @land-steward · @performance-physiologist
+
+QUALITY GATE:  @verifier (92% bar)
+```
+
+## COMMANDS → .claude/commands/
+`/grillme` · `/council` · `/debate` · `/skill` · `/decide` · `/triage` · `/verify` · `/ledger` · `/router`
+
+---
+
+## ACTIVE PROJECTS → aios/projects/
+| # | Project | Guild | Status | Next action | Ledger |
+|---|---|---|---|---|---|
+| — | _add via `/router`_ | | | | |
+
+## SKILLS REGISTRY → aios/skills/
+| Skill | Owner | Last run | Version | Notes |
 |---|---|---|---|---|
-| _add_ | | | | |
+| T-Bone Impact Evaluator | @franchise-architect + @t-bone | — | v1.0 | Activity vs impact lens + AI transformation matrix for MA |
+| — | _add via `/skill`_ | | | |
 
-## Skills → aios/skills/
-| Skill | Owner | Last run | Notes |
-|---|---|---|---|
-| _add_ | | | |
+## CONNECTIONS → aios/connections/
+| Connection | Scope | Blast radius | Rollback | Status |
+|---|---|---|---|---|
+| Gmail MCP | Read/label/trash | Inbox emails | Unlabel/untrash | Active |
+| GitHub MCP | Repo: ashumedico/ashumedico | Code, PRs, issues | Revert commit | Active |
+| Google Drive MCP | Read/write files | Drive documents | Delete/revert | Active |
+| PubMed MCP | Read-only search | None | N/A | Active |
+| Canva MCP | Design create/edit | Canva designs | Delete design | Active |
+| Gamma MCP | Presentation create | Gamma decks | Delete | Active |
 
-## Connections → aios/connections/  (scope · blast radius · status)
-| Connection | Scope | Blast radius | Status |
-|---|---|---|---|
-| _add_ | | | |
-
-## Other worlds → aios/other_worlds/
+## OTHER WORLDS → aios/other_worlds/
 - _add separate-project context here_
+
+---
+
+## SYSTEM STATE
+```
+OS Version:    AIOS v3.0 (JARVIS-class) — T-Bone
+Kernel:        @t-bone
+Council size:  16 agents (7 MA + 3 Builder + 4 Life + 1 Quality + 1 OS)
+Commands:      9 active
+Skills:        1 registered (T-Bone Impact Evaluator)
+Projects:      0 tracked (register via /router)
+Last updated:  2026-06-22
+```
