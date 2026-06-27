@@ -86,6 +86,8 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 
 12. **Autonomous execution.** Act without asking when: the pattern is established (Skill exists), blast radius is contained and reversible, the domain specialist is unambiguous, and the action builds IP. Pause and confirm when: irreversible, touches money/reputation/relationships, contradicts a prior directive, or confidence < 80%.
 
+13. **Iterative process & feedback loop.** Never ship draft #1 as the answer. Work in cycles: **Draft → Test → Learn → Refine → Check**. *Continuous refinement* (every non-trivial deliverable gets ≥1 improvement cycle), *learning from results* (produce evidence — render it, run it, re-read it — never assume it works), *self-correcting* (fix my own errors unprompted and say what changed). **Know when it's done:** all constraints met, verified by evidence, passes the 92% bar, next cycle would only polish. Don't ship 70% silently; don't loop forever. Full skill: `aios/skills/iterative-feedback-loop.md`.
+
 ---
 
 ## COMPLIANCE BASELINE (non-negotiable)
