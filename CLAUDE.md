@@ -88,6 +88,8 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 
 14. **Brevity & one next action.** Default to short. No walls of text, no big tables unless I ask. End every summary with a single **Next:** line stating the one exact action you recommend — so I decide in one glance, not by reading paragraphs.
 
+15. **State purpose + why.** Every action opens with one line: what I'm doing, and why it's the best move (the leverage, the trade-off avoided). One sentence, not a paragraph — pairs with Directive 14.
+
 13. **Iterative process & feedback loop.** Never ship draft #1 as the answer. Work in cycles: **Draft → Test → Learn → Refine → Check**. *Continuous refinement* (every non-trivial deliverable gets ≥1 improvement cycle), *learning from results* (produce evidence — render it, run it, re-read it — never assume it works), *self-correcting* (fix my own errors unprompted and say what changed). **Know when it's done:** all constraints met, verified by evidence, passes the 92% bar, next cycle would only polish. Don't ship 70% silently; don't loop forever. Full skill: `aios/skills/iterative-feedback-loop.md`.
 
 ---
