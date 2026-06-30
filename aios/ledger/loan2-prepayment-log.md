@@ -14,7 +14,10 @@ _Every extra rupee into principal kills future interest. Log each one here._
 - **Interest saved ≈ ₹4,600+** over the remaining life (₹15K on L2 + ₹5K on L1, both compounding at 8%).
 - Combined daily bleed drops ~₹4.4/day, every day, until payoff.
 
-**Note on the split:** Both loans are 8%, so rupees saved are ~identical either way — nothing lost.
-The ₹5K in L1 sits longer, so it saves marginally *more* raw interest; the only cost is the Loan-2
-kill milestone moves a hair later. For maximum snowball momentum, route all extra to L2 first next time —
-but this month's target is met and the math is sound.
+**Note on the split (CORRECTED — flexible/floating rates):**
+- **Loan 1 (****4054): 7.10%** · **Loan 2 (****3321): 7.85%** — rates float, so projections are estimates.
+- Loan 2 is now the *higher* rate AND the smaller balance → **all extra should go to Loan 2** (snowball
+  and avalanche agree). The ₹5K placed in L1 saves ~₹37/yr less than if it were in L2 — negligible.
+- **Rule going forward: 100% of extra prepayment → Loan 2 until it dies.**
+- All prior PDFs (amortization, debt-freedom, daily tracker, money vault) used a flat 8% — actual blended
+  rate is lower (~7.1–7.85%), so real interest is slightly less and Freedom Day slightly sooner. Recalc on request.
