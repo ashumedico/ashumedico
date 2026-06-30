@@ -11,7 +11,8 @@ import calendar, os
 
 # ── CONFIG ──
 L1_BAL, L2_BAL = 1_48_00_000, 21_60_000
-L1_RATE = L2_RATE = 0.08
+L1_RATE = 0.071
+L2_RATE = 0.0785
 L1_BASE, L2_BASE = 1_20_000, 20_000
 FLEX = 20_000
 BONUS = 5_50_000
@@ -62,7 +63,7 @@ l2_dead_m = None
 for m in range(1, 400):
     dt = add_months(START, m-1)
     bal_start = l1 + l2
-    daily = bal_start * 0.08 / 365            # blended daily interest this month
+    daily = (l1*L1_RATE + l2*L2_RATE) / 365   # blended daily interest this month
     i1, i2 = l1*L1_RATE/12, l2*L2_RATE/12
     bonus = BONUS if (dt.month == BONUS_MONTH and m > 1) else 0
     sp = 0

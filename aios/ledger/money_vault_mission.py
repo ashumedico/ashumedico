@@ -10,7 +10,8 @@ import math, os
 
 # ── CONFIG ──
 L1_BAL, L2_BAL = 1_48_00_000, 21_60_000
-L1_RATE = L2_RATE = 0.08
+L1_RATE = 0.071
+L2_RATE = 0.0785
 L1_BASE, L2_BASE = 1_20_000, 20_000
 FLEX = 20_000              # extra into L2
 BONUS = 5_50_000

@@ -16,8 +16,8 @@ from datetime import datetime
 # ── CONFIG ──
 L1_BAL = 1_48_00_000
 L2_BAL = 21_60_000
-L1_RATE = 0.08
-L2_RATE = 0.08
+L1_RATE = 0.071
+L2_RATE = 0.0785
 L1_BASE = 1_20_000
 L2_BASE = 20_000
 TOTAL = 1_60_000
