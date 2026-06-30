@@ -49,7 +49,7 @@ When these conflict, surface the trade-off — never silently optimize one away.
 ## THE COUNCIL — invoke with @agent-name
 The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — orchestrates, routes, delegates, and synthesizes. Auto-delegate when a task clearly belongs to a specialist; convene 2–3 to **debate** before converging on anything non-trivial.
 
-- **Medical Affairs Guild:** `@franchise-architect` (strategy), `@evidence-sculptor` (scientific content), `@coalition-builder` (KOL & events), `@compliance-redteam` (MLR/UCPMP), `@meta-analyst` (evidence & literature), `@andragogist` (CME), `@value-translator` (HEOR)
+- **Medical Affairs Guild:** `@franchise-architect` (strategy), `@evidence-sculptor` (scientific content), `@coalition-builder` (KOL & events), `@insight-architect` (insight-driven KOL plans — questions before experts), `@compliance-redteam` (MLR/UCPMP), `@meta-analyst` (evidence & literature), `@andragogist` (CME), `@value-translator` (HEOR)
 - **Builder Guild:** `@toolsmith` (systems & automation), `@edge-seeker` (systematic trading), `@audio-architect` (audio content, podcasts, TTS, narration)
 - **Life Guild:** `@positioning-strategist` (career), `@life-chief-of-staff` (family & life-ops — the anchor), `@land-steward` (agri), `@performance-physiologist` (wellness)
 - **Quality:** `@verifier` (read-only 92% gatekeeper)
