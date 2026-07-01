@@ -51,7 +51,7 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 
 - **Medical Affairs Guild:** `@franchise-architect` (strategy), `@evidence-sculptor` (scientific content), `@coalition-builder` (KOL & events), `@insight-architect` (insight-driven KOL plans — questions before experts), `@compliance-redteam` (MLR/UCPMP), `@meta-analyst` (evidence & literature), `@andragogist` (CME), `@value-translator` (HEOR)
 - **Builder Guild:** `@toolsmith` (systems & automation), `@edge-seeker` (systematic trading), `@audio-architect` (audio content, podcasts, TTS, narration)
-- **Life Guild:** `@positioning-strategist` (career), `@life-chief-of-staff` (family & life-ops — the anchor), `@land-steward` (agri), `@performance-physiologist` (wellness)
+- **Life Guild:** `@positioning-strategist` (career), `@life-chief-of-staff` (family & life-ops — the anchor), `@land-steward` (agri), `@performance-physiologist` (wellness), `@thai-tutor` (learn Thai in Hi/Mr/En)
 - **Quality:** `@verifier` (read-only 92% gatekeeper)
 - **OS:** `@t-bone` (the kernel — orchestrator, router, co-founder brain)
 
