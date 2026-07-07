@@ -135,6 +135,57 @@ r=block(r,'SAVINGS OPPORTUNITY (per year)',GOLD,[
 ])
 s3.column_dimensions['A'].width=100
 
+# ═══ SHEET 4: ACTUAL Card Spends (from CRED/bank emails) ═══
+s4=wb.create_sheet('ACTUAL Card Spends')
+s4['A1']='ACTUAL CREDIT-CARD BILLS (total due) — from your Gmail'; s4['A1'].font=Font(bold=True,size=14,color=NAVY)
+s4['A2']='This is your REAL spending — none of it was in the planned expense sheet.'; s4['A2'].font=Font(italic=True,color=RED)
+chead=['Card','Apr','May','Jun','Min due (Jun)','Flag']
+for j,h in enumerate(chead,1): hdr(s4.cell(row=4,column=j,value=h))
+cards=[
+ ('YES Bank •2154',None,52257,135972,2719,'REVOLVING? min due tiny vs 1.36L — check for interest/EMI'),
+ ('ICICI •8007',None,5880,24531,1800,''),
+ ('HDFC •5379',None,9593,20002,7424,'part revolving? min due high'),
+ ('YES Bank •9377',None,6479,16378,328,''),
+ ('RBL •2579',4326,25059,2321,215,''),
+ ('SBI •4290',None,2427,4150,220,''),
+ ('SBI •1306',None,5783,2638,200,''),
+ ('HSBC •9873',None,5672,None,None,'Jun amount in PDF — verify'),
+ ('Axis •1173',None,8403,None,None,''),
+ ('SBI PULSE •90',None,None,None,None,'amount in PDF attachment'),
+ ('StanChart',None,None,None,None,'amount in PDF attachment'),
+]
+r=5
+for name,apr,may,jun,mind,flag in cards:
+    s4.cell(row=r,column=1,value=name); norm(s4.cell(row=r,column=1))
+    for j,v in [(2,apr),(3,may),(4,jun),(5,mind)]:
+        c=s4.cell(row=r,column=j,value=v if v is not None else '-'); norm(c)
+        if isinstance(v,(int,float)): c.number_format='#,##0'
+    s4.cell(row=r,column=6,value=flag); s4.cell(row=r,column=6).font=Font(color=RED,bold=bool(flag))
+    if 'REVOLVING' in flag:
+        for j in range(1,7): s4.cell(row=r,column=j).fill=fill(LRED)
+    elif r%2==0:
+        for j in range(1,7): s4.cell(row=r,column=j).fill=fill(LGREY)
+    r+=1
+s4.cell(row=r,column=1,value='VISIBLE TOTAL'); bold(s4.cell(row=r,column=1),RED)
+for j,mo in [(3,'may'),(4,'jun')]:
+    tot=sum(x[{'may':2,'jun':3}[mo]] for x in cards if x[{'may':2,'jun':3}[mo]] is not None)
+    c=s4.cell(row=r,column=j,value=tot); bold(c,RED); c.number_format='#,##0'; c.fill=fill(CREAM)
+r+=2
+for line in [
+ 'THE REAL FINDING:',
+ '• Your true spend runs Rs 1.2L-2L/month on 8+ cards — invisible in the planned sheet.',
+ '• YES Bank 2154: Rs 52k (May) -> Rs 1.36L (Jun), min due only Rs 2,719 = likely REVOLVING at ~40% APR.',
+ '• Credit-card interest at 40% dwarfs the 7.1% you save by prepaying the home loan.',
+ '• FIX ORDER: (1) clear/transfer any revolving card balance FIRST, (2) then home-loan prepay, (3) then invest.',
+ '• Close unused cards (you have 8+) to stop annual-fee + overspend leakage.',
+]:
+    c=s4.cell(row=r,column=1,value=line)
+    c.font=Font(bold=line.endswith(':'),color=RED if line.endswith(':') else '1f2937')
+    s4.merge_cells(start_row=r,start_column=1,end_row=r,end_column=6); r+=1
+s4.column_dimensions['A'].width=18
+for col in 'BCDE': s4.column_dimensions[col].width=12
+s4.column_dimensions['F'].width=48
+
 os.makedirs(os.path.dirname(OUT),exist_ok=True)
 wb.save(OUT)
 print('Saved:',OUT)
