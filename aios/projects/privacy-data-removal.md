@@ -51,11 +51,16 @@ Regards,
 Aashishsingh Anilkumar Rajput
 ```
 
-## PROMPT 3 — SUBMISSION (honest capability boundary)
-I **cannot auto-submit** these forms — this environment has no live browser/Cowork automation tool.
-What I CAN do is above: click-ready opt-out links + the exact request text + which need email verification.
-- **Needs email verification → check inbox `ashumedico@gmail.com`:** RocketReach, ZoomInfo, ContactOut.
-- Execute either yourself (10 min) OR in a Cowork/browser-enabled session; mark each row done/skipped here.
+## PROMPT 3 — SUBMISSION (automated as far as this environment allows)
+**7 send-ready removal emails have been drafted in your Gmail** (ashumedico@gmail.com → Drafts).
+Open each and click **Send** — that's the whole job:
+- privacy@rocketreach.co · privacy@zoominfo.com · privacy@apollo.io · privacy@lusha.com ·
+  privacy@theorg.com · compliance@contactout.com · support@signalhire.com
+
+**Honest limits:** I cannot click **Send** (Gmail here allows draft-only) and cannot fill CAPTCHA web
+forms (bot-blocked). If any address bounces, use the site's web opt-out form instead. Sites that ALSO
+need a web form + email verification (check inbox): RocketReach, ZoomInfo, ContactOut.
+Mark each row done/skipped as replies confirm.
 
 ## PROMPT 4 — KEEP ME GONE
 Weekly recheck scheduled (see cron). Each run: re-search the 8 sites, re-submit any ignored request,
