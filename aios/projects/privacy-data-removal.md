@@ -11,14 +11,14 @@ _Started 2026-07-10 · Details: Aashishsingh Anilkumar Rajput · Navi Mumbai, Ma
 
 | # | Site | Status | What it shows | Opt-out link | Next step | Row status |
 |---|---|---|---|---|---|---|
-| 1 | **RocketReach** | [CONFIRMED] | Name, Ferring role, **email + phone** | rocketreach.co/privacy → "Opt Out / Claim" | Submit removal + verify email | needs-me |
-| 2 | **The Org** | [CONFIRMED] | Name, title, org chart | theorg.com → profile → "Remove/claim" or privacy@theorg.com | Email removal request | needs-me |
-| 3 | **ResearchGate** | [CONFIRMED] | Academic profile | Account settings → deactivate/private, or support | Make private if unwanted | needs-me |
-| 4 | **ZoomInfo** | [LIKELY] | Name, title, contact | zoominfo.com/about-zoominfo/privacy-center (remove) | Submit removal | needs-me |
-| 5 | **Apollo.io** | [LIKELY] | Contact data | apollo.io/opt-out (or privacy@apollo.io) | Submit removal | needs-me |
-| 6 | **Lusha** | [LIKELY] | Contact | lusha.com/opt-out | Submit removal | needs-me |
-| 7 | **SignalHire** | [LIKELY] | Contact | signalhire.com/privacy-policy → remove | Submit removal | needs-me |
-| 8 | **ContactOut** | [LIKELY] | Email | contactout.com/opt-out | Submit removal | needs-me |
+| 1 | **RocketReach** | [CONFIRMED] | Name, Ferring role, **email + phone** | rocketreach.co/privacy → "Opt Out / Claim" | Await reply; may need web form + email verify | SENT 2026-07-10 |
+| 2 | **The Org** | [CONFIRMED] | Name, title, org chart | privacy@theorg.com | Await reply | SENT 2026-07-10 |
+| 3 | **ResearchGate** | [CONFIRMED] | Academic profile | Account settings → deactivate/private | Make private if unwanted (self-serve) | needs-me |
+| 4 | **ZoomInfo** | [LIKELY] | Name, title, contact | zoominfo.com/.../privacy-center | Await reply; may need web form + verify | SENT 2026-07-10 |
+| 5 | **Apollo.io** | [LIKELY] | Contact data | privacy@apollo.io | Await reply | SENT 2026-07-10 |
+| 6 | **Lusha** | [LIKELY] | Contact | privacy@lusha.com | Await reply | SENT 2026-07-10 |
+| 7 | **SignalHire** | [LIKELY] | Contact | support@signalhire.com | Await reply | SENT 2026-07-10 |
+| 8 | **ContactOut** | [LIKELY] | Email | compliance@contactout.com | Await reply; may need email verify | SENT 2026-07-10 |
 | — | Spokeo / BeenVerified / WhitePages / Radaris | [CLEAR] | nothing (India resident) | — | none | done |
 
 ## PROMPT 2 — THE REMOVAL REQUEST (one template, consistent details)
