@@ -1,26 +1,30 @@
 """
-Copy this file to  config.py  and fill in your Fyers app credentials.
+Copy this file to  config.py  and fill in your details.
 config.py is git-ignored so your keys never get committed.
-
-Get these from https://myapi.fyers.in/dashboard/  ->  Create App.
+Get API keys from  https://myapi.fyers.in/dashboard/  ->  Create App.
 """
 
 # --- Fyers API credentials ---
 CLIENT_ID    = "XXXXXXX-100"          # App ID, e.g. "ABCD1234-100"
 SECRET_KEY   = "XXXXXXXXXX"           # App secret
-REDIRECT_URI = "https://127.0.0.1"    # must match what you set in the Fyers app
+REDIRECT_URI = "https://127.0.0.1"    # must match the Fyers app setting
 
-# --- Scanner settings ---
-# The F&O underlyings to scan (futures OI-change buildup).
+# --- Universe: use F&O FUTURES symbols (cash -EQ has NO open interest) ---
+# Format: NSE:<UNDERLYING><YY><MON>FUT   e.g. NSE:RELIANCE25JULFUT
 UNIVERSE = [
-    "NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX",
-    "NSE:RELIANCE-EQ", "NSE:HDFCBANK-EQ", "NSE:ICICIBANK-EQ",
-    "NSE:INFY-EQ", "NSE:TCS-EQ", "NSE:SBIN-EQ", "NSE:TATAMOTORS-EQ",
-    "NSE:AXISBANK-EQ", "NSE:LT-EQ", "NSE:BHARTIARTL-EQ",
+    "NSE:NIFTY25JULFUT", "NSE:BANKNIFTY25JULFUT",
+    "NSE:RELIANCE25JULFUT", "NSE:HDFCBANK25JULFUT", "NSE:ICICIBANK25JULFUT",
+    "NSE:INFY25JULFUT", "NSE:TCS25JULFUT", "NSE:SBIN25JULFUT",
+    "NSE:TATAMOTORS25JULFUT", "NSE:AXISBANK25JULFUT", "NSE:LT25JULFUT",
 ]
 
-MIN_OI_CHANGE_PCT = 5.0     # only surface names whose OI moved at least this %
-TOP_N             = 15      # show top N by absolute OI change
-POLL_SECONDS      = 300     # re-scan every 5 min when run with --loop
+# --- Scanner settings ---
+MIN_OI_CHANGE_PCT = 5.0     # surface names whose OI moved >= this % since day-open
+TOP_N             = 15
+POLL_SECONDS      = 300     # re-scan every 5 min in --loop
 TOKEN_FILE        = "access_token.txt"
-SNAPSHOT_FILE     = "oi_snapshot.json"
+BASELINE_FILE     = "oi_baseline.json"
+
+# --- Optional Telegram alerts (leave blank to disable) ---
+TELEGRAM_TOKEN = ""         # from @BotFather
+TELEGRAM_CHAT  = ""         # your chat id (from @userinfobot)

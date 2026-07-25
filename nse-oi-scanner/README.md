@@ -1,13 +1,12 @@
-# NSE F&O OI-Change Options Scanner (Fyers)
+# NSE F&O OI-Change Options Scanner (Fyers) — v2
 
-Rebuilt & version-controlled copy of the scanner that used to live only on your PC at
-`C:\claude\`. Now it's in git — backed up, diff-able, and improvable.
+Version-controlled, hardened rebuild of the scanner that used to live only on your PC at
+`C:\claude\`. Now in git: backed up, diff-able, improvable.
 
-> **Not financial advice.** Signals are inputs; every trade decision is yours (per `@edge-seeker`).
+> **Not financial advice.** Signals are inputs; every trade decision is yours (`@edge-seeker`).
 
-## What it does
-Polls the Fyers API for LTP + open interest on your F&O universe and classifies each name
-by the price × OI matrix:
+## The signal engine
+Price × open-interest matrix, measured **from the day's opening OI** (real intraday buildup):
 
 | Price | OI | Signal |
 |---|---|---|
@@ -16,38 +15,48 @@ by the price × OI matrix:
 | ↑ | ↓ | **Short Covering** (bullish) |
 | ↓ | ↓ | **Long Unwinding** (bearish) |
 
-Each scan is compared to the previous snapshot to compute OI-change %, filtered by
-`MIN_OI_CHANGE_PCT`, ranked, and printed. Last scan becomes the next baseline.
+## What v2 fixed (critical review of the first rebuild)
+1. **OI baseline** — now vs **day-open OI**, not vs the last 5-min poll (which was noise).
+2. **Futures symbols** — cash `-EQ` has no OI; the universe now uses `...FUT` symbols.
+3. **Market-hours guard** — only scans 09:15–15:30 IST, Mon–Fri (override with `--force`).
+4. **Token expiry** — a Fyers auth error is caught and tells you to re-login instead of crashing.
+5. **Retries + backoff** on every API call.
+6. **History + logging** — `scanner.log` + a daily `signals_YYYYMMDD.csv`.
+7. **Optional Telegram alerts** on strong buildups (`alerts.py`, config-gated).
 
 ## Setup
 ```bash
 pip install -r requirements.txt
-copy config.example.py config.py     # then fill in your Fyers keys
+copy config.example.py config.py     # add Fyers keys + your FUT universe
 ```
 
-## Daily use (maps to your two shortcuts)
-| Old shortcut | Runs | Now |
-|---|---|---|
-| **Fyers_Login** | `run_login.bat` → `fyers_auth.py` | refresh daily token |
-| **NSE_Options_Scanner** | `run_scanner.bat` → `scanner.py --loop` | live scan every 5 min |
+## Desktop icons (Windows)
+Double-click **`install.bat`** once → it drops 3 icons on your Desktop:
+- **NSE OI Scanner** → `run_scanner.bat` (console, live loop)
+- **Fyers Login** → `run_login.bat` (daily token)
+- **OI Scanner Board** → `run_dashboard.bat` (Streamlit → localhost:8501)
 
+## Run
 ```bash
-python fyers_auth.py       # each morning: get today's access token
-python scanner.py          # one scan
-python scanner.py --loop   # continuous (every POLL_SECONDS)
-python scanner.py --dry-run  # test the pipeline with no Fyers/creds/market
+python fyers_auth.py         # each morning: today's token
+python scanner.py            # one scan
+python scanner.py --loop     # continuous (every POLL_SECONDS)
+python scanner.py --dry-run  # synthetic data, no Fyers needed
+streamlit run app.py         # dashboard at http://localhost:8501
 ```
 
 ## Files
-- `fyers_auth.py` — daily token refresh (= `run_login.bat`)
-- `scanner.py` — the OI-change scanner (= `run_scanner.bat`)
-- `config.example.py` — copy to `config.py`, add keys (git-ignored)
-- `run_login.bat` / `run_scanner.bat` — Windows launchers your shortcuts point to
+| File | Role |
+|---|---|
+| `scanner.py` | hardened OI-change scanner (console) |
+| `app.py` | Streamlit dashboard (localhost:8501) |
+| `fyers_auth.py` | daily Fyers token refresh |
+| `alerts.py` | optional Telegram push |
+| `config.example.py` | copy → `config.py` (git-ignored) |
+| `install.bat` / `create_desktop_shortcuts.ps1` | desktop icons |
+| `run_*.bat` | Windows launchers your shortcuts point to |
 
-## Reconcile with your original
-This is rebuilt from what the shortcuts revealed (Fyers + NSE F&O OI-change), **not** a
-copy of your exact logic. Check these against your real version and tell me the deltas:
-- your exact **universe** (which F&O symbols)
-- your **OI-change threshold** and any RVOL / price filters
-- whether you scanned **futures OI** or **option-chain (strike-wise) OI / PCR**
-- any **alerting** (Telegram/webhook/sound) the original had
+## Reconcile with your original (still worth doing)
+Rebuilt from what the shortcuts revealed, not a byte-copy. Tell me and I'll merge:
+your exact **universe**, **thresholds**, **futures vs option-chain (strike-wise) OI / PCR**,
+and any **alerting** the original had.

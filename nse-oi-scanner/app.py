@@ -38,14 +38,19 @@ with st.sidebar:
 
 scanner.config.MIN_OI_CHANGE_PCT = min_oi
 
-# run one scan (dry uses synthetic; live compares to last snapshot)
+# run one scan (dry uses synthetic; live compares to the day-open OI baseline)
 if dry:
     prev, curr = scanner.fetch_dry()
 else:
     try:
-        prev, curr = scanner.load_snapshot(), scanner.fetch_live()
-    except SystemExit as e:
+        curr = scanner.fetch_live()
+        prev = scanner.load_baseline()
+        if prev is None:          # first scan of the day -> set reference
+            scanner.save_baseline(curr); prev = curr
+    except scanner.AuthError as e:
         st.error(str(e)); st.stop()
+    except Exception as e:        # noqa
+        st.error(f"Fyers error: {e}"); st.stop()
 
 rows = []
 for sym, now in curr.items():
@@ -59,8 +64,6 @@ for sym, now in curr.items():
     rows.append({"Symbol": sym.split(":")[-1], "Price %": round(px_chg, 2),
                  "OI %": round(oi_chg, 2), "Signal": scanner.classify(px_chg, oi_chg)})
 rows.sort(key=lambda r: abs(r["OI %"]), reverse=True)
-if not dry:
-    scanner.save_snapshot(curr)
 
 # summary tiles
 c1, c2, c3, c4 = st.columns(4)
