@@ -24,6 +24,13 @@ TOP_N             = 15
 POLL_SECONDS      = 300     # re-scan every 5 min in --loop
 TOKEN_FILE        = "access_token.txt"
 BASELINE_FILE     = "oi_baseline.json"
+OC_STRIKES        = 10      # option-chain: strikes each side of ATM
+
+# --- F&O ban list (>= 95% MWPL): no fresh positions allowed, so we skip them.
+# Update daily from NSE (https://www.nseindia.com -> Securities in F&O Ban).
+BAN_LIST = [
+    # "IDEA", "RBLBANK",     # examples — put today's banned underlyings here
+]
 
 # --- Optional Telegram alerts (leave blank to disable) ---
 TELEGRAM_TOKEN = ""         # from @BotFather

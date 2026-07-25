@@ -31,7 +31,7 @@ except ImportError:
                     "NSE:INFY25JULFUT", "NSE:SBIN25JULFUT", "NSE:TATAMOTORS25JULFUT"]
         MIN_OI_CHANGE_PCT = 5.0; TOP_N = 15; POLL_SECONDS = 300
         TOKEN_FILE = "access_token.txt"; BASELINE_FILE = "oi_baseline.json"
-        TELEGRAM_TOKEN = TELEGRAM_CHAT = ""
+        TELEGRAM_TOKEN = TELEGRAM_CHAT = ""; BAN_LIST = []; OC_STRIKES = 10
     config = _C()
 
 logging.basicConfig(
@@ -113,7 +113,8 @@ def fetch_live():
         r = _with_retry(call)
         for d in r.get("d", []):
             v = d.get("v", {})
-            out[d.get("n")] = {"ltp": v.get("lp", 0), "oi": v.get("oi", 0)}
+            out[d.get("n")] = {"ltp": v.get("lp", 0), "oi": v.get("oi", 0),
+                               "vol": v.get("volume", 0)}
     if not any(x["oi"] for x in out.values()):
         log.warning("All OI values are 0 — are your UNIVERSE symbols FUTURES (not -EQ)?")
     return out
@@ -124,15 +125,21 @@ def fetch_dry():
     for i, s in enumerate(config.UNIVERSE):
         bp, boi = 100 + i * 10, 100000 + i * 5000
         pc, oc = rnd[i % len(rnd)]
-        prev[s] = {"ltp": bp, "oi": boi}
-        curr[s] = {"ltp": round(bp * (1 + pc / 100), 2), "oi": int(boi * (1 + oc / 100))}
+        prev[s] = {"ltp": bp, "oi": boi, "vol": 500000}
+        curr[s] = {"ltp": round(bp * (1 + pc / 100), 2), "oi": int(boi * (1 + oc / 100)),
+                   "vol": int(500000 * (1 + oc / 50))}
     return prev, curr
 
 
 # ---------- scan ----------
 def build_rows(baseline, curr, min_oi):
+    ban = set(getattr(config, "BAN_LIST", []))
     rows = []
     for sym, now in curr.items():
+        short = sym.split(":")[-1]
+        underlying = short.split("2")[0]              # RELIANCE25JULFUT -> RELIANCE
+        if underlying in ban or short in ban:
+            continue                                   # F&O ban: no fresh positions allowed
         base = baseline.get(sym)
         if not base or not base.get("oi"):
             continue
@@ -140,8 +147,11 @@ def build_rows(baseline, curr, min_oi):
         px_chg = (now["ltp"] - base["ltp"]) / base["ltp"] * 100 if base["ltp"] else 0
         if abs(oi_chg) < min_oi:
             continue
-        rows.append({"sym": sym.split(":")[-1], "px": round(px_chg, 2),
-                     "oi": round(oi_chg, 2), "signal": classify(px_chg, oi_chg)})
+        vol = now.get("vol", 0)
+        # volume confirmation: buildup with rising volume is stronger
+        confirmed = "yes" if vol and vol > base.get("vol", 0) else "check"
+        rows.append({"sym": short, "px": round(px_chg, 2), "oi": round(oi_chg, 2),
+                     "signal": classify(px_chg, oi_chg), "vol": vol, "conf": confirmed})
     rows.sort(key=lambda r: abs(r["oi"]), reverse=True)
     return rows[:config.TOP_N]
 
@@ -151,10 +161,10 @@ def write_csv(rows):
     with open(fn, "a", newline="") as f:
         w = csv.writer(f)
         if new:
-            w.writerow(["time", "symbol", "price_pct", "oi_pct", "signal"])
+            w.writerow(["time", "symbol", "price_pct", "oi_pct", "vol_confirm", "signal"])
         ts = now_ist().strftime("%H:%M:%S")
         for r in rows:
-            w.writerow([ts, r["sym"], r["px"], r["oi"], r["signal"]])
+            w.writerow([ts, r["sym"], r["px"], r["oi"], r.get("conf", ""), r["signal"]])
 
 def render(rows, dry):
     ts = now_ist().strftime("%Y-%m-%d %H:%M:%S")
@@ -163,10 +173,10 @@ def render(rows, dry):
     if not rows:
         print(f"  No names crossed the OI-change threshold (>= {config.MIN_OI_CHANGE_PCT}%).")
     else:
-        print(f"  {'SYMBOL':<16}{'PRICE%':>8}{'OI%':>8}   SIGNAL")
+        print(f"  {'SYMBOL':<16}{'PRICE%':>8}{'OI%':>8}  {'VOL✓':<6} SIGNAL")
         print("  " + "-" * 60)
         for r in rows:
-            print(f"  {r['sym']:<16}{r['px']:>+7.1f}%{r['oi']:>+7.1f}%   {r['signal']}")
+            print(f"  {r['sym']:<16}{r['px']:>+7.1f}%{r['oi']:>+7.1f}%  {r.get('conf','?'):<6} {r['signal']}")
     print("  " + "-" * 60)
 
 def scan(dry=False, min_oi=None):

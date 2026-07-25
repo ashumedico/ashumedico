@@ -86,6 +86,27 @@ if rows:
 else:
     st.info(f"No names crossed the {min_oi:.1f}% OI-change threshold.")
 
+# ---------------- Option chain (the piece futures-only was missing) ----------------
+st.divider()
+st.markdown("### 🔗 Option chain — PCR · Max Pain · walls")
+import option_chain as oc
+default_u = "NSE:NIFTY50-INDEX"
+u = st.text_input("Underlying", default_u, help="Any F&O underlying, e.g. NSE:RELIANCE-EQ")
+try:
+    ch, spot = oc.fetch_dry(u) if dry else oc.fetch_live(u)
+    m = oc.analyse(ch, spot)
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("Spot", m["spot"])
+    b2.metric("PCR", m["pcr"], m["bias"].split(" ")[0])
+    b3.metric("Max Pain", m["max_pain"])
+    b4.metric("Support → Resist", f'{m["support"]} → {m["resistance"]}')
+    if m["call_writing"]:
+        st.markdown(f"🔴 **Call writing** at `{m['call_writing']['strike']}` (+{m['call_writing']['oi_chg']:,} OI) — resistance building")
+    if m["put_writing"]:
+        st.markdown(f"🟢 **Put writing** at `{m['put_writing']['strike']}` (+{m['put_writing']['oi_chg']:,} OI) — support building")
+except Exception as e:  # noqa
+    st.info(f"Option chain unavailable: {e}")
+
 if auto and not dry:
     time.sleep(every)
     st.rerun()

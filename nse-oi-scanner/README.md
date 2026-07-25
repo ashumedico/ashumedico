@@ -56,6 +56,15 @@ streamlit run app.py         # dashboard at http://localhost:8501
 | `install.bat` / `create_desktop_shortcuts.ps1` | desktop icons |
 | `run_*.bat` | Windows launchers your shortcuts point to |
 
+## v2.1 — the derivatives picture completed
+Added the pieces a futures-only scanner was missing:
+- **`option_chain.py`** — PCR, **Max Pain**, Support/Resistance walls, **call/put-writing** detection,
+  strike-wise OI ladder. Wired into the dashboard. Run: `python option_chain.py --dry-run`.
+- **Volume confirmation** — buildup rows now flag `VOL✓` (OI up *with* rising volume = stronger).
+- **F&O ban-list filter** — `BAN_LIST` in config; banned underlyings are skipped (no fresh positions allowed).
+
+Still on the roadmap (say the word): rollover %, relative-strength vs sector, participant-wise (FII/DII) OI.
+
 ## Reconcile with your original (still worth doing)
 Rebuilt from what the shortcuts revealed, not a byte-copy. Tell me and I'll merge:
 your exact **universe**, **thresholds**, **futures vs option-chain (strike-wise) OI / PCR**,
