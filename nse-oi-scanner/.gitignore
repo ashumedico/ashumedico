@@ -4,7 +4,9 @@ oi_snapshot.json
 oi_baseline.json
 scanner.log
 signals_*.csv
-# runtime-generated dashboard charts (the 4 demo charts ARE committed on purpose)
+# runtime-generated output (the 4 demo charts ARE committed on purpose)
 charts/dash_*.png
+charts/rep_*.png
+report.html
 __pycache__/
 *.pyc

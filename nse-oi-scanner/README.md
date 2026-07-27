@@ -93,8 +93,19 @@ python rrg.py --dry-run             # writes charts/rrg.png + the 2x2 table
 python rrg.py                       # live (Fyers token + UNIVERSE)
 ```
 
-Both are also wired into the **dashboard** (`app.py`) and the new **Trade Signals + RRG**
-desktop icon (`run_signals.bat`).
+Both are also wired into the **dashboard** (`app.py`).
+
+### Everything in one webpage (`report.py`)
+One self-contained HTML page — no server, no internet — with the OI buildup table, option-chain
+context, all **three ideas + their charts**, and the **RRG**. Charts are embedded, so it's a single
+file you can open by double-click or email to yourself.
+
+```bash
+python report.py --dry-run          # demo -> report.html (opens in your browser)
+python report.py                    # live (needs Fyers token)
+```
+
+The **Signal Desk (1 page)** desktop icon (`run_signals.bat`) builds and opens this page for you.
 
 ## v2.1 — the derivatives picture completed
 Added the pieces a futures-only scanner was missing:
