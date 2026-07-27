@@ -8,5 +8,8 @@ signals_*.csv
 charts/dash_*.png
 charts/rep_*.png
 report.html
+paper_book.json
+STOP_TRADING.txt
+fno_symbols.txt
 __pycache__/
 *.pyc

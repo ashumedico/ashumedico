@@ -26,11 +26,16 @@ stress-test any idea before it counts as done.
 | 2 | **Scan** | Buildup matrix from day-open OI; RRG rotation vs NIFTY × OI overlay | `scanner.py`, `rrg.py` | candidate names, leaders/laggards |
 | 3 | **Signal** | Score each candidate across 5 setup archetypes + 3-layer confluence | `signal_engine.py`, `chart_action.py` | scored setups (0–100) |
 | 4 | **Trade Plan** | Entry · Target · Stop · Invalidation + R:R + direction/TF/confidence | `signal_engine.py`, `charts.py` | 1 CE + 1 PE + 1 Future, annotated |
-| 5 | **Risk** | Hard gate: size · exposure · drawdown · volatility · max-loss → PASS/BLOCK | `references/risk-gate.md` | approved size or BLOCK |
-| 6 | **Monitor** | One-page desk + alerts; re-run on cadence; invalidate when level breached | `report.py`, `app.py`, `alerts.py` | live desk, updated state |
+| 5 | **Risk** | Hard gate: size · exposure · drawdown · volatility · max-loss → PASS/BLOCK | `risk_gate.py` (+ `references/risk-gate.md`) | approved size or BLOCK |
+| 6 | **Execute + Monitor** | Paper/live orders (Fyers), manage exits, one-page desk, auto-halt | `execution.py`, `auto_trader.py`, `report.py`, `alerts.py` | fills, blotter, live desk |
 
 **One command runs the whole desk:** `python report.py --dry-run` (demo) or `python report.py`
 (live) → the one-page HTML with buildup, option chain, the 3 ideas + charts, and the RRG.
+
+**Automated execution** (`auto_trader.py`): the same pipeline, hands-free — **paper by default,
+live only when armed.** A real order fires *only* if `LIVE_TRADING=True` **and** no kill-switch file
+**and** a valid token **and** the risk gate passed. Kill switch = create `STOP_TRADING.txt`. Never
+flip to live without a paper track record (Directive 12: pause on anything that touches money).
 
 ---
 

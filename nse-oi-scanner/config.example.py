@@ -37,3 +37,31 @@ BAN_LIST = [
 # --- Optional Telegram alerts (leave blank to disable) ---
 TELEGRAM_TOKEN = ""         # from @BotFather
 TELEGRAM_CHAT  = ""         # your chat id (from @userinfobot)
+
+# ============================================================
+# AUTO-TRADER  (paper by default — LIVE is your deliberate opt-in)
+# ============================================================
+LIVE_TRADING   = False      # <<< KEEP FALSE until you trust the paper record. True = REAL orders.
+CAPITAL        = 500000     # your trading capital (drives all sizing)
+PRODUCT_TYPE   = "INTRADAY" # Fyers product: INTRADAY / MARGIN / CNC
+MIN_CONFIDENCE = 60         # ignore setups below this confluence score
+
+# Risk caps (Conservative preset: 0.5% per trade, 2% daily stop)
+RISK_PCT       = 0.005      # risk per trade as a fraction of capital
+MAX_EXPOSURE   = 0.40       # max total capital deployed at once
+MAX_PER_NAME   = 0.15       # max in any one underlying
+DAY_DD         = 0.02       # daily drawdown auto-halt (flatten + stand down)
+WEEK_DD        = 0.06
+MAX_LOSS       = 5000       # hard worst-case rupee cap per trade
+
+# Instrument modelling
+DEFAULT_LOT      = 50       # fallback lot size; override per name in LOT_SIZES
+LOT_SIZES        = {}       # e.g. {"RELIANCE": 500, "HDFCBANK": 550, "NIFTY": 75}
+FUT_MARGIN_PCT   = 0.20     # futures margin as fraction of notional
+OPT_PREMIUM_PCT  = 0.012    # ATM premium proxy (~1.2% of spot) for paper sizing
+OPT_DELTA        = 0.5      # ATM delta for underlying->premium mapping
+
+# Session controls
+SQUAREOFF   = "15:15"                 # flatten all intraday positions at this IST time
+KILL_SWITCH = "STOP_TRADING.txt"      # create this file in the folder -> halt everything
+PAPER_BOOK  = "paper_book.json"       # simulated positions + P&L live here

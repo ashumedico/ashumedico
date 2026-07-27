@@ -118,6 +118,35 @@ python report.py                    # live (needs Fyers token)
 
 The **Signal Desk (1 page)** desktop icon (`run_signals.bat`) builds and opens this page for you.
 
+## v4.0 — the AUTO-TRADER (paper-first, Fyers-linked, risk-gated)
+A 24/7 automated engine that runs the whole pipeline and can place orders — **paper by
+default, live only when you deliberately arm it.**
+
+```
+SCAN → RISK GATE → EXECUTE → MANAGE → HALT
+```
+- **`risk_gate.py`** — the hard 5-check gate (position size · exposure · drawdown · volatility ·
+  max-loss). Sizes every trade from *risk per trade*; any fail → **BLOCK**. Conservative preset:
+  **0.5%/trade, 2% daily stop.**
+- **`execution.py`** — broker layer. **Paper** simulates fills into `paper_book.json` and marks P&L.
+  **Live** calls the Fyers order API — but a real order fires *only* if **all** are true:
+  `LIVE_TRADING=True` · no kill-switch file · valid token · risk gate passed.
+- **`auto_trader.py`** — the loop: scans signals, gates + sizes, executes (paper/live), manages
+  exits (target/stop/invalidation/square-off), and **auto-halts** on the daily drawdown limit.
+
+```bash
+python auto_trader.py --dry-run     # one full cycle on synthetic signals (safe demo)
+python auto_trader.py --paper --loop # continuous PAPER trading on live signals
+```
+
+**Kill switch:** create `STOP_TRADING.txt` in the folder (or double-click **STOP-TRADING.bat**) →
+everything halts. **Going live** is a deliberate 3-step act (see the header of `auto_trader.py`):
+paper-prove it → set `LIVE_TRADING=True` + real `CAPITAL`/caps in `config.py` → fresh Fyers token.
+Two new desktop icons: **Auto-Trader (PAPER)** and **STOP Trading**.
+
+> Paper P&L in `--dry-run` is a plumbing demo (assumes exits tag targets), not a backtest.
+> Real fills/P&L come from live Fyers data. **You arm live trading; you own the outcome.**
+
 ## v2.1 — the derivatives picture completed
 Added the pieces a futures-only scanner was missing:
 - **`option_chain.py`** — PCR, **Max Pain**, Support/Resistance walls, **call/put-writing** detection,

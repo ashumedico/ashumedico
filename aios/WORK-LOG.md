@@ -110,6 +110,19 @@ modelled on the **24/7 AI Trader · Fable 5** architecture (seb.ai) and fused wi
 - References: `setups.md` (archetype detection), `risk-gate.md` (position/exposure/drawdown/vol/max-loss).
 - Pairs with `@edge-seeker`. Verified against the built modules; not financial advice.
 
+### Auto-trader (paper-first, Fyers-linked) — `nse-oi-scanner/`
+`SCAN → RISK GATE → EXECUTE → MANAGE → HALT`, **paper by default, live only when armed.**
+| File | Role |
+|---|---|
+| `risk_gate.py` | 5-check hard gate; sizes from risk-per-trade (0.5%/trade, 2% daily stop); any fail → BLOCK |
+| `execution.py` | broker layer — paper book (`paper_book.json`) or gated live Fyers orders |
+| `auto_trader.py` | the loop: scan → gate → execute → manage exits → daily-drawdown auto-halt |
+| `STOP-TRADING.bat` | panic kill switch (creates `STOP_TRADING.txt` → halts everything) |
+- **Live gates (ALL required):** `LIVE_TRADING=True` · no kill-switch file · valid token · gate passed.
+- Config: conservative caps chosen with Aashish (0.5%/trade, 2% daily stop), both CE/PE + futures.
+- New desktop icons: **Auto-Trader (PAPER)**, **STOP Trading** (installer now drops 6 icons).
+- Verified end-to-end in `--dry-run` paper mode. **He arms live; he owns the outcome.**
+
 ---
 
 ## ⏰ AUTOMATIONS (session-limited crons, 7-day expiry)
