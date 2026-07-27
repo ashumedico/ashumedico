@@ -58,6 +58,11 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 ## Commands → `.claude/commands/`
 `/grillme` `/council` `/debate` `/skill` `/decide` `/triage` `/verify` `/ledger` `/router`
 
+## Trading OS → `.claude/skills/universal-trading/`
+`/universal-trading` — the **Fable-class 24/7 pipeline** (Research → Scan → Signal → Trade Plan →
+Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and
+option-chain analytics. Invoke for any market task; pairs with `@edge-seeker`. Not financial advice.
+
 ---
 
 ## STANDING DIRECTIVES

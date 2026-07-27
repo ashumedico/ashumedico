@@ -95,6 +95,23 @@ levels and justifies the trade. Plus an **RRG** (leading/lagging rotation vs NIF
 
 ---
 
+## 🧭 UNIVERSAL TRADING SKILL (Fable-class 24/7 OS)
+
+`/universal-trading` — `.claude/skills/universal-trading/` — one doctrine for every market task,
+modelled on the **24/7 AI Trader · Fable 5** architecture (seb.ai) and fused with your own stack:
+| Stage | Module | Output |
+|---|---|---|
+| Research | `fno_universe · scanner · option_chain` | universe + PCR/Max-Pain/walls bias |
+| Scan | `scanner · rrg` | OI buildup + RRG rotation (fresh longs/shorts) |
+| Signal | `signal_engine · chart_action` | 5 setup archetypes, 3-lens confluence score |
+| Trade Plan | `signal_engine · charts` | Entry · Target · Stop · Invalidation + R:R |
+| Risk | `references/risk-gate.md` | 5-check hard gate → PASS/BLOCK |
+| Monitor | `report · app · alerts` | one-page desk, cadence, invalidation |
+- References: `setups.md` (archetype detection), `risk-gate.md` (position/exposure/drawdown/vol/max-loss).
+- Pairs with `@edge-seeker`. Verified against the built modules; not financial advice.
+
+---
+
 ## ⏰ AUTOMATIONS (session-limited crons, 7-day expiry)
 
 - **10 PM daily expense check** — scans day's payments, asks about unclear ones, reconciles vs ₹1,063/day
