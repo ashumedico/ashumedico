@@ -84,13 +84,24 @@ python charts.py --dry-run          # writes charts/signal_{CE,PE,FUT}_*.png
 python signal_engine.py             # live (needs Fyers token)
 ```
 
-### RRG — Relative Rotation Graph (`rrg.py`)
-The StockCharts-style **2×2 rotation** of your F&O names vs NIFTY:
-**Leading · Weakening · Lagging · Improving** (RS-Ratio on X, RS-Momentum on Y), with tails.
+### RRG — Relative Rotation Graph (`rrg.py`) — **full F&O universe × OI buildup**
+The StockCharts-style **2×2 rotation** of **all ~214 F&O stocks** vs NIFTY
+(**Leading · Weakening · Lagging · Improving**), with a second layer the standard RRG
+doesn't have — **OI buildup overlaid on every dot**:
+
+- **Position** = price rotation (RS-Ratio x, RS-Momentum y)
+- **Marker** = fresh-money direction: **▲ solid** long buildup (fresh buying) · **▲ hollow**
+  short covering · **▼ solid** short buildup (fresh selling) · **▼ hollow** long unwinding
+- **Confluence picks** = where price and OI agree:
+  **Fresh longs** (Leading/Improving + long buildup) · **Fresh shorts** (Lagging/Weakening + short buildup)
+
+The universe is **self-updating** (`fno_universe.py` pulls the live Fyers symbol master, so
+new F&O inclusions appear automatically; a built-in fallback list keeps it working offline).
 
 ```bash
-python rrg.py --dry-run             # writes charts/rrg.png + the 2x2 table
-python rrg.py                       # live (Fyers token + UNIVERSE)
+python fno_universe.py              # refresh + count the F&O stock list
+python rrg.py --dry-run             # ~190-name synthetic universe -> charts/rrg.png
+python rrg.py --expiry 26JUL        # live: full universe + OI overlay (Fyers token)
 ```
 
 Both are also wired into the **dashboard** (`app.py`).

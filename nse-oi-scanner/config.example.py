@@ -26,6 +26,7 @@ TOKEN_FILE        = "access_token.txt"
 BASELINE_FILE     = "oi_baseline.json"
 OC_STRIKES        = 10      # option-chain: strikes each side of ATM
 RRG_BENCHMARK     = "NSE:NIFTY50-INDEX"   # relative-rotation benchmark
+FUT_EXPIRY        = "26JUL"                # current F&O expiry for the RRG OI overlay
 
 # --- F&O ban list (>= 95% MWPL): no fresh positions allowed, so we skip them.
 # Update daily from NSE (https://www.nseindia.com -> Securities in F&O Ban).

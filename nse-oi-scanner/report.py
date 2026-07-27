@@ -56,23 +56,30 @@ def gather(dry):
         p = ch.render_idea(idea, f"charts/rep_{key}.png")
         idea_imgs[key] = _b64(p)
 
-    # RRG
+    # RRG — full F&O universe + OI-buildup overlay
     try:
         if dry:
-            rp, rb = rrg.fetch_dry()
+            rpoints = rrg.dry_points_large()
         else:
-            rp, rb = rrg.fetch_prices_live(getattr(scanner.config, "UNIVERSE", []),
+            from fno_universe import fno_stocks
+            rp, rb = rrg.fetch_prices_live(fno_stocks(),
                                            getattr(scanner.config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX"))
-        rpoints = rrg.analyse(rp, rb) if rp else []
-        rgrid = rrg.table_2x2(rpoints) if rpoints else {}
+            buildup = {}
+            try:
+                buildup = rrg.fetch_buildup_live(getattr(scanner.config, "FUT_EXPIRY", None))
+            except Exception:
+                buildup = {}
+            rpoints = rrg.analyse(rp, rb, buildup) if rp else []
+        rcounts = {q: sum(1 for p in rpoints if p["quadrant"] == q) for q in rrg.QUAD_COLOR}
+        rconf = rrg.confluence(rpoints) if rpoints else {"fresh_longs": [], "fresh_shorts": []}
         rrg_img = _b64(rrg.render_chart(rpoints, "charts/rep_rrg.png")) if rpoints else None
-    except Exception:
-        rpoints, rgrid, rrg_img = [], {}, None
+    except Exception as e:      # noqa
+        rpoints, rcounts, rconf, rrg_img = [], {}, {"fresh_longs": [], "fresh_shorts": []}, None
 
     return {"asof": datetime.now(IST).strftime("%a %d %b %Y · %H:%M IST"),
             "mode": "DEMO (synthetic data)" if dry else "LIVE (Fyers)",
             "rows": rows, "market": market, "ideas": ideas, "idea_imgs": idea_imgs,
-            "rpoints": rpoints, "rgrid": rgrid, "rrg_img": rrg_img}
+            "rpoints": rpoints, "rcounts": rcounts, "rconf": rconf, "rrg_img": rrg_img}
 
 
 # ---------- render ----------
@@ -126,14 +133,30 @@ def _buildup_rows(rows):
     return "".join(out)
 
 
-def _quad_chips(grid):
+def _quad_chips(counts):
     order = [("LEADING", "Leading"), ("WEAKENING", "Weakening"),
              ("IMPROVING", "Improving"), ("LAGGING", "Lagging")]
     out = []
     for k, label in order:
-        names = ", ".join(grid.get(k, [])) or "—"
-        out.append(f'<div class="quad {QUAD_CLASS[k]}"><span>{label}</span><b>{names}</b></div>')
+        out.append(f'<div class="quad {QUAD_CLASS[k]}"><span>{label}</span>'
+                   f'<b>{counts.get(k, 0)}</b></div>')
     return "".join(out)
+
+
+def _conf_lists(conf):
+    def chips(items, cls):
+        if not items:
+            return '<span class="muted">—</span>'
+        return "".join(f'<span class="tk {cls}">{p["name"]}</span>' for p in items[:14])
+    longs = chips(conf.get("fresh_longs", []), "bull")
+    shorts = chips(conf.get("fresh_shorts", []), "bear")
+    return f'''
+      <div class="conf-block">
+        <div class="conf-h bull">▲ Fresh longs <small>leading/improving + long buildup</small></div>
+        <div class="tokens">{longs}</div>
+        <div class="conf-h bear">▼ Fresh shorts <small>lagging/weakening + short buildup</small></div>
+        <div class="tokens">{shorts}</div>
+      </div>'''
 
 
 def _market_tiles(m):
@@ -168,20 +191,24 @@ def body_html(d):
   <h2>Revalidated trade ideas <small>OI buildup × option chain × chart action</small></h2>
   <section class="cards">{cards}</section>
 
-  <div class="two-col">
-    <section class="panel">
-      <h2>OI buildup <small>from day-open · sorted by |OI Δ|</small></h2>
-      <table class="build">
-        <thead><tr><th>Symbol</th><th>Price</th><th>OI</th><th>Vol</th><th>Signal</th></tr></thead>
-        <tbody>{_buildup_rows(d['rows'])}</tbody>
-      </table>
-    </section>
-    <section class="panel">
-      <h2>Relative Rotation <small>vs NIFTY</small></h2>
-      {rrg_block}
-      <div class="quads">{_quad_chips(d['rgrid'])}</div>
-    </section>
-  </div>
+  <section class="panel">
+    <h2>Relative Rotation <small>{len(d['rpoints'])} F&amp;O stocks vs NIFTY · position = rotation, marker = OI buildup</small></h2>
+    <div class="rrg-grid">
+      <div class="rrg-img">{rrg_block}</div>
+      <div class="rrg-side">
+        <div class="quads">{_quad_chips(d['rcounts'])}</div>
+        {_conf_lists(d['rconf'])}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>OI buildup <small>futures · from day-open · sorted by |OI Δ|</small></h2>
+    <table class="build">
+      <thead><tr><th>Symbol</th><th>Price</th><th>OI</th><th>Vol</th><th>Signal</th></tr></thead>
+      <tbody>{_buildup_rows(d['rows'])}</tbody>
+    </table>
+  </section>
 
   <footer>NOT financial advice · signals are inputs, the decision is yours ·
     generated locally, no data leaves your PC</footer>
@@ -266,11 +293,22 @@ table.build{width:100%;border-collapse:collapse;font-size:13px}
 .pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid var(--line)}
 .pill.bull{color:var(--bull);background:color-mix(in srgb,var(--bull) 12%,transparent)}
 .pill.bear{color:var(--bear);background:color-mix(in srgb,var(--bear) 12%,transparent)}
-.quads{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
-.quad{padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);
+.rrg-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;align-items:start}
+@media(max-width:820px){.rrg-grid{grid-template-columns:1fr}}
+.rrg-img img{width:100%;border-radius:8px;background:#fff}
+.quads{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.quad{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);
   display:flex;flex-direction:column;gap:2px;border-left:3px solid currentColor}
 .quad span{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px}
-.quad b{font-size:12.5px;color:var(--ink);font-weight:600}
+.quad b{font-size:20px;color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.conf-block{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+.conf-h{font-size:12px;font-weight:700;display:flex;align-items:baseline;gap:7px}
+.conf-h small{font-size:10.5px;color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0}
+.tokens{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.tk{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px;border:1px solid var(--line);
+  background:var(--panel2);font-family:ui-monospace,Menlo,monospace}
+.tk.bull{color:var(--bull);border-color:color-mix(in srgb,var(--bull) 35%,var(--line))}
+.tk.bear{color:var(--bear);border-color:color-mix(in srgb,var(--bear) 35%,var(--line))}
 .muted{color:var(--muted)}
 footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);
   font-size:11.5px;color:var(--muted);text-align:center}

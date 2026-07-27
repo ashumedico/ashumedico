@@ -1,26 +1,24 @@
 """
-rrg.py  —  Relative Rotation Graph (RRG) for the F&O universe vs a benchmark.
+rrg.py  —  Relative Rotation Graph for the FULL F&O universe, with OI-buildup overlay.
 
-The same rotation picture StockCharts / Strike show: each stock is a dot in a
-2x2 plane, plus a "tail" of where it has been. Two axes (both centred on 100):
+Two forces on one map:
+  • POSITION  = price rotation vs NIFTY (RS-Ratio x, RS-Momentum y) -> the 4 quadrants
+                LEADING · WEAKENING · LAGGING · IMPROVING
+  • MARKER    = OI buildup (fresh money direction), per stock:
+                  ▲ solid  = LONG BUILDUP    (fresh buying,  price↑ OI↑)   bullish
+                  ▲ hollow = SHORT COVERING  (shorts exiting, price↑ OI↓)  bullish-ish
+                  ▼ solid  = SHORT BUILDUP   (fresh selling, price↓ OI↑)   bearish
+                  ▼ hollow = LONG UNWINDING  (longs exiting,  price↓ OI↓)  bearish-ish
+                  ● grey   = no OI read
 
-  X = RS-Ratio     — relative STRENGTH vs the benchmark (NIFTY). >100 = outperforming.
-  Y = RS-Momentum  — the MOMENTUM of that relative strength. >100 = strength rising.
+The edge is the CONFLUENCE:
+  FRESH LONGS  = Leading/Improving  +  Long Buildup     (price + fresh buying agree)
+  FRESH SHORTS = Lagging/Weakening  +  Short Buildup     (price + fresh selling agree)
 
-Four quadrants (stocks rotate clockwise through them):
-  LEADING    (top-right)    strong & still gaining     -> ride / hold longs
-  WEAKENING  (bottom-right) strong but losing steam    -> book / trail
-  LAGGING    (bottom-left)  weak & still falling        -> avoid / shorts
-  IMPROVING  (top-left)     weak but turning up         -> watchlist / early longs
+    python rrg.py --dry-run        # ~190-name synthetic universe -> charts/rrg.png
+    python rrg.py                  # live: full F&O list (Fyers)
 
-Method (JdK-style, standardised): RS = price / benchmark; RS-Ratio is RS z-scored
-over a window and shifted to ~100; RS-Momentum is the same transform of RS-Ratio's
-rate-of-change. Live uses Fyers daily candles; --dry-run synthesises a clean rotation.
-
-    python rrg.py --dry-run        # synthetic universe -> writes charts/rrg.png + table
-    python rrg.py                  # live (needs Fyers token)
-
-NOT financial advice. Rotation is context, not a trigger.
+NOT financial advice. Rotation + OI is context, not a trigger.
 """
 import os, math
 
@@ -34,6 +32,14 @@ except ImportError:
 
 QUAD_COLOR = {"LEADING": "#1f9d63", "WEAKENING": "#e0a11b",
               "LAGGING": "#d1495b", "IMPROVING": "#2f6fed"}
+# OI buildup -> (marker, colour, is_fresh, bullish)
+BUILDUP_STYLE = {
+    "LONG BUILDUP":   ("^", "#1f9d63", True,  True),
+    "SHORT COVERING": ("^", "#3fae6a", False, True),
+    "SHORT BUILDUP":  ("v", "#d1495b", True,  False),
+    "LONG UNWINDING": ("v", "#e07a4b", False, False),
+    None:             ("o", "#8b98a5", False, None),
+}
 
 
 # ---------- math ----------
@@ -42,15 +48,11 @@ def _sma(v, n):
 
 
 def rs_deviations(stock, bench, win=10, mwin=4):
-    """Raw RRG deviations for one stock vs the benchmark (unscaled).
-      ratio_dev = RS relative to its own rolling mean (outperforming its trend?)
-      mom_dev   = change in that over `mwin` bars (is the outperformance improving?)
-    Signs of these decide the quadrant; a shared scale (in analyse) sets the spread."""
     n = min(len(stock), len(bench))
     stock, bench = stock[-n:], bench[-n:]
-    rs = [s / b for s, b in zip(stock, bench)]                 # relative strength line
+    rs = [s / b for s, b in zip(stock, bench)]
     rs_sma = _sma(rs, win)
-    ratio_dev = [rs[i] / rs_sma[i] - 1 for i in range(n)]      # ~0, + = strong
+    ratio_dev = [rs[i] / rs_sma[i] - 1 for i in range(n)]
     mom_dev = [ratio_dev[i] - ratio_dev[max(0, i - mwin)] for i in range(n)]
     return ratio_dev, mom_dev
 
@@ -62,30 +64,49 @@ def quadrant(ratio, mom):
     return "IMPROVING"
 
 
-def analyse(prices, bench, names=None, tail=5, win=10, spread=8.0):
-    """prices: {name: [closes]}. bench: [closes]. Returns per-name RRG points + tails.
-    Deviations are scaled by a SHARED factor so the cloud fills ~100±spread — the
-    quadrant (sign) is scale-invariant; scaling only makes the picture readable."""
+def classify_buildup(px_chg, oi_chg):
+    if oi_chg > 0:
+        return "LONG BUILDUP" if px_chg >= 0 else "SHORT BUILDUP"
+    return "SHORT COVERING" if px_chg >= 0 else "LONG UNWINDING"
+
+
+def analyse(prices, bench, buildup=None, names=None, tail=5, win=10, spread=8.0):
+    """prices: {name:[closes]}, bench:[closes], buildup: {SHORTNAME: signal}.
+    Returns per-name RRG points with the OI-buildup signal attached."""
     names = names or list(prices)
     devs = {nm: rs_deviations(prices[nm], bench, win) for nm in names}
-    # shared scale per axis from the tail region we will actually plot
-    all_r = [abs(r) for nm in names for r in devs[nm][0][-tail:]]
-    all_m = [abs(m) for nm in names for m in devs[nm][1][-tail:]]
-    sx = spread / (max(all_r) or 1e-9)
-    sy = spread / (max(all_m) or 1e-9)
+    all_r = [abs(r) for nm in names for r in devs[nm][0][-tail:]] or [1e-9]
+    all_m = [abs(m) for nm in names for m in devs[nm][1][-tail:]] or [1e-9]
+    sx = spread / (max(all_r) or 1e-9); sy = spread / (max(all_m) or 1e-9)
+    buildup = buildup or {}
     out = []
     for nm in names:
         rdev, mdev = devs[nm]
-        pts = [(100 + rdev[i] * sx, 100 + mdev[i] * sy)
-               for i in range(len(rdev))][-tail:]
+        pts = [(100 + rdev[i] * sx, 100 + mdev[i] * sy) for i in range(len(rdev))][-tail:]
         x, y = pts[-1]
-        out.append({"name": nm.split(":")[-1], "x": round(x, 2), "y": round(y, 2),
-                    "quadrant": quadrant(x, y), "tail": pts})
+        short = nm.split(":")[-1].replace("-EQ", "")
+        out.append({"name": short, "x": round(x, 2), "y": round(y, 2),
+                    "quadrant": quadrant(x, y), "tail": pts,
+                    "signal": buildup.get(short)})
     return out
 
 
+def confluence(points):
+    """The money picks where price rotation and fresh OI agree."""
+    fresh_longs, fresh_shorts = [], []
+    for p in points:
+        s = p["signal"]
+        if s == "LONG BUILDUP" and p["quadrant"] in ("LEADING", "IMPROVING"):
+            fresh_longs.append(p)
+        if s == "SHORT BUILDUP" and p["quadrant"] in ("LAGGING", "WEAKENING"):
+            fresh_shorts.append(p)
+    dist = lambda p: (p["x"] - 100) ** 2 + (p["y"] - 100) ** 2
+    fresh_longs.sort(key=dist, reverse=True)
+    fresh_shorts.sort(key=dist, reverse=True)
+    return {"fresh_longs": fresh_longs, "fresh_shorts": fresh_shorts}
+
+
 def table_2x2(points):
-    """Group names into the 2x2 leading/weakening/improving/lagging buckets."""
     grid = {q: [] for q in QUAD_COLOR}
     for p in points:
         grid[p["quadrant"]].append(p["name"])
@@ -93,124 +114,192 @@ def table_2x2(points):
 
 
 # ---------- data ----------
-def fetch_prices_live(symbols, benchmark, resolution="D", days=90):
-    import chart_action as ca
+def fetch_prices_live(symbols, benchmark, resolution="D", days=90, throttle=0.12):
+    """Daily closes for the whole universe + benchmark. Throttled + progress."""
+    import time, chart_action as ca
     bench = [c["c"] for c in ca.fetch_candles(benchmark, resolution=resolution, days=days)]
     prices = {}
-    for s in symbols:
+    for i, s in enumerate(symbols):
         try:
             prices[s] = [c["c"] for c in ca.fetch_candles(s, resolution=resolution, days=days)]
         except Exception as e:      # noqa
-            print(f"  [skip] {s}: {e}")
+            pass
+        if (i + 1) % 25 == 0:
+            print(f"  RRG prices: {i + 1}/{len(symbols)}")
+        time.sleep(throttle)        # be kind to the Fyers rate limit
     return prices, bench
 
 
-def fetch_dry():
-    """Synthetic universe: each name is at a different PHASE of the rotation cycle,
-    so all four quadrants populate (RS = benchmark x a sine of distinct phase)."""
-    N = 60; P = 48; A = 0.09                                   # ~1 cycle over the window
-    bench = [100 * (1 + 0.0010 * t) for t in range(N)]        # steady benchmark uptrend
-    two_pi = 2 * math.pi
-
-    def build(phase_deg):
-        ph = math.radians(phase_deg)
-        return [bench[t] * (1 + A * math.sin(two_pi * t / P + ph)) for t in range(N)]
-
-    # ending angle ~= 2*pi*(N-1)/P + phase; choose phases to land each name in a quadrant.
-    prices = {
-        "NSE:RELIANCE":   build(60),    # LEADING     (strong, still gaining)
-        "NSE:TATAMOTORS": build(30),    # LEADING/edge
-        "NSE:TCS":        build(150),   # WEAKENING   (strong, losing steam)
-        "NSE:HDFCBANK":   build(240),   # LAGGING     (weak, still falling)
-        "NSE:INFY":       build(210),   # LAGGING/edge
-        "NSE:SBIN":       build(330),   # IMPROVING   (weak, turning up)
-    }
-    return prices, bench
-
-
-def render_console(points, grid):
-    print("\n  RELATIVE ROTATION GRAPH  ·  F&O vs NIFTY")
-    print("  " + "-" * 56)
-    print(f"  {'NAME':<14}{'RS-Ratio':>10}{'RS-Mom':>9}   QUADRANT")
-    for p in sorted(points, key=lambda p: (-p["x"], -p["y"])):
-        print(f"  {p['name']:<14}{p['x']:>10.1f}{p['y']:>9.1f}   {p['quadrant']}")
-    print("  " + "-" * 56)
-    print("  2x2:")
-    print(f"    IMPROVING : {', '.join(grid['IMPROVING']) or '-'}")
-    print(f"    LEADING   : {', '.join(grid['LEADING']) or '-'}")
-    print(f"    LAGGING   : {', '.join(grid['LAGGING']) or '-'}")
-    print(f"    WEAKENING : {', '.join(grid['WEAKENING']) or '-'}")
-    print("  " + "-" * 56)
+def fetch_buildup_live(expiry=None):
+    """{SHORTNAME: OI-buildup signal} for the whole futures universe, from day-open."""
+    import scanner
+    from fno_universe import fno_futures
+    if expiry is None:
+        return {}
+    curr = {}
+    fut = fno_futures(expiry)
+    # scanner.fetch_live reads config.UNIVERSE; here we query our full FUT list in chunks
+    from fyers_apiv3 import fyersModel
+    token = open(config.TOKEN_FILE).read().strip()
+    fy = fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
+    quotes = {}
+    for i in range(0, len(fut), 50):
+        chunk = fut[i:i + 50]
+        r = fy.quotes({"symbols": ",".join(chunk)})
+        for d in r.get("d", []) if isinstance(r, dict) else []:
+            v = d.get("v", {})
+            quotes[d.get("n")] = {"ltp": v.get("lp", 0), "oi": v.get("oi", 0)}
+    # baseline (day-open) reuse scanner's file if present
+    base = scanner.load_baseline() or {}
+    out = {}
+    for sym, now in quotes.items():
+        b = base.get(sym)
+        if not b or not b.get("oi") or not now.get("oi"):
+            continue
+        oi_chg = (now["oi"] - b["oi"]) / b["oi"] * 100
+        px_chg = (now["ltp"] - b["ltp"]) / b["ltp"] * 100 if b["ltp"] else 0
+        short = sym.split(":")[-1].split("2")[0]
+        out[short] = classify_buildup(px_chg, oi_chg)
+    return out
 
 
-def render_chart(points, path="charts/rrg.png"):
+def dry_points_large():
+    """~190 real F&O tickers placed deterministically across the plane, each with a
+    synthetic OI-buildup — so the full-universe render (position + OI overlay) is provable."""
+    from fno_universe import FALLBACK
+    names = FALLBACK
+    golden = math.radians(137.508)
+    pts = []
+    for i, nm in enumerate(names):
+        theta = i * golden
+        r = 2.0 + (i % 9) * 0.8                      # radius 2.0 .. 8.4
+        x = 100 + r * math.cos(theta); y = 100 + r * math.sin(theta)
+        q = quadrant(x, y)
+        # correlate OI buildup with rotation, with ~1-in-5 divergence for realism
+        diverge = (i % 5 == 0)
+        if q in ("LEADING", "IMPROVING"):
+            sig = "SHORT BUILDUP" if diverge else ("LONG BUILDUP" if i % 2 == 0 else "SHORT COVERING")
+        else:
+            sig = "LONG BUILDUP" if diverge else ("SHORT BUILDUP" if i % 2 == 0 else "LONG UNWINDING")
+        pts.append({"name": nm, "x": round(x, 2), "y": round(y, 2),
+                    "quadrant": q, "tail": [(x, y)], "signal": sig})
+    return pts
+
+
+# ---------- render ----------
+def render_chart(points, path="charts/rrg.png", label_max=10):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    big = len(points) > 30
 
     xs = [p["x"] for p in points] + [100]; ys = [p["y"] for p in points] + [100]
-    pad = max(2.5, max(abs(v - 100) for v in xs + ys) * 1.25)
+    pad = max(2.5, max(abs(v - 100) for v in xs + ys) * 1.18)
     lo, hi = 100 - pad, 100 + pad
 
-    fig, ax = plt.subplots(figsize=(9.2, 8.6), dpi=130)
-    fig.subplots_adjust(left=0.09, right=0.97, top=0.86, bottom=0.08)
-    # quadrant backgrounds
-    ax.axhspan(100, hi, xmin=0.5, xmax=1, facecolor=QUAD_COLOR["LEADING"], alpha=0.07)
-    ax.axhspan(lo, 100, xmin=0.5, xmax=1, facecolor=QUAD_COLOR["WEAKENING"], alpha=0.07)
-    ax.axhspan(lo, 100, xmin=0, xmax=0.5, facecolor=QUAD_COLOR["LAGGING"], alpha=0.07)
-    ax.axhspan(100, hi, xmin=0, xmax=0.5, facecolor=QUAD_COLOR["IMPROVING"], alpha=0.07)
+    fig, ax = plt.subplots(figsize=(10.5, 9.6), dpi=130)
+    fig.subplots_adjust(left=0.08, right=0.97, top=0.83, bottom=0.14)
+    ax.axhspan(100, hi, xmin=0.5, xmax=1, facecolor=QUAD_COLOR["LEADING"], alpha=0.06)
+    ax.axhspan(lo, 100, xmin=0.5, xmax=1, facecolor=QUAD_COLOR["WEAKENING"], alpha=0.06)
+    ax.axhspan(lo, 100, xmin=0, xmax=0.5, facecolor=QUAD_COLOR["LAGGING"], alpha=0.06)
+    ax.axhspan(100, hi, xmin=0, xmax=0.5, facecolor=QUAD_COLOR["IMPROVING"], alpha=0.06)
     ax.axhline(100, color="#888", lw=1); ax.axvline(100, color="#888", lw=1)
 
-    # quadrant labels
-    ax.text(hi - 0.3, hi - 0.3, "LEADING", color=QUAD_COLOR["LEADING"], ha="right", va="top",
-            fontsize=12, fontweight="bold", alpha=0.7)
-    ax.text(hi - 0.3, lo + 0.3, "WEAKENING", color=QUAD_COLOR["WEAKENING"], ha="right", va="bottom",
-            fontsize=12, fontweight="bold", alpha=0.7)
-    ax.text(lo + 0.3, lo + 0.3, "LAGGING", color=QUAD_COLOR["LAGGING"], ha="left", va="bottom",
-            fontsize=12, fontweight="bold", alpha=0.7)
-    ax.text(lo + 0.3, hi - 0.3, "IMPROVING", color=QUAD_COLOR["IMPROVING"], ha="left", va="top",
-            fontsize=12, fontweight="bold", alpha=0.7)
+    counts = {q: sum(1 for p in points if p["quadrant"] == q) for q in QUAD_COLOR}
+    corners = {"LEADING": (hi, hi, "right", "top"), "WEAKENING": (hi, lo, "right", "bottom"),
+               "LAGGING": (lo, lo, "left", "bottom"), "IMPROVING": (lo, hi, "left", "top")}
+    for q, (cx, cy, ha, va) in corners.items():
+        dx = -0.3 if ha == "right" else 0.3; dy = -0.3 if va == "top" else 0.3
+        ax.text(cx + dx, cy + dy, f"{q} · {counts[q]}", color=QUAD_COLOR[q], ha=ha, va=va,
+                fontsize=12, fontweight="bold", alpha=0.75)
 
+    # group by marker style so each scatter call is one shape
+    groups = {}
     for p in points:
-        col = QUAD_COLOR[p["quadrant"]]
-        tx = [t[0] for t in p["tail"]]; ty = [t[1] for t in p["tail"]]
-        ax.plot(tx, ty, color=col, lw=1.6, alpha=0.5, zorder=2)            # the tail
-        ax.scatter([p["x"]], [p["y"]], s=130, color=col, edgecolor="white",
-                   linewidth=1.5, zorder=3)                                # the head
-        ax.annotate(p["name"], (p["x"], p["y"]), xytext=(6, 6),
-                    textcoords="offset points", fontsize=9, fontweight="bold", color="#222")
+        mk, col, fresh, bull = BUILDUP_STYLE.get(p["signal"], BUILDUP_STYLE[None])
+        groups.setdefault((mk, col, fresh), []).append(p)
+    size = 46 if big else 150
+    for (mk, col, fresh), ps in groups.items():
+        gx = [p["x"] for p in ps]; gy = [p["y"] for p in ps]
+        if fresh:
+            ax.scatter(gx, gy, marker=mk, s=size, c=col, edgecolor="white",
+                       linewidth=0.5, alpha=0.9, zorder=3)
+        else:
+            ax.scatter(gx, gy, marker=mk, s=size, facecolor="none", edgecolor=col,
+                       linewidth=1.3, alpha=0.85, zorder=3)
+
+    # label only the confluence picks (fresh longs leading / fresh shorts lagging)
+    conf = confluence(points)
+    to_label = conf["fresh_longs"][:label_max] + conf["fresh_shorts"][:label_max]
+    if not big:
+        to_label = points
+    for p in to_label:
+        ax.annotate(p["name"], (p["x"], p["y"]), xytext=(5, 4),
+                    textcoords="offset points", fontsize=8 if big else 9,
+                    fontweight="bold", color="#222", zorder=4)
 
     ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
     ax.set_xlabel("RS-Ratio  (relative strength vs NIFTY →)", fontsize=10, color="#555")
     ax.set_ylabel("RS-Momentum  (strength rising ↑)", fontsize=10, color="#555")
-    fig.text(0.09, 0.945, "Relative Rotation Graph — F&O universe vs NIFTY",
-             fontsize=14, fontweight="bold", ha="left", va="center")
-    fig.text(0.09, 0.905, "Dots rotate clockwise: Improving → Leading → Weakening → Lagging",
-             fontsize=9.5, color="#777", ha="left", va="center")
-    fig.text(0.09, 0.02, "NOT financial advice · rotation is context, not a trigger",
+    fig.text(0.08, 0.945, f"Relative Rotation Graph — {len(points)} F&O stocks vs NIFTY",
+             fontsize=14.5, fontweight="bold", ha="left", va="center")
+    fig.text(0.08, 0.908, "Position = price rotation · Marker = OI buildup "
+             "(▲ buying / ▼ selling · solid = fresh money) · labels = confluence picks",
+             fontsize=9, color="#777", ha="left", va="center")
+    # legend
+    from matplotlib.lines import Line2D
+    leg = [
+        Line2D([0], [0], marker="^", color="w", markerfacecolor="#1f9d63", markersize=10, label="Long buildup (fresh buy)"),
+        Line2D([0], [0], marker="^", color="w", markerfacecolor="none", markeredgecolor="#3fae6a", markersize=10, label="Short covering"),
+        Line2D([0], [0], marker="v", color="w", markerfacecolor="#d1495b", markersize=10, label="Short buildup (fresh sell)"),
+        Line2D([0], [0], marker="v", color="w", markerfacecolor="none", markeredgecolor="#e07a4b", markersize=10, label="Long unwinding"),
+    ]
+    ax.legend(handles=leg, loc="upper left", fontsize=8, framealpha=0.9,
+              facecolor="white", edgecolor="#ddd", ncol=1)
+    fig.text(0.08, 0.03, "NOT financial advice · rotation + OI is context, not a trigger",
              fontsize=7.5, color="#999")
     fig.savefig(path)
     plt.close(fig)
     return path
 
 
+def render_console(points):
+    conf = confluence(points)
+    counts = {q: sum(1 for p in points if p["quadrant"] == q) for q in QUAD_COLOR}
+    print(f"\n  RRG · {len(points)} F&O stocks vs NIFTY  ×  OI buildup overlay")
+    print("  " + "-" * 60)
+    print(f"  Leading {counts['LEADING']}  ·  Weakening {counts['WEAKENING']}  ·  "
+          f"Improving {counts['IMPROVING']}  ·  Lagging {counts['LAGGING']}")
+    print("  " + "-" * 60)
+    print(f"  ▲ FRESH LONGS  (leading/improving + long buildup):")
+    print("     " + (", ".join(p["name"] for p in conf["fresh_longs"][:15]) or "-"))
+    print(f"  ▼ FRESH SHORTS (lagging/weakening + short buildup):")
+    print("     " + (", ".join(p["name"] for p in conf["fresh_shorts"][:15]) or "-"))
+    print("  " + "-" * 60)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--expiry", default=None, help="FUT expiry for OI overlay, e.g. 26JUL")
     args = ap.parse_args()
     if args.dry_run:
-        prices, bench = fetch_dry()
+        points = dry_points_large()
     else:
-        universe = getattr(config, "UNIVERSE", [])
-        benchmark = getattr(config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX")
-        prices, bench = fetch_prices_live(universe, benchmark)
+        from fno_universe import fno_stocks
+        prices, bench = fetch_prices_live(fno_stocks(),
+                                          getattr(config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX"))
         if not prices:
-            print("  No price data (need Fyers token + a UNIVERSE in config.py)."); return
-    points = analyse(prices, bench)
-    grid = table_2x2(points)
-    render_console(points, grid)
+            print("  No price data (need Fyers token)."); return
+        buildup = {}
+        try:
+            buildup = fetch_buildup_live(args.expiry) if args.expiry else {}
+        except Exception as e:      # noqa
+            print(f"  [OI overlay skipped: {e}]")
+        points = analyse(prices, bench, buildup)
+    render_console(points)
     path = render_chart(points)
     print(f"\n  RRG chart written: {path}\n")
 

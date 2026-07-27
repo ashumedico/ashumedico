@@ -136,28 +136,40 @@ try:
 except Exception as e:  # noqa
     st.info(f"Signals unavailable: {e}")
 
-# ---------------- Relative Rotation Graph ----------------
+# ---------------- Relative Rotation Graph (full F&O universe + OI overlay) ----------------
 st.divider()
-st.markdown("### 🔄 Relative Rotation Graph — leading / lagging vs NIFTY")
+st.markdown("### 🔄 Relative Rotation Graph — full F&O universe vs NIFTY, × OI buildup")
+st.caption("Position = price rotation · marker ▲ buying / ▼ selling (solid = fresh money)")
 import rrg
 try:
     if dry:
-        rprices, rbench = rrg.fetch_dry()
+        pts = rrg.dry_points_large()
     else:
+        from fno_universe import fno_stocks
         rprices, rbench = rrg.fetch_prices_live(
-            getattr(scanner.config, "UNIVERSE", []),
-            getattr(scanner.config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX"))
-    if rprices:
-        pts = rrg.analyse(rprices, rbench)
-        grid = rrg.table_2x2(pts)
+            fno_stocks(), getattr(scanner.config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX"))
+        buildup = {}
+        try:
+            buildup = rrg.fetch_buildup_live(getattr(scanner.config, "FUT_EXPIRY", None))
+        except Exception:
+            buildup = {}
+        pts = rrg.analyse(rprices, rbench, buildup) if rprices else []
+    if pts:
+        counts = {q: sum(1 for p in pts if p["quadrant"] == q) for q in rrg.QUAD_COLOR}
+        conf = rrg.confluence(pts)
         st.image(rrg.render_chart(pts, "charts/rrg.png"))
         g1, g2, g3, g4 = st.columns(4)
-        g1.metric("🟢 Leading", ", ".join(grid["LEADING"]) or "—")
-        g2.metric("🟡 Weakening", ", ".join(grid["WEAKENING"]) or "—")
-        g3.metric("🔵 Improving", ", ".join(grid["IMPROVING"]) or "—")
-        g4.metric("🔴 Lagging", ", ".join(grid["LAGGING"]) or "—")
+        g1.metric("🟢 Leading", counts["LEADING"])
+        g2.metric("🟡 Weakening", counts["WEAKENING"])
+        g3.metric("🔵 Improving", counts["IMPROVING"])
+        g4.metric("🔴 Lagging", counts["LAGGING"])
+        cL, cS = st.columns(2)
+        cL.markdown("**▲ Fresh longs** (leading/improving + long buildup)")
+        cL.write(", ".join(p["name"] for p in conf["fresh_longs"][:20]) or "—")
+        cS.markdown("**▼ Fresh shorts** (lagging/weakening + short buildup)")
+        cS.write(", ".join(p["name"] for p in conf["fresh_shorts"][:20]) or "—")
     else:
-        st.info("RRG needs price data (Fyers token + UNIVERSE).")
+        st.info("RRG needs price data (Fyers token).")
 except Exception as e:  # noqa
     st.info(f"RRG unavailable: {e}")
 
