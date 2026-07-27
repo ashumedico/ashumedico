@@ -78,10 +78,20 @@ Rebuilt from your desktop shortcuts (was only on `C:\claude\`, never in git). No
 |---|---|
 | `scanner.py` | Futures OI-change buildup (day-open baseline, market-hours guard, retries, ban-list, volume-confirm) |
 | `option_chain.py` | **PCR · Max Pain · Support/Resistance walls · call/put-writing** |
-| `app.py` | Streamlit dashboard (localhost:8501) |
+| `chart_action.py` | **Chartonix layer** — trend (Bullish+Sideways) · R1/R2 · S1/S2 · 3–5 continuation · 60%-body breakout |
+| `signal_engine.py` | **3-layer confluence** (OI × option chain × chart action) → **1 CE + 1 PE + 1 Future** w/ entry/stop/target + why |
+| `charts.py` | **3 annotated charts** — candlesticks, levels marked, entry/stop/target bands, "WHY THIS TRADE" box |
+| `rrg.py` | **Relative Rotation Graph** — 2×2 Leading/Weakening/Lagging/Improving vs NIFTY, with tails |
+| `app.py` | Streamlit dashboard (localhost:8501) — now shows the 3 ideas + RRG |
 | `fyers_auth.py` · `alerts.py` | Daily token · optional Telegram |
-| `install.bat` · `run_*.bat` | Desktop icons + launchers |
-| **To go live (your side):** clone to `C:\claude\`, add Fyers keys, `streamlit run app.py` | |
+| `install.bat` · `run_*.bat` | **4 desktop icons** (auto-refresh) — incl. new **Trade Signals + RRG** |
+| **To go live (your side):** clone to `C:\claude\`, add Fyers keys, run `install.bat`, then the icons | |
+
+**v3.0 (this session):** revalidation layer requested from the "Chartonix / Chart Action Analyzer" screenshots —
+scanner signals are now cross-checked against support/resistance + trend + 60%-body breakout before any
+recommendation. Emits exactly **one CE, one PE, one Future**, each with an annotated chart that marks the
+levels and justifies the trade. Plus an **RRG** (leading/lagging rotation vs NIFTY). All verified in `--dry-run`
+(synthetic data — live numbers need your Fyers feed on your PC).
 
 ---
 

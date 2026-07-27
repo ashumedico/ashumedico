@@ -10,12 +10,12 @@ SECRET_KEY   = "XXXXXXXXXX"           # App secret
 REDIRECT_URI = "https://127.0.0.1"    # must match the Fyers app setting
 
 # --- Universe: use F&O FUTURES symbols (cash -EQ has NO open interest) ---
-# Format: NSE:<UNDERLYING><YY><MON>FUT   e.g. NSE:RELIANCE25JULFUT
+# Format: NSE:<UNDERLYING><YY><MON>FUT   e.g. NSE:RELIANCE26JULFUT
 UNIVERSE = [
-    "NSE:NIFTY25JULFUT", "NSE:BANKNIFTY25JULFUT",
-    "NSE:RELIANCE25JULFUT", "NSE:HDFCBANK25JULFUT", "NSE:ICICIBANK25JULFUT",
-    "NSE:INFY25JULFUT", "NSE:TCS25JULFUT", "NSE:SBIN25JULFUT",
-    "NSE:TATAMOTORS25JULFUT", "NSE:AXISBANK25JULFUT", "NSE:LT25JULFUT",
+    "NSE:NIFTY26JULFUT", "NSE:BANKNIFTY26JULFUT",
+    "NSE:RELIANCE26JULFUT", "NSE:HDFCBANK26JULFUT", "NSE:ICICIBANK26JULFUT",
+    "NSE:INFY26JULFUT", "NSE:TCS26JULFUT", "NSE:SBIN26JULFUT",
+    "NSE:TATAMOTORS26JULFUT", "NSE:AXISBANK26JULFUT", "NSE:LT26JULFUT",
 ]
 
 # --- Scanner settings ---
@@ -25,6 +25,7 @@ POLL_SECONDS      = 300     # re-scan every 5 min in --loop
 TOKEN_FILE        = "access_token.txt"
 BASELINE_FILE     = "oi_baseline.json"
 OC_STRIKES        = 10      # option-chain: strikes each side of ATM
+RRG_BENCHMARK     = "NSE:NIFTY50-INDEX"   # relative-rotation benchmark
 
 # --- F&O ban list (>= 95% MWPL): no fresh positions allowed, so we skip them.
 # Update daily from NSE (https://www.nseindia.com -> Securities in F&O Ban).

@@ -107,6 +107,60 @@ try:
 except Exception as e:  # noqa
     st.info(f"Option chain unavailable: {e}")
 
+# ---------------- Revalidated trade ideas (3-layer confluence) ----------------
+st.divider()
+st.markdown("### 🎯 Revalidated signals — 1 CE · 1 PE · 1 Future")
+st.caption("OI buildup × option chain × chart action (support/resistance + 60%-body breakout)")
+import signal_engine as se
+import charts as ch
+try:
+    verdicts = se.dry_verdicts() if dry else se.live_verdicts()
+    ideas = se.build_ideas(verdicts) if verdicts else {}
+    if not ideas:
+        st.info("No qualifying confluence right now.")
+    else:
+        cols = st.columns(3)
+        for col, key in zip(cols, ("CE", "PE", "FUT")):
+            idea = ideas.get(key)
+            with col:
+                if not idea:
+                    st.caption(f"No {key} today."); continue
+                t = idea["trade"]
+                st.markdown(f"**{idea['kind']}** · {idea['underlying'].split(':')[-1]} "
+                            f"{idea.get('strike','')}")
+                st.markdown(f"{'🟢' if idea['bias']=='BULLISH' else '🔴'} "
+                            f"**{idea['bias']} · {idea['confidence']}%**")
+                st.markdown(f"Entry `{t['entry']}` · Stop `{t['stop']}` · "
+                            f"Target `{t['target']}` · R:R `{t['rr']}`")
+                st.image(ch.render_idea(idea, f"charts/dash_{key}.png"))
+except Exception as e:  # noqa
+    st.info(f"Signals unavailable: {e}")
+
+# ---------------- Relative Rotation Graph ----------------
+st.divider()
+st.markdown("### 🔄 Relative Rotation Graph — leading / lagging vs NIFTY")
+import rrg
+try:
+    if dry:
+        rprices, rbench = rrg.fetch_dry()
+    else:
+        rprices, rbench = rrg.fetch_prices_live(
+            getattr(scanner.config, "UNIVERSE", []),
+            getattr(scanner.config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX"))
+    if rprices:
+        pts = rrg.analyse(rprices, rbench)
+        grid = rrg.table_2x2(pts)
+        st.image(rrg.render_chart(pts, "charts/rrg.png"))
+        g1, g2, g3, g4 = st.columns(4)
+        g1.metric("🟢 Leading", ", ".join(grid["LEADING"]) or "—")
+        g2.metric("🟡 Weakening", ", ".join(grid["WEAKENING"]) or "—")
+        g3.metric("🔵 Improving", ", ".join(grid["IMPROVING"]) or "—")
+        g4.metric("🔴 Lagging", ", ".join(grid["LAGGING"]) or "—")
+    else:
+        st.info("RRG needs price data (Fyers token + UNIVERSE).")
+except Exception as e:  # noqa
+    st.info(f"RRG unavailable: {e}")
+
 if auto and not dry:
     time.sleep(every)
     st.rerun()

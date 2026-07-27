@@ -1,5 +1,10 @@
 config.py
 access_token.txt
 oi_snapshot.json
+oi_baseline.json
+scanner.log
+signals_*.csv
+# runtime-generated dashboard charts (the 4 demo charts ARE committed on purpose)
+charts/dash_*.png
 __pycache__/
 *.pyc

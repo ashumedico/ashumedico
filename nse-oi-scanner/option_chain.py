@@ -85,11 +85,12 @@ def fetch_live(symbol):
     return chain, spot or d.get("underlyingValue", 0)
 
 
-def fetch_dry(symbol="NSE:NIFTY50-INDEX"):
-    spot = 24200; atm = round(spot / 100) * 100
+def fetch_dry(symbol="NSE:NIFTY50-INDEX", spot=24200):
+    step = 100 if spot > 5000 else 50 if spot > 1000 else 10
+    atm = round(spot / step) * step
     chain = []
     for i in range(-6, 7):
-        K = atm + i * 100
+        K = atm + i * step
         # puts pile up below spot (support), calls above (resistance)
         ce_oi = max(2000, int(90000 * (1 - abs(i - 2) / 8)))
         pe_oi = max(2000, int(95000 * (1 - abs(i + 2) / 8)))

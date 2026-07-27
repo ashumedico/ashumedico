@@ -31,10 +31,11 @@ copy config.example.py config.py     # add Fyers keys + your FUT universe
 ```
 
 ## Desktop icons (Windows)
-Double-click **`install.bat`** once → it drops 3 icons on your Desktop:
+Double-click **`install.bat`** once → it **replaces old icons** and drops 4 fresh ones:
 - **NSE OI Scanner** → `run_scanner.bat` (console, live loop)
 - **Fyers Login** → `run_login.bat` (daily token)
 - **OI Scanner Board** → `run_dashboard.bat` (Streamlit → localhost:8501)
+- **Trade Signals + RRG** → `run_signals.bat` (1 CE + 1 PE + 1 Future, 3 annotated charts + RRG)
 
 ## Run
 ```bash
@@ -49,12 +50,51 @@ streamlit run app.py         # dashboard at http://localhost:8501
 | File | Role |
 |---|---|
 | `scanner.py` | hardened OI-change scanner (console) |
+| `option_chain.py` | PCR · Max Pain · S/R walls · call/put-writing |
+| `chart_action.py` | trend · R1/R2 · S1/S2 · continuation · 60%-body breakout |
+| `signal_engine.py` | 3-layer confluence → 1 CE + 1 PE + 1 Future |
+| `charts.py` | annotated candlestick chart per idea (levels + why) |
+| `rrg.py` | Relative Rotation Graph (leading/lagging vs NIFTY) |
 | `app.py` | Streamlit dashboard (localhost:8501) |
 | `fyers_auth.py` | daily Fyers token refresh |
 | `alerts.py` | optional Telegram push |
 | `config.example.py` | copy → `config.py` (git-ignored) |
-| `install.bat` / `create_desktop_shortcuts.ps1` | desktop icons |
+| `install.bat` / `create_desktop_shortcuts.ps1` | desktop icons (4, auto-refreshed) |
 | `run_*.bat` | Windows launchers your shortcuts point to |
+
+## v3.0 — Chart-Action revalidation + RRG (the "Chartonix" layer)
+Your scanner now gives OI buildup **and** cross-checks it before recommending a trade —
+exactly what you asked: revalidate the signals against chart action, then give **one CE,
+one PE, one Future** with **3 annotated charts** that mark the levels and justify each trade.
+
+**Three independent lenses must agree (confluence):**
+1. **OI buildup** (`scanner.py`) — long/short buildup, covering, unwinding
+2. **Option chain** (`option_chain.py`) — PCR, Max Pain, support/resistance walls, writing
+3. **Chart action** (`chart_action.py`) — trend (e.g. *Bullish + Sideways*), **R1/R2 & S1/S2**,
+   3–5 candle continuation, **60%-body breakout rule**
+
+`signal_engine.py` fuses them into a 0–100 confidence score and emits **exactly 1 CE + 1 PE +
+1 Future** (entry / stop / target / R:R + the *why*). `charts.py` renders one annotated
+candlestick per idea — levels marked, entry/stop/target bands, a direction arrow and a
+"WHY THIS TRADE" box.
+
+```bash
+python signal_engine.py --dry-run   # the 3 ideas in the console
+python charts.py --dry-run          # writes charts/signal_{CE,PE,FUT}_*.png
+python signal_engine.py             # live (needs Fyers token)
+```
+
+### RRG — Relative Rotation Graph (`rrg.py`)
+The StockCharts-style **2×2 rotation** of your F&O names vs NIFTY:
+**Leading · Weakening · Lagging · Improving** (RS-Ratio on X, RS-Momentum on Y), with tails.
+
+```bash
+python rrg.py --dry-run             # writes charts/rrg.png + the 2x2 table
+python rrg.py                       # live (Fyers token + UNIVERSE)
+```
+
+Both are also wired into the **dashboard** (`app.py`) and the new **Trade Signals + RRG**
+desktop icon (`run_signals.bat`).
 
 ## v2.1 — the derivatives picture completed
 Added the pieces a futures-only scanner was missing:
