@@ -14,9 +14,16 @@ working offline / on first run (flagged as possibly-stale).
 """
 import os, re, urllib.request
 
-MASTER_URL = "https://public.fyers.in/sym_details/NSE_FO.csv"
+# Multiple authoritative sources, tried in order — so a single site being down
+# never breaks the universe. First one that yields names wins.
+SOURCES = [
+    ("fyers",     "https://public.fyers.in/sym_details/NSE_FO.csv"),
+    ("nse_lots",  "https://nsearchives.nseindia.com/content/fo/fo_mktlots.csv"),
+    ("nse_lots2", "https://archives.nseindia.com/content/fo/fo_mktlots.csv"),
+]
 CACHE = "fno_symbols.txt"
-INDICES = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "BANKEX", "SENSEX"}
+INDICES = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "NIFTYIT",
+           "BANKEX", "SENSEX", "SENSEX50"}
 
 # Fallback (used only if the live master can't be fetched). Well-known NSE F&O stocks.
 # May be stale — the live master above is authoritative and refreshes this automatically.
@@ -45,27 +52,47 @@ FALLBACK = [
 ]
 
 
-def _extract_underlyings(csv_text):
-    """Pull every stock underlying that has a FUT contract from the symbol master."""
+def _parse_fyers(text):
+    """Fyers symbol master: pull every underlying that has a FUT contract."""
     pat = re.compile(r"NSE:([A-Z0-9&\-]+?)\d{2}[A-Z]{3}FUT")
-    found = set()
-    for m in pat.finditer(csv_text):
-        u = m.group(1)
-        if u and u not in INDICES:
-            found.add(u)
-    return sorted(found)
+    return sorted({m.group(1) for m in pat.finditer(text) if m.group(1) not in INDICES})
+
+
+def _parse_nse_lots(text):
+    """NSE fo_mktlots.csv: the SYMBOL column (2nd), skip header + index rows."""
+    names = set()
+    for line in text.splitlines()[1:]:
+        cols = [c.strip() for c in line.split(",")]
+        if len(cols) < 2:
+            continue
+        sym = cols[1].upper()
+        if re.fullmatch(r"[A-Z0-9&\-]{1,20}", sym) and sym not in INDICES:
+            names.add(sym)
+    return sorted(names)
+
+
+def _fetch(url, timeout=30):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode("utf-8", "ignore")
 
 
 def refresh(timeout=30):
-    """Download the master and rewrite the cache. Returns the list of underlyings."""
-    req = urllib.request.Request(MASTER_URL, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        text = r.read().decode("utf-8", "ignore")
-    names = _extract_underlyings(text)
-    if names:
-        with open(CACHE, "w") as f:
-            f.write("\n".join(names))
-    return names
+    """Try each source in order; first that yields names rewrites the cache."""
+    last_err = None
+    for kind, url in SOURCES:
+        try:
+            text = _fetch(url, timeout)
+            names = _parse_fyers(text) if kind == "fyers" else _parse_nse_lots(text)
+            if len(names) > 50:                       # sanity: a real F&O list is ~200
+                with open(CACHE, "w") as f:
+                    f.write("\n".join(names))
+                return names
+        except Exception as e:      # noqa
+            last_err = e
+    if last_err:
+        raise last_err
+    return []
 
 
 def _underlyings():
