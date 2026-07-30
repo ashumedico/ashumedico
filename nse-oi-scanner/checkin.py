@@ -154,8 +154,15 @@ def show_new(card, chk, point):
     if o:
         print(f"    KHAREED : {card['name']} {o['strike']:g} {o['type']} ({o['expiry']})"
               f"   premium ~{o['premium']}  {DIM}[{o['premium_source']}]{X}")
+        if o.get("days_to_expiry") is not None:
+            print(f"    EXPIRY  : {o['days_to_expiry']} din baaki")
     print(f"    QTY     : {card['size']['qty']}  "
-          f"({card['size']['lots']} lot x {card['size']['lot']})")
+          f"({card['size']['lots']} lot x {card['size']['lot']})"
+          + (f"   {DIM}= Rs {card['size']['contract_value']:,} ka contract{X}"
+             if card['size'].get('contract_value') else ""))
+    for w in (o.get("expiry_warning"), card["size"].get("lot_warning")):
+        if w:
+            print(f"    {R}!! {w}{X}")
     print(f"    LIMIT   : {card['stock']['entry']}")
     print(f"    STOP    : {R}{card['stock']['stop']}{X}"
           + (f"   (premium {o['stop']})" if o else ""))
@@ -293,15 +300,24 @@ def main():
     if fresh:
         point = fresh[0]
         closes = prices.get(point["symbol"]) or [point["close"]]
-        chain = None
+        chain, lot = None, None
+        expiry_label = getattr(config, "FUT_EXPIRY", "current")
+        dte = 25
         if not a.demo:
+            # The chain Fyers returns by default is the NEAREST expiry - which, run near
+            # the last week of a series, is an option that dies before T1 can ever print.
+            # Pull the expiry list first, pick one that outlasts the thesis, then fetch
+            # THAT chain so the premium quoted is the one he would actually pay.
             try:
                 import option_chain as oc
-                chain, _ = oc.fetch_live(point["symbol"])
+                chain, lbl, days, lot = oc.tradeable_chain(
+                    point["symbol"], TC.min_days_for_thesis())
+                if lbl:
+                    expiry_label, dte = lbl, days
             except Exception:
                 chain = None
-        card = TC.build_card(point, closes, chain=chain,
-                             expiry_label=getattr(config, "FUT_EXPIRY", "current"))
+        card = TC.build_card(point, closes, chain=chain, lot=lot,
+                             expiry_label=expiry_label, days_to_expiry=dte)
         ltp = (E.live_quote([point["symbol"]]).get(point["symbol"])
                if not a.demo else point["close"])
         chk = E.entry_check(card, ltp)

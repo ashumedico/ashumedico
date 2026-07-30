@@ -61,52 +61,92 @@ def _parse_fyers(text):
 LOTS_CACHE = "fno_lots.json"
 
 
-def fetch_lot_sizes(timeout=30):
-    """Real F&O lot sizes per underlying, from the Fyers symbol master.
+# Fyers symbol-master column layout. Index 3 is the minimum lot size; the older
+# "first integer column that looks plausible" heuristic picked index 2 instead
+# (exchange instrument type, a constant like 11/13) and silently sized every trade off it.
+FYERS_LOT_COL = 3
 
-    This matters more than it looks: options and futures trade only in whole lots, so a
-    wrong lot size makes every quantity - and therefore every risk calculation -
-    unactionable. Guessing one number for all names is not good enough."""
+
+def _plausible(lots):
+    """Reject a parse that grabbed the wrong column.
+
+    Real F&O lot sizes vary a lot across names (MRF ~5, IDEA ~70000). If nearly every
+    underlying comes back with the SAME number, we read a constant column - an instrument
+    type or a segment id - not a lot size. Better to have no lots than confident wrong ones.
+    """
+    if len(lots) < 20:
+        return False
+    vals = list(lots.values())
+    top = max(vals.count(v) for v in set(vals))
+    return top / len(vals) < 0.5 and len(set(vals)) >= 10
+
+
+def _lots_from_fyers(text):
     pat = re.compile(r"NSE:([A-Z0-9&\-]+?)\d{2}[A-Z]{3}FUT")
     lots = {}
-    for kind, url in SOURCES:
-        if kind != "fyers":
+    for line in text.splitlines():
+        m = pat.search(line)
+        if not m or m.group(1) in INDICES:
             continue
-        try:
-            text = _fetch(url, timeout)
-        except Exception:
+        cols = [c.strip() for c in line.split(",")]
+        if len(cols) <= FYERS_LOT_COL:
             continue
-        for line in text.splitlines():
-            m = pat.search(line)
-            if not m:
-                continue
-            under = m.group(1)
-            if under in INDICES:
-                continue
-            cols = line.split(",")
-            # lot size is the integer column that repeats across a symbol's rows;
-            # take the first plausible one (>0 and <100000)
-            for c in cols:
-                c = c.strip()
-                if c.isdigit():
-                    v = int(c)
-                    if 1 <= v <= 100000 and under not in lots:
-                        lots[under] = v
-                        break
-        if lots:
-            break
-    if lots:
-        with open(LOTS_CACHE, "w") as f:
-            json.dump(lots, f, indent=1)
+        c = cols[FYERS_LOT_COL]
+        if c.isdigit() and 1 <= int(c) <= 100000:
+            lots.setdefault(m.group(1), int(c))
     return lots
 
 
+def _lots_from_nse(text):
+    """NSE fo_mktlots.csv: UNDERLYING, SYMBOL, then one lot column per expiry month.
+    The near month is the first numeric column after the symbol."""
+    lots = {}
+    for line in text.splitlines()[1:]:
+        cols = [c.strip() for c in line.split(",")]
+        if len(cols) < 3:
+            continue
+        sym = cols[1].upper()
+        if not re.fullmatch(r"[A-Z0-9&\-]{1,20}", sym) or sym in INDICES:
+            continue
+        for c in cols[2:]:
+            if c.isdigit() and 1 <= int(c) <= 100000:
+                lots.setdefault(sym, int(c))
+                break
+    return lots
+
+
+def fetch_lot_sizes(timeout=30):
+    """Real F&O lot sizes per underlying.
+
+    This matters more than it looks: options and futures trade only in whole lots, so a
+    wrong lot size makes every quantity - and therefore every risk calculation -
+    unactionable. NSE's own mktlots file is authoritative; the Fyers master is the
+    fallback. Whichever answers first must still pass the plausibility check below."""
+    for kind, url in SOURCES:
+        parser = {"fyers": _lots_from_fyers}.get(kind, _lots_from_nse)
+        try:
+            lots = parser(_fetch(url, timeout))
+        except Exception:
+            continue
+        if _plausible(lots):
+            with open(LOTS_CACHE, "w") as f:
+                json.dump(lots, f, indent=1)
+            return lots
+    return {}
+
+
 def lot_sizes():
-    """Cached lot sizes; empty dict if we have never been able to fetch them."""
+    """Cached lot sizes; empty dict if we have never been able to fetch them.
+
+    The cache is re-validated on read, because an older build wrote a bad column into it
+    and a poisoned cache would otherwise outlive the fix."""
     if os.path.exists(LOTS_CACHE):
         try:
             with open(LOTS_CACHE) as f:
-                return json.load(f)
+                cached = json.load(f)
+            if _plausible(cached):
+                return cached
+            print("  [fno_universe] cached lot sizes look wrong - refetching")
         except Exception:
             pass
     try:
@@ -180,6 +220,20 @@ def fno_futures(expiry):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--lots", action="store_true", help="refresh and sanity-check lot sizes")
+    a = ap.parse_args()
+    if a.lots:
+        lots = fetch_lot_sizes()
+        if not lots:
+            print("  lot sizes: could not fetch a plausible set (no internet, or format changed)")
+            return
+        print(f"  lot sizes: {len(lots)} names, {len(set(lots.values()))} distinct values")
+        for n in ("RELIANCE", "COFORGE", "MRF", "IDEA", "SBIN"):
+            if n in lots:
+                print(f"    {n:<10} lot {lots[n]}")
+        return
     names, src = _underlyings()
     print(f"  F&O stock universe: {len(names)} names  (source: {src})")
     print("  " + ", ".join(names[:12]) + (" ..." if len(names) > 12 else ""))

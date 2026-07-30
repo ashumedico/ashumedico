@@ -88,8 +88,14 @@ def option_from_chain(chain, strike, direction):
 
 
 # ---------------- the card ----------------
+def min_days_for_thesis(hold_bars=20):
+    """A target that needs weeks cannot be bought on an option expiring in days.
+    Require the expiry to outlast the intended hold with room to spare."""
+    return int(hold_bars * 1.4) + 5
+
+
 def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
-               instrument="OPTION", capital=None, risk_pct=None):
+               instrument="OPTION", capital=None, risk_pct=None, lot=None):
     """point: an rrg_engine point dict. closes: that stock's close series."""
     capital = float(capital if capital is not None else getattr(config, "CAPITAL", 500000))
     risk_pct = float(risk_pct if risk_pct is not None else getattr(config, "RISK_PCT", 0.005))
@@ -148,6 +154,12 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         else:
             premium = premium_estimate(spot, strike, direction, vol, days_to_expiry)
             prem_src = "estimated"
+        # refuse an expiry too close to carry the trade
+        need_days = min_days_for_thesis()
+        expiry_warning = None
+        if days_to_expiry < need_days:
+            expiry_warning = (f"expiry only {days_to_expiry}d away but this thesis needs "
+                              f"~{need_days}d - roll to the next series")
         delta = 0.60                            # slightly-ITM working assumption
         opt_stop = round(max(premium - delta * (spot - stop_px), premium * 0.55), 1)
         opt_t1   = round(premium + delta * (t1_px - spot), 1)
@@ -158,6 +170,8 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "premium": premium, "premium_source": prem_src,
             "stop": opt_stop, "t1": opt_t1, "t2": opt_t2,
             "max_loss_per_unit": round(premium - opt_stop, 1),
+            "days_to_expiry": days_to_expiry,
+            "expiry_warning": expiry_warning,
         }
         risk_per_unit = max(premium - opt_stop, 1e-9)
     else:
@@ -167,9 +181,11 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     budget = capital * risk_pct
     units = int(budget / risk_per_unit) if risk_per_unit > 0 else 0
     # Real F&O lot size. Options/futures trade only in whole lots, so a wrong lot makes
-    # the quantity unbuyable and the risk figure meaningless. Prefer config override, then
-    # the live Fyers symbol master, and only then a generic fallback.
-    lot = getattr(config, "LOT_SIZES", {}).get(point["name"])
+    # the quantity unbuyable and the risk figure meaningless. Prefer the live option
+    # chain (authoritative), then a config override, then the Fyers symbol master, and
+    # only then a generic fallback.
+    if not lot:
+        lot = getattr(config, "LOT_SIZES", {}).get(point["name"])
     if not lot:
         try:
             from fno_universe import lot_sizes
@@ -178,13 +194,22 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             lot = None
     lot = int(lot or getattr(config, "DEFAULT_LOT", 1) or 1)
     lots = max(0, units // max(lot, 1))
+    # Sanity check the lot itself. Every NSE F&O contract is sized to roughly Rs 5-10
+    # lakh of underlying; anything far below that means the lot came from the wrong
+    # column and the whole quantity is fiction. Say so rather than print it straight.
+    contract_value = round(spot * lot)
+    lot_warning = (f"lot {lot} gives a contract value of only Rs {contract_value:,} - "
+                   f"NSE F&O contracts are ~Rs 5-10 lakh, so verify the lot before you order"
+                   ) if contract_value < 200000 else None
     card["size"] = {"risk_budget": round(budget), "lot": lot, "lots": lots,
                     "qty": lots * max(lot, 1),
                     "risk_per_unit": round(risk_per_unit, 2),
                     # if one lot already risks more than the budget, say so instead of
                     # quietly printing qty 0 or an un-tradeable number
                     "too_big": lots < 1,
-                    "one_lot_risk": round(risk_per_unit * lot)}
+                    "one_lot_risk": round(risk_per_unit * lot),
+                    "contract_value": contract_value,
+                    "lot_warning": lot_warning}
 
     # ---- the exit contract: mechanical, decided BEFORE entry ----
     o = card.get("option")
@@ -221,6 +246,10 @@ def render(card):
               f"   premium ~{o['premium']} [{o['premium_source']}]")
         print(f"  QTY   {c['size']['qty']}  ({c['size']['lots']} lot x {c['size']['lot']})"
               f"   risk budget Rs {c['size']['risk_budget']}")
+        if o.get("expiry_warning"):
+            print(f"  WARN  {o['expiry_warning']}")
+        if c["size"].get("lot_warning"):
+            print(f"  WARN  {c['size']['lot_warning']}")
     else:
         s = c["stock"]
         print(f"\n  BUY   {c['name']} @ {s['entry']}   QTY {c['size']['qty']}")

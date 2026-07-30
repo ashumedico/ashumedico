@@ -15,6 +15,9 @@ moves derivatives:
 NOT financial advice. Signals are inputs; the decision is yours.
 """
 import sys, os, argparse
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 try:
     import config
@@ -22,6 +25,37 @@ except ImportError:
     class _C:
         CLIENT_ID = ""; TOKEN_FILE = "access_token.txt"; OC_STRIKES = 10
     config = _C()
+
+
+LAST_EXPIRIES = []      # tradeable expiries from the most recent live chain
+LAST_LOT = None         # real lot size from the most recent live chain
+LAST_EPOCH = None       # expiry epoch the most recent chain actually belongs to
+
+
+def expiries(min_days=0):
+    """Tradeable expiries from the last live chain as (label, days_away, epoch),
+    nearest first. Fyers hands back epochs; days-away is what a trade decision needs."""
+    out, today = [], datetime.now(IST).date()
+    for e in LAST_EXPIRIES or []:
+        ep = e.get("expiry")
+        try:
+            d = datetime.fromtimestamp(int(ep), IST).date()
+        except Exception:
+            continue
+        days = (d - today).days
+        if days >= min_days:
+            out.append((e.get("date") or d.strftime("%d%b").upper(), days, str(ep)))
+    return sorted(out, key=lambda t: t[1])
+
+
+def pick_expiry(min_days):
+    """First expiry that outlasts the thesis. If none does, return the furthest one
+    available and let the caller warn — silently buying a dying option is the bug."""
+    ok = expiries(min_days)
+    if ok:
+        return ok[0]
+    allx = expiries(-3650)
+    return allx[-1] if allx else (None, None, None)
 
 
 def analyse(chain, spot):
@@ -63,17 +97,30 @@ def analyse(chain, spot):
             "ce": ce, "pe": pe, "strikes": strikes}
 
 
-def fetch_live(symbol):
+def fetch_live(symbol, timestamp=""):
+    """timestamp: expiry epoch (from expiries()). Empty string = the nearest expiry,
+    which is Fyers' default and is exactly the one you must NOT trade near expiry."""
     from fyers_apiv3 import fyersModel
+    global LAST_EXPIRIES, LAST_LOT, LAST_EPOCH
     if not os.path.exists(config.TOKEN_FILE):
         raise RuntimeError("No token. Run: python fyers_auth.py")
     token = open(config.TOKEN_FILE).read().strip()
     fy = fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
-    r = fy.optionchain({"symbol": symbol, "strikecount": getattr(config, "OC_STRIKES", 10), "timestamp": ""})
+    r = fy.optionchain({"symbol": symbol, "strikecount": getattr(config, "OC_STRIKES", 10),
+                        "timestamp": str(timestamp or "")})
     if not isinstance(r, dict) or r.get("s") != "ok":
         raise RuntimeError(f"optionchain error: {r}")
     d = r["data"]
     spot = d.get("expiryData", [{}]) and d.get("underlyingValue") or 0
+    # Fyers returns the tradeable expiries and the real lot size. Both matter: an option
+    # expiring in days cannot carry a multi-week target, and a wrong lot makes the
+    # quantity unbuyable.
+    LAST_EXPIRIES = d.get("expiryData", []) or []
+    LAST_EPOCH = str(timestamp) if timestamp else (
+        str(LAST_EXPIRIES[0].get("expiry")) if LAST_EXPIRIES else None)
+    for o in d.get("optionsChain", []):
+        if o.get("option_type") in ("CE", "PE") and o.get("lot_size"):
+            LAST_LOT = int(o["lot_size"]); break
     chain = []
     for o in d.get("optionsChain", []):
         ot = o.get("option_type")
@@ -83,6 +130,21 @@ def fetch_live(symbol):
                       "oi": o.get("oi", 0), "ltp": o.get("ltp", 0),
                       "oi_chg": o.get("oichng", 0)})
     return chain, spot or d.get("underlyingValue", 0)
+
+
+def tradeable_chain(symbol, min_days):
+    """The chain you can actually trade: the first expiry that outlasts `min_days`.
+
+    Fyers' default chain is the NEAREST expiry. Run that in the last week of a series and
+    every ticket quotes an option that dies before the target can print. So: read the
+    expiry list, choose one with room, then re-fetch that series so the premium shown is
+    the one he would really pay. Returns (chain, label, days_to_expiry, lot_size).
+    """
+    chain, _ = fetch_live(symbol)
+    lbl, days, ep = pick_expiry(min_days)
+    if ep and str(ep) != str(LAST_EPOCH):
+        chain, _ = fetch_live(symbol, timestamp=ep)
+    return chain, lbl, days, LAST_LOT
 
 
 def fetch_dry(symbol="NSE:NIFTY50-INDEX", spot=24200):

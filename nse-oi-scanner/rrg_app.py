@@ -191,16 +191,23 @@ else:
             # Only the top candidate gets a live option-chain call. Five sequential
             # chain fetches is what made this page hang after hours - the rest use the
             # estimated premium, which is labelled as such on the card.
-            chain = None
+            chain, lot, exp_lbl, dte = None, None, expiry_label, 25
             if not demo and p is sel["longs"][0]:
                 try:
                     import option_chain as oc
-                    chain, _spot = oc.fetch_live(p["symbol"])
+                    chain, lbl, days, lot = oc.tradeable_chain(
+                        p["symbol"], TC.min_days_for_thesis())
+                    if lbl:
+                        exp_lbl, dte = lbl, days
                 except Exception:
                     chain = None
-            card = TC.build_card(p, closes, chain=chain, expiry_label=expiry_label,
+            card = TC.build_card(p, closes, chain=chain, lot=lot, expiry_label=exp_lbl,
+                                 days_to_expiry=dte,
                                  capital=cap_cfg, risk_pct=getattr(config, "RISK_PCT", 0.005))
             o = card.get("option", {})
+            for _w in (o.get("expiry_warning"), card["size"].get("lot_warning")):
+                if _w:
+                    st.warning(_w)
             badge = {"BUY NOW": "🟢", "WAIT FOR PULLBACK": "🟡", "SKIP": "🔴"}.get(card["action"], "⚪")
 
             # --- one dense header line: verdict + freshness + why ---
