@@ -80,7 +80,7 @@ New-Shortcut $folder "6 - Find Best Setup"  "run_sweep.bat"      "%SystemRoot%\S
 New-Shortcut $folder "7 - Robustness Test"  "run_robustness.bat" "%SystemRoot%\System32\shell32.dll" 166 "Out-of-sample + cost + regime + stability - try to DISPROVE the edge"
 New-Shortcut $folder "8 - Journal"          "run_journal.bat"    "%SystemRoot%\System32\shell32.dll" 47  "Grade past signals, learn what works, what to stop"
 New-Shortcut $folder "9 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
-New-Shortcut $folder "SETUP - Telegram Alerts" "SETUP-ALERTS.bat" "%SystemRoot%\System32\shell32.dll" 12 "Ek baar: phone pe alert lagao jab T1/stop hit ho"
+New-Shortcut $folder "SETUP - Telegram Alerts" "TELEGRAM-SETUP.bat" "%SystemRoot%\System32\shell32.dll" 12 "Ek baar: phone pe alert lagao jab T1/stop hit ho"
 New-Shortcut $folder "STOP - Kill Switch"   "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC: halt all trading immediately"
 
 # a shortcut straight to the code folder, handy for config.py edits
