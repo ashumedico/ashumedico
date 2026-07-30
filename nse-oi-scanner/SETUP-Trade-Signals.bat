@@ -32,17 +32,21 @@ cd /d "%DIR%\nse-oi-scanner"
 python -m pip install -r requirements.txt
 
 echo.
-echo === Creating your 4 desktop icons ===
+echo === Creating your Desktop folder + launchers ===
 powershell -NoProfile -ExecutionPolicy Bypass -File "create_desktop_shortcuts.ps1"
 
 echo.
 echo ============================================================
-echo  DONE. Look at your Desktop for 4 icons:
-echo    - Fyers Login          (get today's token first)
-echo    - NSE OI Scanner
-echo    - OI Scanner Board     (dashboard at localhost:8501)
-echo    - Trade Signals + RRG  (1 CE + 1 PE + 1 Future + charts + RRG)
+echo  DONE. One folder on your Desktop: "AASHISH TRADING OS"
+echo  Open it - everything is inside, numbered in running order:
+echo    1 - Fyers Login       (today's token - do this first)
+echo    2 - RRG Trader        (the cockpit, localhost:8501)
+echo    3 - Signal Desk       (one-page desk)
+echo    4 - Auto-Trader       (hands-free, PAPER)
+echo    5 - Find Best Setup   (backtest on your own data)
+echo    6 - OI Scanner
+echo    STOP - Kill Switch    (halt everything)
 echo.
-echo  First run: add your Fyers keys once ->  python setup.py
+echo  First time only: add your Fyers keys ->  python setup.py
 echo ============================================================
 pause

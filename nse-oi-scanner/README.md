@@ -30,12 +30,22 @@ pip install -r requirements.txt
 copy config.example.py config.py     # add Fyers keys + your FUT universe
 ```
 
-## Desktop icons (Windows)
-Double-click **`install.bat`** once → it **replaces old icons** and drops 4 fresh ones:
-- **NSE OI Scanner** → `run_scanner.bat` (console, live loop)
-- **Fyers Login** → `run_login.bat` (daily token)
-- **OI Scanner Board** → `run_dashboard.bat` (Streamlit → localhost:8501)
-- **Trade Signals + RRG** → `run_signals.bat` (1 CE + 1 PE + 1 Future, 3 annotated charts + RRG)
+## Desktop: one folder, everything inside (Windows)
+Double-click **`install.bat`** once → it clears any loose icons and creates a single Desktop
+folder **`AASHISH TRADING OS`** containing every launcher, numbered in running order:
+
+| Icon | Runs | What |
+|---|---|---|
+| **1 - Fyers Login** | `run_login.bat` | today's token — **first thing every morning** |
+| **2 - RRG Trader** | `run_rrg_app.bat` | the cockpit: RRG main window + auto-trader (localhost:8501) |
+| **3 - Signal Desk** | `run_signals.bat` | one-page desk (buildup + 1 CE/1 PE/1 FUT + charts + RRG) |
+| **4 - Auto-Trader** | `run_autotrader.bat` | hands-free loop (PAPER unless armed) |
+| **5 - Find Best Setup** | `run_sweep.bat` | backtest RRG setups on your data, save the winner |
+| **6 - OI Scanner** | `run_scanner.bat` | console OI-change buildup |
+| **STOP - Kill Switch** | `STOP-TRADING.bat` | halt all trading immediately |
+| **Open code folder** | — | jump to `config.py`, logs, `paper_book.json` |
+
+**Daily:** `1 - Fyers Login` → `2 - RRG Trader`.
 
 ## Run
 ```bash

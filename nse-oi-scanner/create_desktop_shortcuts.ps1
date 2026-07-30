@@ -1,12 +1,17 @@
 # create_desktop_shortcuts.ps1
-# AASHISH TRADING OS — desktop icons. Run via install.bat (double-click).
+# AASHISH TRADING OS - creates ONE desktop folder holding every launcher.
+# Run via install.bat (double-click).
 $ErrorActionPreference = "Stop"
 $here    = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $desktop = [Environment]::GetFolderPath("Desktop")
 $sh      = New-Object -ComObject WScript.Shell
 
-function New-Shortcut($name, $bat, $iconDll, $iconIdx, $desc) {
-    $lnk = $sh.CreateShortcut((Join-Path $desktop "$name.lnk"))
+# The one folder that holds the whole trading setup
+$folderName = "AASHISH TRADING OS"
+$folder     = Join-Path $desktop $folderName
+
+function New-Shortcut($dir, $name, $bat, $iconDll, $iconIdx, $desc) {
+    $lnk = $sh.CreateShortcut((Join-Path $dir "$name.lnk"))
     $lnk.TargetPath       = (Join-Path $here $bat)
     $lnk.WorkingDirectory = $here
     $lnk.IconLocation     = "$iconDll,$iconIdx"
@@ -15,7 +20,7 @@ function New-Shortcut($name, $bat, $iconDll, $iconIdx, $desc) {
     Write-Host "  [OK] $name"
 }
 
-# --- clear every old icon name we have ever shipped, so the desktop stays clean ---
+# --- clean up every loose icon we have ever dropped on the Desktop ---
 $stale = @(
     "NSE OI Scanner","Fyers Login","OI Scanner Board","Trade Signals","Trade Signals + RRG",
     "Signal Desk (1 page)","Auto-Trader (PAPER)","STOP Trading",
@@ -23,20 +28,42 @@ $stale = @(
     "Aashish - RRG Trader","Aashish - Signal Desk","Aashish - Fyers Login",
     "Aashish - Auto-Trader","Aashish - STOP","Aashish - OI Scanner","Aashish - Find Best Setup"
 )
+$removed = 0
 foreach ($old in $stale) {
     $p = Join-Path $desktop "$old.lnk"
-    if (Test-Path $p) { Remove-Item $p -Force }
+    if (Test-Path $p) { Remove-Item $p -Force; $removed++ }
+}
+if ($removed -gt 0) { Write-Host "Cleared $removed loose icon(s) from the Desktop." }
+
+# --- create (or refresh) the folder ---
+if (-not (Test-Path $folder)) {
+    New-Item -ItemType Directory -Path $folder | Out-Null
+    Write-Host "Created Desktop folder: $folderName"
+} else {
+    Get-ChildItem -Path $folder -Filter *.lnk -ErrorAction SilentlyContinue | Remove-Item -Force
+    Write-Host "Refreshing folder: $folderName"
 }
 
-Write-Host "Creating AASHISH TRADING OS icons..."
-# shell32.dll icon indices: 137 target · 13 chart · 44 key · 23 monitor · 25 gears · 131 stop · 21 search
-New-Shortcut "Aashish - RRG Trader"      "run_rrg_app.bat"    "%SystemRoot%\System32\shell32.dll" 137 "Aashish Trading OS - RRG cockpit + auto-trader (localhost:8501)"
-New-Shortcut "Aashish - Fyers Login"     "run_login.bat"      "%SystemRoot%\System32\shell32.dll" 44  "Get today's Fyers token (run first each morning)"
-New-Shortcut "Aashish - Signal Desk"     "run_signals.bat"    "%SystemRoot%\System32\shell32.dll" 13  "One-page desk: OI buildup + 1 CE/1 PE/1 Future + charts + RRG"
-New-Shortcut "Aashish - Auto-Trader"     "run_autotrader.bat" "%SystemRoot%\System32\shell32.dll" 25  "Hands-free auto-trader loop (PAPER unless armed)"
-New-Shortcut "Aashish - Find Best Setup" "run_sweep.bat"      "%SystemRoot%\System32\shell32.dll" 21  "Backtest RRG setups on your own data and save the winner"
-New-Shortcut "Aashish - OI Scanner"      "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
-New-Shortcut "Aashish - STOP"            "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC kill switch - halt all trading immediately"
+# --- the launchers, NUMBERED in daily running order ---
+# shell32.dll icon indices: 44 key - 137 target - 13 chart - 25 gears - 21 search - 23 monitor - 131 stop
+Write-Host "Adding launchers..."
+New-Shortcut $folder "1 - Fyers Login"      "run_login.bat"      "%SystemRoot%\System32\shell32.dll" 44  "STEP 1 each morning: get today's Fyers token"
+New-Shortcut $folder "2 - RRG Trader"       "run_rrg_app.bat"    "%SystemRoot%\System32\shell32.dll" 137 "STEP 2: the cockpit - RRG main window + auto-trader (localhost:8501)"
+New-Shortcut $folder "3 - Signal Desk"      "run_signals.bat"    "%SystemRoot%\System32\shell32.dll" 13  "One-page desk: OI buildup + 1 CE/1 PE/1 Future + charts + RRG"
+New-Shortcut $folder "4 - Auto-Trader"      "run_autotrader.bat" "%SystemRoot%\System32\shell32.dll" 25  "Hands-free auto-trader loop (PAPER unless armed)"
+New-Shortcut $folder "5 - Find Best Setup"  "run_sweep.bat"      "%SystemRoot%\System32\shell32.dll" 21  "Backtest RRG setups on your own data and save the winner"
+New-Shortcut $folder "6 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
+New-Shortcut $folder "STOP - Kill Switch"   "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC: halt all trading immediately"
 
-Write-Host "`nDone. 7 icons on your Desktop, all named 'Aashish - ...'."
-Write-Host "Daily order:  Fyers Login  ->  RRG Trader"
+# a shortcut straight to the code folder, handy for config.py edits
+$lnk = $sh.CreateShortcut((Join-Path $folder "Open code folder.lnk"))
+$lnk.TargetPath = $here
+$lnk.Description = "The scanner folder (config.py, logs, paper_book.json)"
+$lnk.Save()
+
+Write-Host ""
+Write-Host "================================================================"
+Write-Host "  Done. ONE folder on your Desktop:  $folderName"
+Write-Host "  Open it - everything is inside, numbered in running order."
+Write-Host "  Daily:  1 - Fyers Login   then   2 - RRG Trader"
+Write-Host "================================================================"
