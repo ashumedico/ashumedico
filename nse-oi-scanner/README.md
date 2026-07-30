@@ -1,132 +1,67 @@
-# NSE F&O OI-Change Options Scanner (Fyers) — v2
+# NSE F&O Trading OS (Fyers) — v5
 
-Version-controlled, hardened rebuild of the scanner that used to live only on your PC at
-`C:\claude\`. Now in git: backed up, diff-able, improvable.
+Your desk, in one folder. Daily use is two icons; everything else is there for when you
+want to dig.
 
-> **Not financial advice.** Signals are inputs; every trade decision is yours (`@edge-seeker`).
+> **Not financial advice.** Signals are inputs; every trade decision is yours.
 
-## The signal engine
-Price × open-interest matrix, measured **from the day's opening OI** (real intraday buildup):
+## The daily loop (this is 95% of it)
+```
+1 - Fyers Login     today's token
+2 - CHECK-IN        what to hold / book / buy - then leave
+```
+`checkin.py` answers three questions and gets out of the way: what to do with what you
+already hold, whether there is a new trade, and how the closed ones have gone. State
+lives in `positions.json`, so leaving for a week and coming back still works.
 
-| Price | OI | Signal |
-|---|---|---|
-| ↑ | ↑ | **Long Buildup** (bullish) |
-| ↓ | ↑ | **Short Buildup** (bearish) |
-| ↑ | ↓ | **Short Covering** (bullish) |
-| ↓ | ↓ | **Long Unwinding** (bearish) |
+```bash
+python checkin.py                      # the check-in
+python checkin.py --buy                # you took the suggested trade
+python checkin.py --sold GNFC --price 62   # you exited
+python checkin.py --sold GNFC --half --price 58   # booked half; stop moves to breakeven
+```
 
-## What v2 fixed (critical review of the first rebuild)
-1. **OI baseline** — now vs **day-open OI**, not vs the last 5-min poll (which was noise).
-2. **Futures symbols** — cash `-EQ` has no OI; the universe now uses `...FUT` symbols.
-3. **Market-hours guard** — only scans 09:15–15:30 IST, Mon–Fri (override with `--force`).
-4. **Token expiry** — a Fyers auth error is caught and tells you to re-login instead of crashing.
-5. **Retries + backoff** on every API call.
-6. **History + logging** — `scanner.log` + a daily `signals_YYYYMMDD.csv`.
-7. **Optional Telegram alerts** on strong buildups (`alerts.py`, config-gated).
+## When you are away
+`watchdog.py` pings Telegram (or SMS) **only when a decision is due** - T1 hit, T2 hit,
+stop broken, or dead money. Silence is deliberate. Set it up once with
+**SETUP - Telegram Alerts**, which discovers your chat id itself and schedules the checks.
+
+## The engine underneath
+| File | Role |
+|---|---|
+| `rrg_engine.py` | RRG core - RS-Ratio/RS-Momentum, heading, velocity, distance, quadrant crossings, **own-trend**, signal dating, full-universe live data with a day cache |
+| `rrg_strategy.py` | 9 rule-sets, walk-forward backtest, **trading profiles** (active/swing/positional), vol targeting, no-trade band, regime gate |
+| `robustness.py` | Tries to **disprove** the edge: out-of-sample, cost sensitivity, regime, parameter stability |
+| `trade_card.py` | Candidate -> order ticket: which option, size, entry/stop/T1/T2, exit contract |
+| `journal.py` | Grades its own past calls, slices what works, prints KEEP/STOP lessons |
+| `risk_gate.py` · `execution.py` · `auto_trader.py` | 5-check risk gate, paper/live broker layer, hands-free loop |
+| `rrg_app.py` | The deep-dive cockpit (Streamlit) - RRG main window, action board, journal |
+| `scanner.py` · `option_chain.py` · `chart_action.py` · `signal_engine.py` | OI buildup, PCR/Max-Pain/walls, support-resistance, 3-layer confluence |
+
+## What the evidence says
+On 204 real F&O names over ~1.6 years, at the **positional** cadence (~monthly
+decisions, 4 slots): the vol-targeted + banded setup returned **55.8% vs NIFTY 5.4%**,
+Sharpe **1.90**, maxDD **-4.4%**, on **32 trades**.
+
+Two honest caveats, both material:
+- **32 trades is a thin sample**, and that setup was the best of 27 combinations tried,
+  so some of it is selection luck.
+- **It is not yet out-of-sample validated** - 400 bars cannot split at a 20-bar
+  rebalance. Run `python robustness.py --days 900` before sizing it up.
+
+Why turnover matters so much here: 303 trades at a realistic 35bps is roughly 10% of
+cost drag; 32 trades is about 1%. Trading less was most of the improvement.
 
 ## Setup
 ```bash
-pip install -r requirements.txt
-copy config.example.py config.py     # add Fyers keys + your FUT universe
+python setup.py            # Fyers keys -> config.py (git-ignored)
+python upgrade_config.py   # adds any settings a older config.py is missing
+python fyers_auth.py       # today's token
 ```
+`config.py`, `positions.json`, `cache/` and anything personal are git-ignored. This repo
+is public - keep credentials and phone numbers out of tracked files.
 
-## Desktop: one folder, everything inside (Windows)
-Double-click **`install.bat`** once → it clears any loose icons and creates a single Desktop
-folder **`AASHISH TRADING OS`** containing every launcher, numbered in running order:
-
-| Icon | Runs | What |
-|---|---|---|
-| **1 - Fyers Login** | `run_login.bat` | today's token — **first thing every morning** |
-| **2 - RRG Trader** | `run_rrg_app.bat` | the cockpit: RRG main window + auto-trader (localhost:8501) |
-| **3 - Signal Desk** | `run_signals.bat` | one-page desk (buildup + 1 CE/1 PE/1 FUT + charts + RRG) |
-| **4 - Auto-Trader** | `run_autotrader.bat` | hands-free loop (PAPER unless armed) |
-| **5 - Find Best Setup** | `run_sweep.bat` | backtest RRG setups on your data, save the winner |
-| **6 - OI Scanner** | `run_scanner.bat` | console OI-change buildup |
-| **STOP - Kill Switch** | `STOP-TRADING.bat` | halt all trading immediately |
-| **Open code folder** | — | jump to `config.py`, logs, `paper_book.json` |
-
-**Daily:** `1 - Fyers Login` → `2 - RRG Trader`.
-
-## Run
-```bash
-python fyers_auth.py         # each morning: today's token
-python scanner.py            # one scan
-python scanner.py --loop     # continuous (every POLL_SECONDS)
-python scanner.py --dry-run  # synthetic data, no Fyers needed
-streamlit run app.py         # dashboard at http://localhost:8501
-```
-
-## Files
-| File | Role |
-|---|---|
-| `scanner.py` | hardened OI-change scanner (console) |
-| `option_chain.py` | PCR · Max Pain · S/R walls · call/put-writing |
-| `chart_action.py` | trend · R1/R2 · S1/S2 · continuation · 60%-body breakout |
-| `signal_engine.py` | 3-layer confluence → 1 CE + 1 PE + 1 Future |
-| `charts.py` | annotated candlestick chart per idea (levels + why) |
-| `rrg.py` | Relative Rotation Graph (leading/lagging vs NIFTY) |
-| `app.py` | Streamlit dashboard (localhost:8501) |
-| `fyers_auth.py` | daily Fyers token refresh |
-| `alerts.py` | optional Telegram push |
-| `config.example.py` | copy → `config.py` (git-ignored) |
-| `install.bat` / `create_desktop_shortcuts.ps1` | desktop icons (4, auto-refreshed) |
-| `run_*.bat` | Windows launchers your shortcuts point to |
-
-## v3.0 — Chart-Action revalidation + RRG (the "Chartonix" layer)
-Your scanner now gives OI buildup **and** cross-checks it before recommending a trade —
-exactly what you asked: revalidate the signals against chart action, then give **one CE,
-one PE, one Future** with **3 annotated charts** that mark the levels and justify each trade.
-
-**Three independent lenses must agree (confluence):**
-1. **OI buildup** (`scanner.py`) — long/short buildup, covering, unwinding
-2. **Option chain** (`option_chain.py`) — PCR, Max Pain, support/resistance walls, writing
-3. **Chart action** (`chart_action.py`) — trend (e.g. *Bullish + Sideways*), **R1/R2 & S1/S2**,
-   3–5 candle continuation, **60%-body breakout rule**
-
-`signal_engine.py` fuses them into a 0–100 confidence score and emits **exactly 1 CE + 1 PE +
-1 Future** (entry / stop / target / R:R + the *why*). `charts.py` renders one annotated
-candlestick per idea — levels marked, entry/stop/target bands, a direction arrow and a
-"WHY THIS TRADE" box.
-
-```bash
-python signal_engine.py --dry-run   # the 3 ideas in the console
-python charts.py --dry-run          # writes charts/signal_{CE,PE,FUT}_*.png
-python signal_engine.py             # live (needs Fyers token)
-```
-
-### RRG — Relative Rotation Graph (`rrg.py`) — **full F&O universe × OI buildup**
-The StockCharts-style **2×2 rotation** of **all ~214 F&O stocks** vs NIFTY
-(**Leading · Weakening · Lagging · Improving**), with a second layer the standard RRG
-doesn't have — **OI buildup overlaid on every dot**:
-
-- **Position** = price rotation (RS-Ratio x, RS-Momentum y)
-- **Marker** = fresh-money direction: **▲ solid** long buildup (fresh buying) · **▲ hollow**
-  short covering · **▼ solid** short buildup (fresh selling) · **▼ hollow** long unwinding
-- **Confluence picks** = where price and OI agree:
-  **Fresh longs** (Leading/Improving + long buildup) · **Fresh shorts** (Lagging/Weakening + short buildup)
-
-The universe is **self-updating** (`fno_universe.py` pulls the live Fyers symbol master, so
-new F&O inclusions appear automatically; a built-in fallback list keeps it working offline).
-
-```bash
-python fno_universe.py              # refresh + count the F&O stock list
-python rrg.py --dry-run             # ~190-name synthetic universe -> charts/rrg.png
-python rrg.py --expiry 26JUL        # live: full universe + OI overlay (Fyers token)
-```
-
-Both are also wired into the **dashboard** (`app.py`).
-
-### Everything in one webpage (`report.py`)
-One self-contained HTML page — no server, no internet — with the OI buildup table, option-chain
-context, all **three ideas + their charts**, and the **RRG**. Charts are embedded, so it's a single
-file you can open by double-click or email to yourself.
-
-```bash
-python report.py --dry-run          # demo -> report.html (opens in your browser)
-python report.py                    # live (needs Fyers token)
-```
-
-The **Signal Desk (1 page)** desktop icon (`run_signals.bat`) builds and opens this page for you.
+---
 
 ## v4.0 — the AUTO-TRADER (paper-first, Fyers-linked, risk-gated)
 A 24/7 automated engine that runs the whole pipeline and can place orders — **paper by
