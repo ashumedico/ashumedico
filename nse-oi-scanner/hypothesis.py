@@ -150,6 +150,8 @@ def main():
     ap.add_argument("--days", type=int, default=900)
     ap.add_argument("--profile", default="swing", choices=list(S.PROFILES))
     ap.add_argument("--folds", type=int, default=3)
+    ap.add_argument("--save", action="store_true",
+                    help="make the winning component set the live setup")
     a = ap.parse_args()
     prof = S.PROFILES[a.profile]
     step, max_pos = prof["step"], prof["max_pos"]
@@ -245,6 +247,19 @@ def main():
     if all(w["avg"] <= 0 for _, w in scored):
         print("\n  >> NOTHING here has a positive out-of-sample edge. Do not trade any of it.")
         print("     The infrastructure stays useful; this particular signal family does not.")
+    if a.save and not a.demo:
+        import json
+        rule, params = dict(ABLATIONS)[best_label]
+        with open("rrg_best_setup.json", "w") as f:
+            json.dump({"setup": best_label, "rule": rule, "params": params,
+                       "metrics": {"total_return": best.get("avg35", best["avg"]),
+                                   "sharpe": best["sharpe"], "max_dd": best["max_dd"],
+                                   "trades": best["trades"],
+                                   "win_rate": round(best["wins"] / best["folds"] * 100, 1)},
+                       "chosen_by": "walk-forward ablation at 35bps",
+                       "saved_at": datetime.now(IST).isoformat()}, f, indent=2)
+        print(f"\n  [saved] '{best_label}' is now the live setup (rrg_best_setup.json).")
+        print("          checkin.py and the app will trade THIS from now on.")
     print(f"\n  Saved to: {REPORT}")
     print("  A backtest is a hypothesis, not a promise.")
     print("=" * 78 + "\n")

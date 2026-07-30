@@ -398,8 +398,10 @@ def load_best(path="rrg_best_setup.json"):
         with open(path) as f:
             b = json.load(f)
         return b.get("rule"), b.get("params", {}), b
-    # sensible default until a sweep has been run: the evidence-based combined filter
-    return "improving_or_leading", {"min_distance": 1.0, "need_trend": True}, None
+    # Default is the ablation winner, not the elaborate one. On real NSE data the
+    # rotation layer cost 6.3% after costs and tripled turnover, while the plain
+    # own-trend filter won every walk-forward fold on a third of the trades.
+    return "momentum_only", {"need_trend": True}, None
 
 
 # ---------------- live signal selection ----------------
