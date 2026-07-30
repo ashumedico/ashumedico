@@ -71,9 +71,17 @@ def _entry_ok(p, rule, params):
 
 
 def _exit_ok(p, params):
-    """Exit when the rotation turns against us (or own trend breaks)."""
-    if p["quadrant"] in ("WEAKENING", "LAGGING") and params.get("exit_on_weaken", True):
-        return True
+    """Exit when the rotation turns against us (or own trend breaks).
+
+    `exit_band` adds a no-trade buffer: the dot must travel that far PAST the axis
+    before we pay to exit, instead of churning every time it wobbles across 100.
+    Banding cuts turnover more efficiently than simply rebalancing less often,
+    because it keeps full exposure to the signal while dropping the noise trades."""
+    band = float(params.get("exit_band", 0.0))
+    if params.get("exit_on_weaken", True):
+        # both WEAKENING and LAGGING sit below the momentum axis
+        if p["y"] < 100 - band:
+            return True
     if params.get("need_trend", False) and p["abs_trend"] < 0:
         return True
     return False
@@ -89,6 +97,13 @@ RULESETS = {
                                                    "heading": (0, 90)}),
     "G combined":        ("improving_or_leading", {"min_distance": 1.5, "need_trend": True,
                                                    "heading": (-1, 100)}),
+    # H = E plus the two evidence-based upgrades: volatility targeting (Barroso &
+    # Santa-Clara 2015) to kill the crash tail, and a no-trade band to cut turnover.
+    "H +vol-target+band": ("improving_or_leading", {"min_distance": 1.0, "need_trend": True,
+                                                    "target_vol": 0.15, "exit_band": 0.5}),
+    "I H+regime":         ("improving_or_leading", {"min_distance": 1.0, "need_trend": True,
+                                                    "target_vol": 0.15, "exit_band": 0.5,
+                                                    "need_regime": True}),
 }
 
 
@@ -114,6 +129,7 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
     held = {}                       # name -> {entry_px, bars}
     by_name = {s.split(":")[-1].replace("-EQ", ""): c for s, c in prices.items()}
     entries, closed_rs = 0, []      # count entries; record every realised trade return
+    period_rets, exposure = [], []  # for volatility targeting
 
     t = start
     while t + step < n:
@@ -154,7 +170,25 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
         else:
             gross = 0.0
         turnover_cost = (cost_bps / 10000.0) * (len(held) / max(max_pos, 1))
-        equity.append(equity[-1] * (1 + gross - turnover_cost))
+
+        # --- volatility targeting (Barroso & Santa-Clara): cut exposure when the
+        # strategy's own recent volatility spikes. Momentum crashes arrive with high
+        # vol, so de-risking into them removes the worst of the drawdown. Capped at
+        # 1.0 so this can only ever REDUCE risk - never lever up. ---
+        tvol = params.get("target_vol")
+        scale = 1.0
+        if tvol:
+            look = period_rets[-12:]
+            if len(look) >= 6:
+                m = sum(look) / len(look)
+                sd = (sum((x - m) ** 2 for x in look) / len(look)) ** 0.5
+                ann = sd * math.sqrt(252 / step)
+                if ann > 1e-6:
+                    scale = min(1.0, float(tvol) / ann)
+        net = (gross - turnover_cost) * scale
+        period_rets.append(gross)
+        exposure.append(scale)
+        equity.append(equity[-1] * (1 + net))
         t += step
 
     # --- close anything still open, at the last bar, so accounting is complete ---
@@ -184,6 +218,7 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
             "cagr": round(cagr * 100, 2) if cagr is not None else None,
             "sharpe": round(sharpe, 2), "max_dd": round(mdd * 100, 2),
             "trades": len(closed_rs), "entries": entries,
+            "avg_exposure": round(sum(exposure) / len(exposure), 2) if exposure else 1.0,
             "win_rate": round(wins / len(closed_rs) * 100, 1) if closed_rs else 0,
             "years": round(years, 2), "equity": [round(e, 4) for e in equity]}
 
@@ -219,12 +254,15 @@ def sweep(prices, bench, step=5, max_pos=10, verbose=True):
     if verbose:
         print(f"\n  RRG SETUP SWEEP  ·  walk-forward, no lookahead  ·  rebalance every {step} bars")
         print("  " + "-" * 78)
-        print(f"  {'SETUP':<20}{'RETURN%':>9}{'CAGR%':>8}{'SHARPE':>8}{'MAXDD%':>9}{'TRADES':>8}{'WIN%':>7}")
+        print(f"  {'SETUP':<20}{'RETURN%':>9}{'CAGR%':>8}{'SHARPE':>8}{'MAXDD%':>9}"
+              f"{'TRADES':>8}{'WIN%':>7}{'EXP':>6}")
         print("  " + "-" * 78)
         for r in rows:
             cagr = f"{r['cagr']:>8.1f}" if r.get("cagr") is not None else f"{'n/a':>8}"
+            exp = r.get("avg_exposure", 1.0)
             print(f"  {r['setup']:<20}{r['total_return']:>9.1f}{cagr}"
-                  f"{r['sharpe']:>8.2f}{r['max_dd']:>9.1f}{r['trades']:>8}{r['win_rate']:>7.1f}")
+                  f"{r['sharpe']:>8.2f}{r['max_dd']:>9.1f}{r['trades']:>8}{r['win_rate']:>7.1f}"
+                  f"{exp:>6.2f}")
         print("  " + "-" * 78)
         bcagr = f"{bm['cagr']:>8.1f}" if bm.get("cagr") is not None else f"{'n/a':>8}"
         print(f"  {'NIFTY (buy & hold)':<20}{bm['total_return']:>9.1f}{bcagr}"
@@ -238,6 +276,8 @@ def sweep(prices, bench, step=5, max_pos=10, verbose=True):
             beat = "beats" if best["total_return"] > bm["total_return"] else "does NOT beat"
             print(f"  -> this setup {beat} buy-and-hold on this sample.")
         print("  " + "-" * 78)
+        print("  EXP = average exposure. Below 1.00 means volatility targeting was")
+        print("  de-risking - lower return there is the PRICE of a smaller drawdown.")
         print("  A backtest is a hypothesis, not a promise. Costs assumed 15bps/trade.\n")
     return rows, bm
 
