@@ -202,7 +202,7 @@ def _fy():
 
 
 def fetch_history(symbols, benchmark=None, resolution="D", days=200,
-                  use_cache=True, progress=None, throttle=0.10):
+                  use_cache=True, progress=None, throttle=0.22):
     """Daily closes for every symbol + the benchmark. Cached per day so the
     full-universe pull happens once, then loads instantly."""
     benchmark = benchmark or getattr(config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX")
@@ -247,12 +247,26 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
     prices, total = {}, len(symbols)
     skipped = []
     for i, s in enumerate(symbols):
-        try:
-            c, _d = one(s)
-            if len(c) > 40:
-                prices[s] = c
-        except Exception as err:      # noqa
-            skipped.append((s, str(err)[:80]))
+        got = None
+        for attempt in range(3):
+            try:
+                c, _d = one(s)
+                if len(c) > 40:
+                    got = c
+                break
+            except Exception as err:      # noqa
+                msg = str(err)
+                if "rate" in msg.lower() or "limit" in msg.lower() or "429" in msg:
+                    time.sleep(1.5 * (attempt + 1))   # back off, then retry
+                    continue
+                skipped.append((s, msg[:80]))
+                break
+        else:
+            skipped.append((s, "rate-limited after 3 attempts"))
+        if got:
+            prices[s] = got
+        elif not any(x[0] == s for x in skipped):
+            skipped.append((s, "no usable history"))
         if progress and (i + 1) % 10 == 0:
             progress(i + 1, total)
         time.sleep(throttle)
@@ -268,6 +282,54 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
                    "skipped": [x[0] for x in skipped],
                    "at": datetime.now(IST).isoformat()}, f)
     return prices, bench, bench_dates
+
+
+def live_quote(symbols):
+    """Current LTP for a handful of symbols — used to answer "can I enter right now?"."""
+    if not symbols:
+        return {}
+    out = {}
+    try:
+        fy = _fy()
+        for i in range(0, len(symbols), 50):
+            r = fy.quotes({"symbols": ",".join(symbols[i:i + 50])})
+            for d in (r.get("d", []) if isinstance(r, dict) else []):
+                v = d.get("v", {}) or {}
+                if v.get("lp"):
+                    out[d.get("n")] = float(v["lp"])
+    except Exception:      # noqa — no feed/off-hours: caller falls back to last close
+        pass
+    return out
+
+
+def entry_check(card, ltp):
+    """Compare the live price against the card's plan and give a plain verdict.
+
+    This is the question the RRG never answers: not "is this a good stock" but
+    "can I press buy at this exact moment, or am I still waiting?" """
+    plan = card.get("stock", {})
+    limit = plan.get("entry")
+    stop = plan.get("stop")
+    t1 = plan.get("t1")
+    if ltp is None or not limit:
+        return {"state": "NO PRICE", "line": "No live price — check again in market hours.",
+                "can_enter": False}
+    if stop and ltp <= stop:
+        return {"state": "SKIP", "can_enter": False,
+                "line": f"Already below the stop ({stop}) — the thesis is broken. Skip it."}
+    if t1 and ltp >= t1:
+        return {"state": "MISSED", "can_enter": False,
+                "line": f"Already past T1 ({t1}) — the move is gone. Wait for the next setup."}
+    if ltp <= limit:
+        room = (limit - ltp) / limit * 100
+        return {"state": "ENTER NOW", "can_enter": True,
+                "line": f"Price {ltp} is at/below your limit {limit} "
+                        f"({room:.2f}% of room left) — you can enter now."}
+    gap = ltp - limit
+    return {"state": "WAIT", "can_enter": False,
+            "line": f"Price {ltp} is {gap:.2f} above your limit {limit} "
+                    f"({gap / ltp * 100:.2f}% too high) — place a limit buy at {limit} "
+                    f"and let it come to you."}
 
 
 def fetch_buildup(fut_symbols, baseline=None):

@@ -182,6 +182,8 @@ if not sel["longs"]:
 else:
     import trade_card as TC
     expiry_label = getattr(config, "FUT_EXPIRY", "current")
+    # one batched quote call covers every card's live entry check
+    live_ltp = {} if demo else E.live_quote([p["symbol"] for p in sel["longs"][:5]])
     tabs = st.tabs([f"#{i+1}  {p['name']}" for i, p in enumerate(sel["longs"][:5])])
     for tab, p in zip(tabs, sel["longs"][:5]):
         with tab:
@@ -216,6 +218,31 @@ else:
                 unsafe_allow_html=True)
             if fresh in ("AGEING", "STALE"):
                 st.warning(f"Signal is {age} sessions old — {fnote}.")
+
+            # --- LIVE entry check: can Aashish press buy right now, or not yet? ---
+            ltp = live_ltp.get(p.get("symbol")) or (None if not demo else p["close"])
+            chk = E.entry_check(card, ltp)
+            if chk["state"] == "ENTER NOW":
+                st.success(f"### ✅ You can enter now, Aashish\n{chk['line']}")
+            elif chk["state"] == "WAIT":
+                need = card["stock"]["entry"]
+                st.info(f"### ⏳ Not yet, Aashish — wait for ₹{need}\n{chk['line']}\n\n"
+                        f"**Do this now:** place a **limit BUY at ₹{need}** "
+                        f"(valid for the day). The moment it fills, your stop and targets "
+                        f"are already decided below.")
+            elif chk["state"] == "SKIP":
+                st.error(f"### ❌ Skip this one, Aashish\n{chk['line']}")
+            elif chk["state"] == "MISSED":
+                st.warning(f"### 🏃 Too late, Aashish\n{chk['line']}")
+            else:
+                st.caption(chk["line"])
+            if ltp:
+                gap = ltp - (card["stock"]["entry"] or ltp)
+                q1, q2, q3 = st.columns(3)
+                q1.metric("Live price", f"₹{ltp:,.2f}")
+                q2.metric("Your limit", f"₹{card['stock']['entry']}",
+                          f"{-gap:+.2f} away", delta_color="off")
+                q3.metric("Verdict", chk["state"])
 
             a, b, c_, d = st.columns(4)
             if o:
