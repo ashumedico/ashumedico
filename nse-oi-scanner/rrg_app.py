@@ -44,6 +44,8 @@ except ImportError:
         RRG_BENCHMARK = "NSE:NIFTY50-INDEX"
     config = _C()
 
+cap_cfg = float(getattr(config, "CAPITAL", 500000))   # used by the action board + auto-trader
+
 
 # ---------------- data ----------------
 @st.cache_data(show_spinner=False, ttl=900)
@@ -114,6 +116,72 @@ k3.metric("🔵 Improving", c["IMPROVING"])
 k4.metric("Candidates", len(picks))
 k5.metric("Mode", mode.split(" ")[0])
 
+# ---------------- ACTION BOARD (what the RRG alone never tells you) ----------------
+st.markdown("### 📋 Action board — what to do right now")
+if not sel["longs"]:
+    st.info("**No trade today.** Nothing passes the setup. Standing down is a position — "
+            "the edge comes from only taking the A+ ones.")
+else:
+    import trade_card as TC
+    expiry_label = getattr(config, "FUT_EXPIRY", "current")
+    tabs = st.tabs([f"#{i+1}  {p['name']}" for i, p in enumerate(sel["longs"][:5])])
+    for tab, p in zip(tabs, sel["longs"][:5]):
+        with tab:
+            closes = prices.get(p["symbol"]) or [p["close"]]
+            chain = None
+            if not demo:
+                try:                     # real premiums when the market/chain is reachable
+                    import option_chain as oc
+                    chain, _spot = oc.fetch_live(p["symbol"])
+                except Exception:
+                    chain = None
+            card = TC.build_card(p, closes, chain=chain, expiry_label=expiry_label,
+                                 capital=cap_cfg, risk_pct=getattr(config, "RISK_PCT", 0.005))
+            o = card.get("option", {})
+            badge = {"BUY NOW": "🟢", "WAIT FOR PULLBACK": "🟡", "SKIP": "🔴"}.get(card["action"], "⚪")
+
+            st.markdown(f"## {badge} {card['action']} — {card['name']}")
+            st.caption(card["entry_note"])
+
+            a, b, c_, d = st.columns(4)
+            if o:
+                a.metric("Buy this", f"{card['name']} {o['strike']:g} {o['type']}",
+                         help=f"expiry {o['expiry']} · slightly ITM (delta ~0.6) so it tracks "
+                              f"the stock instead of bleeding theta")
+                b.metric("Premium", f"₹{o['premium']}", o["premium_source"])
+                c_.metric("Quantity", f"{card['size']['qty']}",
+                          f"{card['size']['lots']} lot × {card['size']['lot']}")
+                d.metric("Risk budget", f"₹{card['size']['risk_budget']:,}",
+                         f"{getattr(config,'RISK_PCT',0.005)*100:.2f}% of capital")
+            else:
+                a.metric("Buy this", card["name"])
+                b.metric("Entry", f"₹{card['stock']['entry']}")
+                c_.metric("Quantity", f"{card['size']['qty']}")
+                d.metric("Risk budget", f"₹{card['size']['risk_budget']:,}")
+
+            e1, e2, e3 = st.columns(3)
+            e1.metric("🛑 Exit if (stop)", f"₹{card['stock']['stop']}",
+                      f"premium ₹{o['stop']}" if o else None, delta_color="off")
+            e2.metric("💰 Book half (T1)", f"₹{card['stock']['t1']}",
+                      f"premium ₹{o['t1']}  ·  R:R {card['stock']['rr1']}" if o
+                      else f"R:R {card['stock']['rr1']}", delta_color="off")
+            e3.metric("🏦 Book rest (T2)", f"₹{card['stock']['t2']}",
+                      f"premium ₹{o['t2']}  ·  R:R {card['stock']['rr2']}" if o
+                      else f"R:R {card['stock']['rr2']}", delta_color="off")
+
+            st.markdown("**The exit contract — decided now, followed without renegotiating**")
+            st.table([{"When": lbl, "Do this": rule} for lbl, rule in card["rules"]])
+
+            bits = card["confidence_bits"]
+            st.caption(
+                f"Why this name: rotation **{bits['rotation']}**"
+                + ("  · just crossed in" if bits["crossed_in"] else "")
+                + f"  · distance {bits['distance']:.2f}  · velocity {bits['velocity']:.2f}"
+                + f"  · own trend {'UP' if bits['own_trend'] > 0 else 'not up'}"
+                + (f"  · OI {bits['oi'].title()}" if bits.get("oi") else ""))
+
+st.divider()
+
 # ---------------- MAIN WINDOW: the RRG ----------------
 main, side = st.columns([2.5, 1])
 with main:
@@ -152,7 +220,7 @@ with side:
 st.divider()
 st.markdown("### 🤖 Auto-trader")
 book = ex._roll_day(ex.load_book())
-cap = float(getattr(config, "CAPITAL", 500000))
+cap = cap_cfg
 b1, b2, b3, b4 = st.columns(4)
 b1.metric("Cash", f"₹{book['cash']:,.0f}")
 b2.metric("Open", len(book["positions"]))
