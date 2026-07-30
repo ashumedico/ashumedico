@@ -143,6 +143,33 @@ def walk_folds(prices, bench, rule, params, step, max_pos, folds=3, side="long",
             "trades": sum(r["trades"] for r in outs)}
 
 
+def baselines_per_fold(prices, bench, step, max_pos, folds=3):
+    """B1 and B2 measured inside the same fold windows the ablation uses.
+
+    Comparing a whole-period total against a per-fold average is meaningless - the
+    period is roughly four times longer. Everything must be measured on the same
+    windows or the verdict is an artefact of arithmetic."""
+    n = len(bench)
+    need = 60 + 12 * step
+    max_folds = n // need - 1
+    if max_folds < 2:
+        return None, None
+    folds = min(folds, max_folds)
+    seg = n // (folds + 1)
+    b1s, b2s = [], []
+    for k in range(1, folds + 1):
+        a, b = seg * k - 60, min(seg * (k + 1), n)
+        p_te = {s2: c[a:b] for s2, c in prices.items() if len(c) >= b}
+        bm = S.benchmark_stats(bench[a:b], step=step)
+        if bm:
+            b1s.append(bm["total_return"])
+        m = momentum_12_1(p_te, bench[a:b], step=step, max_pos=max_pos)
+        if m:
+            b2s.append(m["total_return"])
+    return (round(sum(b1s) / len(b1s), 2) if b1s else None,
+            round(sum(b2s) / len(b2s), 2) if b2s else None)
+
+
 def main():
     sys.stdout = _Tee(REPORT)
     ap = argparse.ArgumentParser()
@@ -202,9 +229,16 @@ def main():
         scored.append((label, w))
         print(f"  {label:<30}{w['avg']:>8.1f}%{w['avg35']:>8.1f}%{w['wins']:>4}/{w['folds']:<2}"
               f"{w['sharpe']:>8.2f}{w['max_dd']:>9.1f}%{w['trades']:>8}")
+    b1_f, b2_f = baselines_per_fold(prices, bench, step, max_pos, a.folds)
+    if b1_f is not None:
+        print(f"  {'B1 NIFTY (same folds)':<30}{b1_f:>8.1f}%{b1_f:>8.1f}%{'—':>7}")
+    if b2_f is not None:
+        print(f"  {'B2 12-1 momentum (same folds)':<30}{b2_f:>8.1f}%{'':>8}{'—':>7}")
     print("  " + "-" * 74)
     print("  @35bps is the realistic column. Compare components THERE - a variant with")
     print("  three times the turnover has to earn that cost back before it counts.")
+    print("  Baselines are measured on the SAME fold windows, so every number here is")
+    print("  a per-fold average and directly comparable.")
 
     # ---- the verdict ----
     print("\n" + "=" * 78)
@@ -221,9 +255,16 @@ def main():
     full = dict(scored).get("RRG + own-trend")
 
     print(f"  Best component set : {best_label}   avg OOS {best['avg']:+.1f}%")
-    if b2:
-        beats_b2 = best["avg"] > b2["total_return"] / max(a.folds, 1)
-        print(f"  vs plain 12-1 momentum: {'BEATS it' if beats_b2 else 'does NOT beat it'}")
+    best35 = best.get("avg35", best["avg"])
+    if b2_f is not None:
+        print(f"  vs 12-1 momentum (same folds, {b2_f:+.1f}%): "
+              f"{'BEATS it' if best35 > b2_f else 'does NOT beat it'}")
+    if b1_f is not None:
+        verdict = "BEATS it" if best35 > b1_f else "does NOT beat it"
+        print(f"  vs NIFTY buy & hold (same folds, {b1_f:+.1f}%): {verdict}")
+        if best35 <= b1_f:
+            print("     >> Doing nothing would have paid more. That is the real benchmark,")
+            print("        and this system does not clear it on this data.")
     if mom_only and full:
         gain = full.get("avg35", full["avg"]) - mom_only.get("avg35", mom_only["avg"])
         raw_gain = full["avg"] - mom_only["avg"]
