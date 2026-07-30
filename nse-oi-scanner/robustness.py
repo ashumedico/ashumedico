@@ -59,7 +59,12 @@ def out_of_sample(prices, bench, step=5, max_pos=10):
         if r:
             in_rows.append((label, rule, params, r))
     if not in_rows:
-        print("  not enough history to split — fetch more days.")
+        # each half must still hold enough rebalances to mean anything
+        need_bars = (12 * step + 60) * 2
+        print(f"  NOT ENOUGH HISTORY to split at this cadence.")
+        print(f"  A {step}-bar rebalance needs ~{need_bars} bars to test out-of-sample;")
+        print(f"  you have {n}. Re-run with:  --days {int(need_bars * 1.5)}")
+        print("  Until then the headline number is UNVALIDATED - do not size it up.")
         return None
     in_rows.sort(key=lambda x: x[3]["sharpe"], reverse=True)
     best_label, rule, params, in_r = in_rows[0]
@@ -75,6 +80,9 @@ def out_of_sample(prices, bench, step=5, max_pos=10):
     print(f"  {'NIFTY (2nd half)':<20}{bm2['total_return']:>8.1f}%{bm_cagr}"
           f"{'—':>8}{bm2['max_dd']:>9.1f}%")
     print("  " + "-" * 74)
+    if in_r and in_r.get("trades", 0) < 40:
+        print(f"  NOTE: only {in_r['trades']} trades in-sample - a high Sharpe on this few")
+        print("        trades is fragile. Treat the out-of-sample line as the real answer.")
     if not out_r:
         print("  VERDICT: second half too short to judge. Get more history.")
     elif out_r["sharpe"] > 0.3 and out_r["total_return"] > bm2["total_return"]:
@@ -180,12 +188,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--days", type=int, default=400)
-    ap.add_argument("--step", type=int, default=5)
-    ap.add_argument("--max-pos", type=int, default=10)
+    ap.add_argument("--step", type=int, default=None)
+    ap.add_argument("--max-pos", type=int, default=None)
+    ap.add_argument("--profile", default="positional", choices=list(S.PROFILES),
+                    help="test at the cadence you actually trade")
     a = ap.parse_args()
+    prof = S.PROFILES[a.profile]
+    a.step = a.step or prof["step"]
+    a.max_pos = a.max_pos or prof["max_pos"]
 
     print("=" * 76)
     print("  ROBUSTNESS SUITE  —  trying to DISPROVE the edge")
+    print(f"  profile: {a.profile.upper()}  ({prof['note']})")
     print("=" * 76)
 
     if a.demo:
