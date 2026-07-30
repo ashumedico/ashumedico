@@ -43,8 +43,23 @@ if not _supports_colour():
     G = R = Y = B = DIM = X = ""
 
 
+
+
+
 def now():
     return datetime.now(IST)
+
+
+def _cache_ready():
+    """Is today's universe already on disk? Decides whether to warn about a slow pull."""
+    import glob
+    day = datetime.now(IST).strftime("%Y%m%d")
+    return bool(glob.glob(os.path.join("cache", f"hist2_D_*_{day}.json")))
+
+
+def _progress(i, n):
+    bar = "#" * int(24 * i / n)
+    print(f"  {DIM}[{bar:<24}] {i}/{n}{X}", end="\r", flush=True)
 
 
 # ---------------- position book ----------------
@@ -237,27 +252,36 @@ def main():
     print(f"  {B}WAPAS AA GAYA, AASHISH{X}        {now():%a %d %b %Y · %H:%M IST}")
     print("=" * 70 + "\n")
 
-    # --- data ---
+    bk = load()
+
+    # --- Q1 FIRST: his own positions only need a couple of quotes, so this is instant.
+    # The universe pull below can take minutes on a cold cache; making him stare at a
+    # blank screen before seeing his own book is the wrong order. ---
+    quotes = {}
+    if bk["open"]:
+        if a.demo:
+            quotes = {p["symbol"]: p["entry"] * 1.06 for p in bk["open"] if p.get("symbol")}
+        else:
+            quotes = E.live_quote([p["symbol"] for p in bk["open"] if p.get("symbol")])
+    review_open(bk, quotes)
+
+    # --- data for today's idea ---
     if a.demo:
         points, prices, bench = E.demo_points()
-        quotes = {}
     else:
+        cold = not _cache_ready()
+        if cold:
+            print(f"  {DIM}Pehli baar aaj: 204 stocks ki history laa raha hoon "
+                  f"(2-5 min, sirf ek baar). Aage se instant.{X}")
         try:
-            points, prices, bench = E.live_points(tail=6)
+            points, prices, bench = E.live_points(
+                tail=6, progress=(_progress if cold else None))
         except Exception as e:      # noqa
             print(f"  {R}Data nahi aaya:{X} {e}")
             print(f"  {DIM}Token expire ho gaya? chala:  python fyers_auth.py{X}\n")
             return
-        quotes = {}
-
-    bk = load()
-
-    # --- Q1: existing positions ---
-    if bk["open"] and not a.demo:
-        quotes = E.live_quote([p["symbol"] for p in bk["open"] if p.get("symbol")])
-    elif bk["open"] and a.demo:
-        quotes = {p["symbol"]: p["entry"] * 1.06 for p in bk["open"] if p.get("symbol")}
-    review_open(bk, quotes)
+        if cold:
+            print(" " * 60, end="\r")
 
     # --- Q2: today's trade ---
     rule, params, _best = S.load_best()

@@ -210,6 +210,19 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
     global LAST_SKIPPED, LAST_DATES
     key = f"hist2_{resolution}_{days}"      # v2 = includes candle dates
     cp = _cache_path(key)
+    if use_cache and not os.path.exists(cp):
+        # A same-day pull with MORE history already answers this request. Without this,
+        # asking for 200 bars when 400 are cached silently refetches the whole universe
+        # and the "quick" check-in hangs for minutes.
+        import glob as _glob, re as _re
+        day = datetime.now(IST).strftime("%Y%m%d")
+        best, best_days = None, 0
+        for f in _glob.glob(os.path.join(CACHE_DIR, f"hist2_{resolution}_*_{day}.json")):
+            m = _re.search(rf"hist2_{resolution}_(\d+)_{day}\.json$", f.replace("\\", "/"))
+            if m and int(m.group(1)) >= days and int(m.group(1)) > best_days:
+                best, best_days = f, int(m.group(1))
+        if best:
+            cp = best
     if use_cache and os.path.exists(cp):
         with open(cp) as f:
             d = json.load(f)
