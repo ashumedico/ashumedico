@@ -50,7 +50,7 @@ $stale = @(
     "Signal Desk (1 page)","Auto-Trader (PAPER)","STOP Trading",
     "NSE_Options_Scanner","Fyers_Login",
     "Aashish - RRG Trader","Aashish - Signal Desk","Aashish - Fyers Login",
-    "Aashish - Auto-Trader","Aashish - STOP","Aashish - OI Scanner","Aashish - Find Best Setup"
+    "Aashish - Auto-Trader","Aashish - STOP","Aashish - OI Scanner","Aashish - Find Best Setup","6 - OI Scanner"
 )
 $removed = 0
 foreach ($old in $stale) {
@@ -76,7 +76,8 @@ New-Shortcut $folder "2 - RRG Trader"       "run_rrg_app.bat"    "%SystemRoot%\S
 New-Shortcut $folder "3 - Signal Desk"      "run_signals.bat"    "%SystemRoot%\System32\shell32.dll" 13  "One-page desk: OI buildup + 1 CE/1 PE/1 Future + charts + RRG"
 New-Shortcut $folder "4 - Auto-Trader"      "run_autotrader.bat" "%SystemRoot%\System32\shell32.dll" 25  "Hands-free auto-trader loop (PAPER unless armed)"
 New-Shortcut $folder "5 - Find Best Setup"  "run_sweep.bat"      "%SystemRoot%\System32\shell32.dll" 21  "Backtest RRG setups on your own data and save the winner"
-New-Shortcut $folder "6 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
+New-Shortcut $folder "6 - Journal"          "run_journal.bat"    "%SystemRoot%\System32\shell32.dll" 47  "Grade past signals, learn what works, what to stop"
+New-Shortcut $folder "7 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
 New-Shortcut $folder "STOP - Kill Switch"   "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC: halt all trading immediately"
 
 # a shortcut straight to the code folder, handy for config.py edits

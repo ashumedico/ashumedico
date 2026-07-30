@@ -141,6 +141,24 @@ else:
             badge = {"BUY NOW": "🟢", "WAIT FOR PULLBACK": "🟡", "SKIP": "🔴"}.get(card["action"], "⚪")
 
             st.markdown(f"## {badge} {card['action']} — {card['name']}")
+
+            # --- signal age: never enter a stale idea by mistake ---
+            fresh = p.get("freshness", "?")
+            age = p.get("age_bars", "?")
+            sdate = p.get("signal_date") or "unknown"
+            fbadge = {"FRESH": "🟩", "NEW": "🟨", "AGEING": "🟧", "STALE": "🟥"}.get(fresh, "⬜")
+            fnote = {
+                "FRESH": "fired today — this is the entry bar",
+                "NEW": "1–3 sessions old — still actionable",
+                "AGEING": "4–7 sessions old — much of the move may be gone",
+                "STALE": "over a week old — treat as watch-only, do NOT chase",
+            }.get(fresh, "")
+            if fresh in ("AGEING", "STALE"):
+                st.warning(f"{fbadge} **{fresh} SIGNAL** · fired **{sdate}** "
+                           f"({age} sessions ago) — {fnote}")
+            else:
+                st.success(f"{fbadge} **{fresh} SIGNAL** · fired **{sdate}** "
+                           f"({age} session{'s' if age != 1 else ''} ago) — {fnote}")
             st.caption(card["entry_note"])
 
             a, b, c_, d = st.columns(4)
@@ -271,6 +289,71 @@ if book.get("closed"):
     st.markdown("#### Blotter (closed)")
     st.dataframe([{k: p.get(k) for k in ("symbol", "qty", "entry", "exit", "exit_reason", "pnl")}
                   for p in book["closed"][-25:]], use_container_width=True, hide_index=True)
+
+# ---------------- journal: did the calls actually work? ----------------
+st.divider()
+st.markdown("### 📚 Journal — what my own calls actually did")
+import journal as J
+
+jc1, jc2, jc3 = st.columns([1, 1, 2])
+if jc1.button("📝 Log today's signals", use_container_width=True):
+    for p in sel["longs"]:
+        p["bar_index"] = len(prices.get(p["symbol"], [])) - 1
+    import trade_card as TC2
+    cards = {p["name"]: TC2.build_card(p, prices.get(p["symbol"], [p["close"]]))
+             for p in sel["longs"]}
+    n = J.log_signals(points, picks, "DEMO" if demo else "LIVE", cards)
+    st.success(f"Logged {n} new signal(s).")
+if jc2.button("✅ Grade outcomes", use_container_width=True):
+    _e, changed = J.review(prices)
+    st.success(f"Graded {changed} trade(s).")
+if jc3.button("⏪ Build track record from history (backfill)", use_container_width=True):
+    with st.spinner("Replaying history point-in-time…"):
+        n = J.backfill(prices, bench, quiet=True)
+        _e, changed = J.review(prices)
+    st.success(f"Backfilled {n} historical signals · graded {changed}.")
+
+entries = J.load()
+L = J.lessons(entries)
+o = L["overall"]
+if o:
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Graded trades", o["n"])
+    m2.metric("Win rate", f"{o['win_rate']}%")
+    m3.metric("Avg per trade", f"{o['avg_r']}R",
+              help="R = multiples of the risk you took. +0.5R average with a 1R stop is a real edge.")
+    m4.metric("Total", f"{o['total_r']}R")
+
+    st.markdown("**Trade-by-trade — profit or loss**")
+    rows = J.table(entries, limit=60)
+    def _tint(v):
+        s = str(v)
+        if "WIN" in s:  return "color:#3fb950;font-weight:700"
+        if "LOSS" in s: return "color:#f4516c;font-weight:700"
+        return ""
+    try:
+        import pandas as pd
+        df = pd.DataFrame(rows)
+        st.dataframe(df.style.map(_tint, subset=["Result"]),
+                     use_container_width=True, hide_index=True)
+    except Exception:
+        st.table(rows)
+
+    st.markdown("**Lessons — what to keep, what to stop**")
+    for label, buckets in L["slices"].items():
+        if not buckets:
+            continue
+        with st.expander(label, expanded=(label == "by freshness at entry")):
+            st.table([{"bucket": k, "n": s["n"], "win %": s["win_rate"], "avg R": s["avg_r"]}
+                      for k, s in sorted(buckets.items(), key=lambda kv: kv[1]["avg_r"], reverse=True)])
+            for k, s in buckets.items():
+                if s["avg_r"] < 0 and s["n"] >= 3:
+                    st.error(f"STOP taking **{k}** — losing {abs(s['avg_r']):.2f}R over {s['n']} trades.")
+                elif s["avg_r"] > 0.3 and s["n"] >= 3:
+                    st.success(f"KEEP taking **{k}** — making {s['avg_r']:.2f}R over {s['n']} trades.")
+else:
+    st.info("No graded trades yet. Hit **Build track record from history** for an instant "
+            "read, or log daily and grade as outcomes arrive.")
 
 st.caption(f"{datetime.now(IST):%a %d %b %Y · %H:%M IST} · NOT financial advice · "
            "signals are inputs; the decision is yours")

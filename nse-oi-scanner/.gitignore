@@ -17,3 +17,5 @@ cache/
 rrg_best_setup.json
 rrg_live.html
 charts/app_rrg.png
+journal.jsonl
+journal_report.md

@@ -283,7 +283,7 @@ def main():
         def prog(i, n):
             print(f"    fetching {i}/{n}…", end="\r")
         from fno_universe import fno_stocks
-        prices, bench = E.fetch_history(fno_stocks(), days=a.days, progress=prog)
+        prices, bench, _dates = E.fetch_history(fno_stocks(), days=a.days, progress=prog)
         print(f"\n  history: {len(prices)} names, {len(bench)} bars")
 
     rows, bm = sweep(prices, bench, step=a.step, max_pos=a.max_pos)

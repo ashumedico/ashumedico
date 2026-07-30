@@ -104,10 +104,15 @@ def abs_trend(closes, fast=10, slow=30):
 
 
 # ---------------- universe-level build ----------------
-def build_points(prices, bench, buildup=None, tail=6, win=10, mom_win=5):
+def build_points(prices, bench, buildup=None, tail=6, win=10, mom_win=5,
+                 dates=None, age_window=30):
     """prices {sym:[closes]} + bench [closes] -> list of point dicts with full metrics.
     Normalisation is CROSS-SECTIONAL per period (the RRG convention): every stock is
-    scored against the whole universe at that moment, so positions are comparable."""
+    scored against the whole universe at that moment, so positions are comparable.
+
+    `dates` (aligned to the close series) lets each point carry the DATE its signal
+    actually fired, plus how many bars old it is — so a stale idea can't be mistaken
+    for a fresh one."""
     buildup = buildup or {}
     raws, syms = {}, []
     for sym, closes in prices.items():
@@ -118,7 +123,8 @@ def build_points(prices, bench, buildup=None, tail=6, win=10, mom_win=5):
     if not syms:
         return []
 
-    depth = min(min(len(raws[s][0]) for s in syms), tail + 1)
+    # walk back far enough to date the signal, even though we only DRAW `tail` points
+    depth = min(min(len(raws[s][0]) for s in syms), max(tail + 1, age_window))
     # normalise each historical period across the universe
     series = {s: [] for s in syms}
     for k in range(depth, 0, -1):
@@ -129,24 +135,49 @@ def build_points(prices, bench, buildup=None, tail=6, win=10, mom_win=5):
 
     pts = []
     for s in syms:
-        trail = series[s]
-        x, y = trail[-1]
-        px, py = trail[-2] if len(trail) > 1 else (x, y)
+        full = series[s]                       # long history, for dating the signal
+        trail = full[-(tail + 1):]             # short history, for drawing
+        x, y = full[-1]
+        px, py = full[-2] if len(full) > 1 else (x, y)
         dx, dy = x - px, y - py
         short = s.split(":")[-1].replace("-EQ", "")
         tr, tr_pct = abs_trend(prices[s])
+
+        # --- how long has it been in this quadrant? (age of the signal) ---
+        qnow = quadrant(x, y)
+        bars_in = 1
+        for k in range(2, len(full) + 1):
+            qx, qy = full[-k]
+            if quadrant(qx, qy) == qnow:
+                bars_in += 1
+            else:
+                break
+        capped = bars_in >= len(full)           # older than our window — unknown, treat as stale
+        sig_date = None
+        if dates:
+            idx = len(prices[s]) - bars_in
+            ref = dates if len(dates) == len(prices[s]) else dates[-len(prices[s]):]
+            if 0 <= idx < len(ref):
+                sig_date = ref[idx]
+
         pts.append({
             "name": short, "symbol": s, "x": round(x, 3), "y": round(y, 3),
             "tail": [(round(a, 3), round(b, 3)) for a, b in trail],
-            "quadrant": quadrant(x, y),
+            "quadrant": qnow,
             "prev_quadrant": quadrant(px, py),
-            "crossed": quadrant(x, y) != quadrant(px, py),
+            "crossed": qnow != quadrant(px, py),
             "heading": round(math.degrees(math.atan2(dy, dx)) % 360, 1),
             "velocity": round(math.hypot(dx, dy), 3),
             "distance": round(math.hypot(x - 100, y - 100), 3),
             "abs_trend": tr, "abs_pct": round(tr_pct, 2),
             "signal": buildup.get(short),
             "close": prices[s][-1],
+            "age_bars": bars_in, "age_capped": capped,
+            "signal_date": sig_date,
+            "freshness": ("FRESH" if bars_in <= 1 else
+                          "NEW" if bars_in <= 3 else
+                          "AGEING" if bars_in <= 7 else "STALE"),
+            "last_date": (dates[-1] if dates else None),
         })
     return pts
 
@@ -179,7 +210,7 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
         with open(cp) as f:
             d = json.load(f)
         if d.get("bench") and len(d.get("prices", {})) > 5:
-            return d["prices"], d["bench"]
+            return d["prices"], d["bench"], d.get("dates", [])
 
     fy = _fy()
     to = datetime.now(IST)
@@ -204,13 +235,16 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
             for c in r.get("candles", []):
                 candles[c[0]] = c          # keyed by epoch -> de-dupes chunk overlaps
             cur = chunk_end + timedelta(days=1)
-        return [candles[k][4] for k in sorted(candles)]
+        keys = sorted(candles)
+        closes = [candles[k][4] for k in keys]
+        dts = [datetime.fromtimestamp(k, IST).strftime("%Y-%m-%d") for k in keys]
+        return closes, dts
 
-    bench = one(benchmark)
+    bench, bench_dates = one(benchmark)
     prices, total = {}, len(symbols)
     for i, s in enumerate(symbols):
         try:
-            c = one(s)
+            c, _d = one(s)
             if len(c) > 40:
                 prices[s] = c
         except Exception:
@@ -220,9 +254,9 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
         time.sleep(throttle)
 
     with open(cp, "w") as f:
-        json.dump({"prices": prices, "bench": bench,
+        json.dump({"prices": prices, "bench": bench, "dates": bench_dates,
                    "at": datetime.now(IST).isoformat()}, f)
-    return prices, bench
+    return prices, bench, bench_dates
 
 
 def fetch_buildup(fut_symbols, baseline=None):
@@ -265,7 +299,7 @@ def live_points(tail=6, days=200, progress=None, with_oi=True):
     """One call: full F&O universe -> RRG points with live metrics + OI overlay."""
     from fno_universe import fno_stocks, fno_futures
     syms = fno_stocks()
-    prices, bench = fetch_history(syms, progress=progress, days=days)
+    prices, bench, dates = fetch_history(syms, progress=progress, days=days)
     buildup = {}
     if with_oi:
         try:
@@ -274,7 +308,7 @@ def live_points(tail=6, days=200, progress=None, with_oi=True):
                 buildup = fetch_buildup(fno_futures(exp))
         except Exception:
             buildup = {}
-    return build_points(prices, bench, buildup, tail=tail), prices, bench
+    return build_points(prices, bench, buildup, tail=tail, dates=dates), prices, bench
 
 
 # ---------------- synthetic (no feed) ----------------
@@ -310,7 +344,15 @@ def demo_points(tail=6, n_bars=400, seed=7):
             series.append(px)
         prices[f"NSE:{nm}-EQ"] = series
 
+    # synthetic business-day dates ending today, so signal ages/dates work offline too
+    dts, d = [], datetime.now(IST)
+    while len(dts) < n_bars:
+        if d.weekday() < 5:
+            dts.append(d.strftime("%Y-%m-%d"))
+        d -= timedelta(days=1)
+    dts.reverse()
+
     buildup = {}
     for i, nm in enumerate(names):
         buildup[nm] = ["LONG BUILDUP", "SHORT COVERING", "SHORT BUILDUP", "LONG UNWINDING"][i % 4]
-    return build_points(prices, bench, buildup, tail=tail), prices, bench
+    return build_points(prices, bench, buildup, tail=tail, dates=dts), prices, bench
