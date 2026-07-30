@@ -58,6 +58,10 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 ## Commands → `.claude/commands/`
 `/grillme` `/council` `/debate` `/skill` `/decide` `/triage` `/verify` `/ledger` `/router`
 
+## Language → `.claude/skills/hinglish/`
+`/hinglish` — talk to me in **Hinglish** (Hindi structure, English technical terms, Roman script).
+Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR content stay English.
+
 ## Trading OS → `.claude/skills/universal-trading/`
 `/universal-trading` — the **Fable-class 24/7 pipeline** (Research → Scan → Signal → Trade Plan →
 Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and
