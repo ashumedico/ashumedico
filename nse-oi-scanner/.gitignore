@@ -22,3 +22,4 @@ journal_report.md
 fno_lots.json
 config.py.bak-*
 positions.json
+alerts_sent.json
