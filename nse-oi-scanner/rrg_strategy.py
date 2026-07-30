@@ -180,6 +180,31 @@ def bench_uptrend(bench, t, fast=20, slow=50):
     return f > sl and hist[-1] > sl
 
 
+def r_factor(closes, t, k=10, win=20):
+    """Move intensity: the recent move measured in units of the name's OWN noise.
+
+    This is the idea behind TradeFinder's R-Factor, adapted to daily bars - today's
+    activity judged against the same name's last ~20 days, so a 3% day in a sleepy stock
+    outranks a 3% day in one that moves 3% every session. Raw percent-change ranking, which
+    is what the strategy uses today, cannot tell those two apart and will keep picking the
+    noisiest names in the universe.
+
+    Theirs is intraday and proprietary; this is the daily, disclosed approximation. Signed,
+    because a long-only book wants up-intensity - the direction-agnostic version is for
+    intraday scalping, which is not this system.
+    """
+    h = closes[:t]
+    if len(h) < win + k + 2:
+        return 0.0
+    rets = [h[i] / h[i - 1] - 1 for i in range(len(h) - win, len(h))]
+    m = sum(rets) / len(rets)
+    sd = (sum((r - m) ** 2 for r in rets) / len(rets)) ** 0.5
+    if sd <= 0:
+        return 0.0
+    move = h[-1] / h[-1 - k] - 1
+    return move / (sd * (k ** 0.5))
+
+
 def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
              hold_min=5, cost_bps=15, tail=3, win=10, mom_win=5, side=None):
     """Equal-weight rotation. Rebalance every `step` bars.
@@ -198,6 +223,18 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
     by_name = {s.split(":")[-1].replace("-EQ", ""): c for s, c in prices.items()}
     entries, closed_rs = 0, []      # count entries; record every realised trade return
     period_rets, exposure = [], []  # for volatility targeting
+
+    # Market-regime context, built once. params["regime"]: None/"off" | "gate" | "strict".
+    # Separate from the older need_regime flag, which was only the index's own trend -
+    # this adds breadth, volatility and drawdown, i.e. the channels global sentiment
+    # actually arrives through.
+    regime_ctx = None
+    if params.get("regime") in ("gate", "strict"):
+        try:
+            import market_regime as MR
+            regime_ctx = MR.Regime(prices, bench)
+        except Exception:
+            regime_ctx = None
 
     t = start
     while t + step < n:
@@ -222,9 +259,15 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
         # --- entries. The regime gate only ever blocked LONGS; shorts are exactly what
         # a weak index calls for, so they are never gated on it. ---
         regime_ok = bench_uptrend(bench, t) if params.get("need_regime") else True
+        if regime_ctx is not None:
+            regime_ok = regime_ok and regime_ctx.tradeable(t, params["regime"])
         usable = lambda p: p["name"] not in held and p["name"] in by_name and len(by_name[p["name"]]) > t
-        rank = ((lambda p: p.get("abs_pct", 0)) if rule == "momentum_only"
-                else (lambda p: p["distance"] * (1 + p["velocity"])))
+        if params.get("rank") == "rfactor":
+            rank = lambda p: r_factor(by_name[p["name"]], t, k=mom_win * 2)
+        elif rule == "momentum_only":
+            rank = lambda p: p.get("abs_pct", 0)
+        else:
+            rank = lambda p: p["distance"] * (1 + p["velocity"])
 
         if len(held) < max_pos:
             slots = max_pos - len(held)

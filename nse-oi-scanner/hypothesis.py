@@ -110,6 +110,21 @@ ABLATIONS = {
     "own-trend + vol/band":       ("momentum_only",        {"need_trend": True,
                                                             "target_vol": 0.15,
                                                             "exit_band": 0.5}),
+    # --- H2: does knowing the MARKET's state add anything to picking the best stock? ---
+    # The live rule is purely relative: strongest name in the universe. These arms ask
+    # whether refusing to trade a hostile tape pays for the trades it costs you.
+    "own-trend + regime gate":    ("momentum_only",        {"need_trend": True,
+                                                            "regime": "gate"}),
+    "own-trend + regime strict":  ("momentum_only",        {"need_trend": True,
+                                                            "regime": "strict"}),
+    # --- H3: is intensity a better ranking than raw percent change? ---
+    # Raw %-change ranking cannot separate a 3% day in a quiet stock from a 3% day in one
+    # that moves 3% daily. R-factor divides the move by the name's own noise.
+    "R-factor rank":              ("momentum_only",        {"need_trend": True,
+                                                            "rank": "rfactor"}),
+    "R-factor + regime gate":     ("momentum_only",        {"need_trend": True,
+                                                            "rank": "rfactor",
+                                                            "regime": "gate"}),
 }
 
 

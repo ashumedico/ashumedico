@@ -170,10 +170,13 @@ def show_new(card, chk, point, skipped=None):
     lots = max(s["lots"], 1) if s.get("cost_per_lot") else s["lots"]
     print(f"    QTY     : {lots * s['lot']}  ({lots} lot x {s['lot']})")
     if s.get("cost_per_lot"):
+        # percentages must follow the quantity actually shown, not one lot - a total
+        # rupee figure beside a single-lot percentage is how a 5-lot trade reads as 1%
         cost = s["cost_per_lot"] * lots
         risk = s.get("risk_per_lot", 0) * lots
-        cpc, rpc = s.get("cost_pct"), s.get("risk_pct_of_capital")
-        col = R if (rpc or 0) > 10 else Y if (rpc or 0) > 5 else G
+        cap = float(getattr(config, "CAPITAL", 500000)) or 1
+        cpc, rpc = round(100 * cost / cap, 1), round(100 * risk / cap, 1)
+        col = R if rpc > 10 else Y if rpc > 5 else G
         print(f"    LAGEGA  : Rs {cost:,}  ({cpc}% capital)"
               f"   RISK: {col}Rs {risk:,} ({rpc}% capital){X}")
         if s.get("too_big"):
@@ -191,6 +194,15 @@ def show_new(card, chk, point, skipped=None):
           + (f"   (premium {o['t1']})" if o else ""))
     print(f"    T2      : {G}{card['stock']['t2']}{X}  baaki book"
           + (f"   (premium {o['t2']})" if o else ""))
+    # OI buildup, shown but never enforced. There is no historical OI series - fetch_buildup
+    # reads today's futures quotes against the day-open baseline - so this CANNOT be
+    # backtested. Displaying it lets the journal accumulate real forward evidence on his
+    # own trades; blocking on it would be acting on a hunch dressed as a rule.
+    oi = point.get("signal") if point else None
+    if oi:
+        warn = oi in ("Long Unwinding", "Short Buildup")
+        print(f"    OI      : {(Y if warn else DIM)}{oi}{X}"
+              f"   {DIM}[untested - journal isko track kar raha hai]{X}")
     fresh = point.get("freshness") if point else None
     if fresh:
         print(f"    SIGNAL  : {fresh} - {point.get('signal_date')} "
@@ -316,6 +328,33 @@ def main():
             return
         if cold:
             print(" " * 60, end="\r")
+
+    # --- market first, stock second ---
+    # Picking the strongest name is a relative answer. In a hostile tape the strongest
+    # name still loses. This is shown, not enforced: the regime gate has not yet been
+    # walk-forward tested on his data, and an untested filter that silently blocks trades
+    # is exactly the mistake RRG was.
+    try:
+        import market_regime as MR
+        reg = MR.Regime(prices, bench).at(len(bench))
+        rcol = {"RISK-ON": G, "NEUTRAL": Y, "RISK-OFF": R}.get(reg["state"], DIM)
+        bits = []
+        if reg.get("breadth") is not None:
+            bits.append(f"{reg['breadth']*100:.0f}% naam trend mein")
+        if reg.get("drawdown") is not None:
+            bits.append(f"index {reg['drawdown']*100:.1f}% high se neeche")
+        if reg.get("vol_ratio"):
+            bits.append(f"vol {reg['vol_ratio']:.2f}x normal")
+        print(f"  {B}MAAHOL{X}  {rcol}{reg['state']}{X}  "
+              f"{DIM}({reg['passed']}/{reg['of']} check pass){X}")
+        if bits:
+            print(f"  {DIM}{'  |  '.join(bits)}{X}")
+        if reg["state"] == "RISK-OFF":
+            print(f"  {Y}Tape kharab hai - neeche wala trade tab bhi dikh raha hai, "
+                  f"par size chhota rakh ya chhod de.{X}")
+        print()
+    except Exception:
+        pass
 
     # --- Q2: today's trade ---
     rule, params, _best = S.load_best()
