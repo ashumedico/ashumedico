@@ -13,3 +13,6 @@ STOP_TRADING.txt
 fno_symbols.txt
 __pycache__/
 *.pyc
+cache/
+rrg_best_setup.json
+rrg_live.html

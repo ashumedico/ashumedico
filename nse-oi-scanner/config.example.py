@@ -61,6 +61,12 @@ FUT_MARGIN_PCT   = 0.20     # futures margin as fraction of notional
 OPT_PREMIUM_PCT  = 0.012    # ATM premium proxy (~1.2% of spot) for paper sizing
 OPT_DELTA        = 0.5      # ATM delta for underlying->premium mapping
 
+# RRG strategy (the app trades whatever `run_sweep` validated on your data)
+RRG_STOP_PCT   = 0.04       # initial stop as % below entry for an RRG rotation long
+RRG_TARGET_PCT = 0.10       # target as % above entry
+RRG_TAIL       = 6          # tail length shown on the RRG
+RRG_HISTORY    = 250        # bars of history pulled for the rotation maths
+
 # Session controls
 SQUAREOFF   = "15:15"                 # flatten all intraday positions at this IST time
 KILL_SWITCH = "STOP_TRADING.txt"      # create this file in the folder -> halt everything
