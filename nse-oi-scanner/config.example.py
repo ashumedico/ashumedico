@@ -34,9 +34,15 @@ BAN_LIST = [
     # "IDEA", "RBLBANK",     # examples — put today's banned underlyings here
 ]
 
-# --- Optional Telegram alerts (leave blank to disable) ---
-TELEGRAM_TOKEN = ""         # from @BotFather
+# --- Alerts (leave blank to disable). config.py is git-ignored, so anything
+# --- personal you put here never reaches the repository. That matters: this
+# --- repo is PUBLIC, so a phone number committed to it would be scraped.
+TELEGRAM_TOKEN = ""         # from @BotFather        <- free, recommended
 TELEGRAM_CHAT  = ""         # your chat id (from @userinfobot)
+
+# Optional SMS fallback, used only if Telegram is unset or fails.
+SMS_API_KEY    = ""         # Fast2SMS dev API key (free tier, no DLT for personal use)
+SMS_TO         = ""         # your 10-digit mobile number, e.g. "9876543210"
 
 # ============================================================
 # AUTO-TRADER  (paper by default — LIVE is your deliberate opt-in)

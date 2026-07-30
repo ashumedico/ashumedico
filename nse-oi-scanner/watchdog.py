@@ -40,7 +40,33 @@ def now():
     return datetime.now(IST)
 
 
-# ---------------- telegram ----------------
+# ---------------- channels ----------------
+def _send_sms(text):
+    """SMS fallback via Fast2SMS (free tier, no DLT needed for personal use).
+    Your number lives in config.py, which is git-ignored - it never reaches the repo,
+    which matters because this repository is public."""
+    key = getattr(config, "SMS_API_KEY", "")
+    to = str(getattr(config, "SMS_TO", "")).strip()
+    if not key or not to:
+        return False
+    # SMS has no markdown and a hard length limit - strip formatting, keep it short
+    plain = text.replace("*", "").replace("`", "")
+    plain = " | ".join(l.strip() for l in plain.splitlines() if l.strip())[:280]
+    try:
+        req = urllib.request.Request(
+            "https://www.fast2sms.com/dev/bulkV2",
+            data=urllib.parse.urlencode({"route": "q", "message": plain,
+                                         "language": "english",
+                                         "numbers": to}).encode(),
+            headers={"authorization": key,
+                     "Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read().decode()).get("return", False)
+    except Exception as e:      # noqa
+        print(f"  [!] SMS bhej nahi paya: {e}")
+        return False
+
+
 def send(text, dry=False):
     token = getattr(config, "TELEGRAM_TOKEN", "")
     chat = getattr(config, "TELEGRAM_CHAT", "")
@@ -48,7 +74,11 @@ def send(text, dry=False):
         print("---- would send ----\n" + text + "\n--------------------")
         return True
     if not token or not chat:
-        print("  [!] TELEGRAM_TOKEN / TELEGRAM_CHAT config.py mein nahi hai - alert skip.")
+        if _send_sms(text):          # no Telegram configured -> try SMS
+            print("  [OK] SMS se bheja (Telegram configured nahi hai).")
+            return True
+        print("  [!] Na Telegram na SMS configured hai - alert skip.")
+        print("      config.py mein TELEGRAM_TOKEN+TELEGRAM_CHAT ya SMS_API_KEY+SMS_TO daal.")
         return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     data = urllib.parse.urlencode({"chat_id": chat, "text": text,
@@ -58,10 +88,11 @@ def send(text, dry=False):
             ok = json.loads(r.read().decode()).get("ok", False)
         if not ok:
             print("  [!] Telegram ne reject kiya - token/chat id check kar.")
+            return _send_sms(text)   # fall back to SMS
         return ok
     except Exception as e:      # noqa
         print(f"  [!] Telegram bhej nahi paya: {e}")
-        return False
+        return _send_sms(text)
 
 
 # ---------------- de-dupe ----------------
