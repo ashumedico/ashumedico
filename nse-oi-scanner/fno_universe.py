@@ -12,7 +12,7 @@ working offline / on first run (flagged as possibly-stale).
 
     python fno_universe.py         # refresh + print the count
 """
-import os, re, urllib.request
+import os, re, json, urllib.request
 
 # Multiple authoritative sources, tried in order — so a single site being down
 # never breaks the universe. First one that yields names wins.
@@ -56,6 +56,63 @@ def _parse_fyers(text):
     """Fyers symbol master: pull every underlying that has a FUT contract."""
     pat = re.compile(r"NSE:([A-Z0-9&\-]+?)\d{2}[A-Z]{3}FUT")
     return sorted({m.group(1) for m in pat.finditer(text) if m.group(1) not in INDICES})
+
+
+LOTS_CACHE = "fno_lots.json"
+
+
+def fetch_lot_sizes(timeout=30):
+    """Real F&O lot sizes per underlying, from the Fyers symbol master.
+
+    This matters more than it looks: options and futures trade only in whole lots, so a
+    wrong lot size makes every quantity - and therefore every risk calculation -
+    unactionable. Guessing one number for all names is not good enough."""
+    pat = re.compile(r"NSE:([A-Z0-9&\-]+?)\d{2}[A-Z]{3}FUT")
+    lots = {}
+    for kind, url in SOURCES:
+        if kind != "fyers":
+            continue
+        try:
+            text = _fetch(url, timeout)
+        except Exception:
+            continue
+        for line in text.splitlines():
+            m = pat.search(line)
+            if not m:
+                continue
+            under = m.group(1)
+            if under in INDICES:
+                continue
+            cols = line.split(",")
+            # lot size is the integer column that repeats across a symbol's rows;
+            # take the first plausible one (>0 and <100000)
+            for c in cols:
+                c = c.strip()
+                if c.isdigit():
+                    v = int(c)
+                    if 1 <= v <= 100000 and under not in lots:
+                        lots[under] = v
+                        break
+        if lots:
+            break
+    if lots:
+        with open(LOTS_CACHE, "w") as f:
+            json.dump(lots, f, indent=1)
+    return lots
+
+
+def lot_sizes():
+    """Cached lot sizes; empty dict if we have never been able to fetch them."""
+    if os.path.exists(LOTS_CACHE):
+        try:
+            with open(LOTS_CACHE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    try:
+        return fetch_lot_sizes()
+    except Exception:
+        return {}
 
 
 def _parse_nse_lots(text):

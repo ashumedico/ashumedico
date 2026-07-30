@@ -19,3 +19,5 @@ rrg_live.html
 charts/app_rrg.png
 journal.jsonl
 journal_report.md
+fno_lots.json
+config.py.bak-*

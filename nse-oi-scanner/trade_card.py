@@ -166,11 +166,25 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     # ---- size from risk, not from feelings ----
     budget = capital * risk_pct
     units = int(budget / risk_per_unit) if risk_per_unit > 0 else 0
-    lot = getattr(config, "LOT_SIZES", {}).get(point["name"], getattr(config, "DEFAULT_LOT", 1))
+    # Real F&O lot size. Options/futures trade only in whole lots, so a wrong lot makes
+    # the quantity unbuyable and the risk figure meaningless. Prefer config override, then
+    # the live Fyers symbol master, and only then a generic fallback.
+    lot = getattr(config, "LOT_SIZES", {}).get(point["name"])
+    if not lot:
+        try:
+            from fno_universe import lot_sizes
+            lot = lot_sizes().get(point["name"])
+        except Exception:
+            lot = None
+    lot = int(lot or getattr(config, "DEFAULT_LOT", 1) or 1)
     lots = max(0, units // max(lot, 1))
     card["size"] = {"risk_budget": round(budget), "lot": lot, "lots": lots,
                     "qty": lots * max(lot, 1),
-                    "risk_per_unit": round(risk_per_unit, 2)}
+                    "risk_per_unit": round(risk_per_unit, 2),
+                    # if one lot already risks more than the budget, say so instead of
+                    # quietly printing qty 0 or an un-tradeable number
+                    "too_big": lots < 1,
+                    "one_lot_risk": round(risk_per_unit * lot)}
 
     # ---- the exit contract: mechanical, decided BEFORE entry ----
     o = card.get("option")
