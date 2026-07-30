@@ -50,7 +50,7 @@ $stale = @(
     "Signal Desk (1 page)","Auto-Trader (PAPER)","STOP Trading",
     "NSE_Options_Scanner","Fyers_Login",
     "Aashish - RRG Trader","Aashish - Signal Desk","Aashish - Fyers Login",
-    "Aashish - Auto-Trader","Aashish - STOP","Aashish - OI Scanner","Aashish - Find Best Setup","6 - OI Scanner"
+    "Aashish - Auto-Trader","Aashish - STOP","Aashish - OI Scanner","Aashish - Find Best Setup","6 - OI Scanner","2 - RRG Trader","3 - Signal Desk","4 - Auto-Trader","5 - Find Best Setup","6 - Robustness Test","7 - Journal","8 - OI Scanner"
 )
 $removed = 0
 foreach ($old in $stale) {
@@ -71,14 +71,15 @@ if (-not (Test-Path $folder)) {
 # --- the launchers, NUMBERED in daily running order ---
 # shell32.dll icon indices: 44 key - 137 target - 13 chart - 25 gears - 21 search - 23 monitor - 131 stop
 Write-Host "Adding launchers..."
-New-Shortcut $folder "1 - Fyers Login"      "run_login.bat"      "%SystemRoot%\System32\shell32.dll" 44  "STEP 1 each morning: get today's Fyers token"
-New-Shortcut $folder "2 - RRG Trader"       "run_rrg_app.bat"    "%SystemRoot%\System32\shell32.dll" 137 "STEP 2: the cockpit - RRG main window + auto-trader (localhost:8501)"
-New-Shortcut $folder "3 - Signal Desk"      "run_signals.bat"    "%SystemRoot%\System32\shell32.dll" 13  "One-page desk: OI buildup + 1 CE/1 PE/1 Future + charts + RRG"
-New-Shortcut $folder "4 - Auto-Trader"      "run_autotrader.bat" "%SystemRoot%\System32\shell32.dll" 25  "Hands-free auto-trader loop (PAPER unless armed)"
-New-Shortcut $folder "5 - Find Best Setup"  "run_sweep.bat"      "%SystemRoot%\System32\shell32.dll" 21  "Backtest RRG setups on your own data and save the winner"
-New-Shortcut $folder "6 - Robustness Test"  "run_robustness.bat" "%SystemRoot%\System32\shell32.dll" 166 "Out-of-sample + cost + regime + stability - try to DISPROVE the edge"
-New-Shortcut $folder "7 - Journal"          "run_journal.bat"    "%SystemRoot%\System32\shell32.dll" 47  "Grade past signals, learn what works, what to stop"
-New-Shortcut $folder "8 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
+New-Shortcut $folder "1 - Fyers Login"      "run_login.bat"      "%SystemRoot%\System32\shell32.dll" 44  "STEP 1: aaj ka Fyers token"
+New-Shortcut $folder "2 - CHECK-IN"         "CHECKIN.bat"        "%SystemRoot%\System32\shell32.dll" 138 "STEP 2: kya hold, kya book, kya naya - bas yahi chahiye"
+New-Shortcut $folder "3 - RRG Trader"       "run_rrg_app.bat"    "%SystemRoot%\System32\shell32.dll" 137 "Deep dive: RRG main window + auto-trader (localhost:8501)"
+New-Shortcut $folder "4 - Signal Desk"      "run_signals.bat"    "%SystemRoot%\System32\shell32.dll" 13  "One-page desk: OI buildup + 1 CE/1 PE/1 Future + charts + RRG"
+New-Shortcut $folder "5 - Auto-Trader"      "run_autotrader.bat" "%SystemRoot%\System32\shell32.dll" 25  "Hands-free auto-trader loop (PAPER unless armed)"
+New-Shortcut $folder "6 - Find Best Setup"  "run_sweep.bat"      "%SystemRoot%\System32\shell32.dll" 21  "Backtest RRG setups on your own data and save the winner"
+New-Shortcut $folder "7 - Robustness Test"  "run_robustness.bat" "%SystemRoot%\System32\shell32.dll" 166 "Out-of-sample + cost + regime + stability - try to DISPROVE the edge"
+New-Shortcut $folder "8 - Journal"          "run_journal.bat"    "%SystemRoot%\System32\shell32.dll" 47  "Grade past signals, learn what works, what to stop"
+New-Shortcut $folder "9 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
 New-Shortcut $folder "STOP - Kill Switch"   "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC: halt all trading immediately"
 
 # a shortcut straight to the code folder, handy for config.py edits
@@ -91,5 +92,5 @@ Write-Host ""
 Write-Host "================================================================"
 Write-Host "  Done. ONE folder on your Desktop:  $folderName"
 Write-Host "  Open it - everything is inside, numbered in running order."
-Write-Host "  Daily:  1 - Fyers Login   then   2 - RRG Trader"
+Write-Host "  Roz:  1 - Fyers Login   phir   2 - CHECK-IN   (bas itna hi)"
 Write-Host "================================================================"
