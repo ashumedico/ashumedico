@@ -2,9 +2,33 @@
 # AASHISH TRADING OS - creates ONE desktop folder holding every launcher.
 # Run via install.bat (double-click).
 $ErrorActionPreference = "Stop"
-$here    = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$desktop = [Environment]::GetFolderPath("Desktop")
-$sh      = New-Object -ComObject WScript.Shell
+$here = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$sh   = New-Object -ComObject WScript.Shell
+
+# --- find the REAL Desktop. OneDrive/Known-Folder-Move often redirects it, and
+#     writing to the wrong one is why a folder "gets created" but never appears. ---
+$candidates = @(
+    [Environment]::GetFolderPath("Desktop"),
+    (Join-Path $env:USERPROFILE "Desktop")
+)
+if ($env:OneDrive)         { $candidates += (Join-Path $env:OneDrive "Desktop") }
+if ($env:OneDriveCommercial) { $candidates += (Join-Path $env:OneDriveCommercial "Desktop") }
+if ($env:OneDriveConsumer) { $candidates += (Join-Path $env:OneDriveConsumer "Desktop") }
+# registry is authoritative when Known Folder Move is active
+try {
+    $reg = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name Desktop -ErrorAction Stop).Desktop
+    if ($reg) { $candidates = @([Environment]::ExpandEnvironmentVariables($reg)) + $candidates }
+} catch { }
+
+$desktop = $null
+foreach ($c in $candidates) {
+    if ($c -and (Test-Path $c)) { $desktop = $c; break }
+}
+if (-not $desktop) {
+    $desktop = (Join-Path $env:USERPROFILE "Desktop")
+    New-Item -ItemType Directory -Path $desktop -Force | Out-Null
+}
+Write-Host "Desktop detected at: $desktop"
 
 # The one folder that holds the whole trading setup
 $folderName = "AASHISH TRADING OS"
