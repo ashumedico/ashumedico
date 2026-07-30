@@ -36,6 +36,30 @@ except Exception:                      # noqa
 IST = timezone(timedelta(hours=5, minutes=30))
 st.set_page_config(page_title="Aashish Trading OS · RRG", page_icon="🎯", layout="wide")
 
+# Streamlit's defaults are sized for demos, not for a trading desk. A desk needs the
+# whole ticket visible without scrolling, so tighten type and vertical rhythm.
+st.markdown("""<style>
+  .block-container {padding-top:1.1rem; padding-bottom:1rem; max-width:1500px;}
+  h1 {font-size:1.35rem !important; margin:0 0 .3rem !important;}
+  h2 {font-size:1.05rem !important; margin:.5rem 0 .3rem !important;}
+  h3 {font-size:.95rem !important; margin:.5rem 0 .25rem !important;}
+  [data-testid="stMetricValue"] {font-size:1.05rem !important; line-height:1.2 !important;}
+  [data-testid="stMetricLabel"] {font-size:.68rem !important; text-transform:uppercase;
+                                 letter-spacing:.4px; opacity:.75;}
+  [data-testid="stMetricDelta"] {font-size:.68rem !important;}
+  [data-testid="stMetric"] {padding:.2rem 0 !important;}
+  div[data-testid="stVerticalBlock"] {gap:.45rem !important;}
+  .stAlert {padding:.4rem .7rem !important; font-size:.8rem !important;}
+  .stAlert p {margin:0 !important;}
+  .stTabs [data-baseweb="tab"] {padding:.25rem .6rem !important; font-size:.8rem !important;}
+  .stButton button {padding:.25rem .6rem !important; font-size:.82rem !important;}
+  table {font-size:.78rem !important;}
+  .stCaption, [data-testid="stCaptionContainer"] {font-size:.72rem !important;}
+  hr {margin:.6rem 0 !important;}
+  .tick {font-size:1.25rem; font-weight:800; letter-spacing:-.2px;}
+  .sub {font-size:.75rem; opacity:.7;}
+</style>""", unsafe_allow_html=True)
+
 try:
     import config
 except ImportError:
@@ -110,7 +134,11 @@ picks = [p["name"] for p in sel["longs"]]
 c = E.counts(points)
 
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Universe", len(points))
+n_skipped = len(getattr(E, "LAST_SKIPPED", []))
+k1.metric("Universe", len(points),
+          f"-{n_skipped} unavailable" if n_skipped else None, delta_color="off",
+          help="Names that failed to fetch are excluded — the RRG only scores what it "
+               "could actually load.")
 k2.metric("🟢 Leading", c["LEADING"])
 k3.metric("🔵 Improving", c["IMPROVING"])
 k4.metric("Candidates", len(picks))
@@ -170,26 +198,24 @@ else:
             o = card.get("option", {})
             badge = {"BUY NOW": "🟢", "WAIT FOR PULLBACK": "🟡", "SKIP": "🔴"}.get(card["action"], "⚪")
 
-            st.markdown(f"## {badge} {card['action']} — {card['name']}")
-
-            # --- signal age: never enter a stale idea by mistake ---
+            # --- one dense header line: verdict + freshness + why ---
             fresh = p.get("freshness", "?")
             age = p.get("age_bars", "?")
-            sdate = p.get("signal_date") or "unknown"
-            fbadge = {"FRESH": "🟩", "NEW": "🟨", "AGEING": "🟧", "STALE": "🟥"}.get(fresh, "⬜")
-            fnote = {
-                "FRESH": "fired today — this is the entry bar",
-                "NEW": "1–3 sessions old — still actionable",
-                "AGEING": "4–7 sessions old — much of the move may be gone",
-                "STALE": "over a week old — treat as watch-only, do NOT chase",
-            }.get(fresh, "")
+            sdate = p.get("signal_date") or "—"
+            fcol = {"FRESH": "#3fb950", "NEW": "#d29922",
+                    "AGEING": "#e07a4b", "STALE": "#f4516c"}.get(fresh, "#8b98a5")
+            fnote = {"FRESH": "entry bar", "NEW": "still actionable",
+                     "AGEING": "much of the move may be gone",
+                     "STALE": "watch-only — do NOT chase"}.get(fresh, "")
+            st.markdown(
+                f"<div class='tick'>{badge} {card['action']} — {card['name']}"
+                f"<span style='font-size:.72rem;font-weight:700;color:{fcol};"
+                f"border:1px solid {fcol};border-radius:5px;padding:1px 6px;margin-left:8px;"
+                f"vertical-align:middle'>{fresh} · {sdate} · {age}d · {fnote}</span></div>"
+                f"<div class='sub'>{card['entry_note']}</div>",
+                unsafe_allow_html=True)
             if fresh in ("AGEING", "STALE"):
-                st.warning(f"{fbadge} **{fresh} SIGNAL** · fired **{sdate}** "
-                           f"({age} sessions ago) — {fnote}")
-            else:
-                st.success(f"{fbadge} **{fresh} SIGNAL** · fired **{sdate}** "
-                           f"({age} session{'s' if age != 1 else ''} ago) — {fnote}")
-            st.caption(card["entry_note"])
+                st.warning(f"Signal is {age} sessions old — {fnote}.")
 
             a, b, c_, d = st.columns(4)
             if o:

@@ -32,6 +32,8 @@ except ImportError:
         RRG_BENCHMARK = "NSE:NIFTY50-INDEX"
     config = _C()
 
+LAST_SKIPPED = []          # symbols the last live fetch could not load
+
 QUADRANTS = ("LEADING", "WEAKENING", "LAGGING", "IMPROVING")
 QUAD_COLOR = {"LEADING": "#1f9d63", "WEAKENING": "#e0a11b",
               "LAGGING": "#d1495b", "IMPROVING": "#2f6fed"}
@@ -204,13 +206,14 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
     """Daily closes for every symbol + the benchmark. Cached per day so the
     full-universe pull happens once, then loads instantly."""
     benchmark = benchmark or getattr(config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX")
-    key = f"hist_{resolution}_{days}"
+    key = f"hist2_{resolution}_{days}"      # v2 = includes candle dates
     cp = _cache_path(key)
     if use_cache and os.path.exists(cp):
         with open(cp) as f:
             d = json.load(f)
-        if d.get("bench") and len(d.get("prices", {})) > 5:
-            return d["prices"], d["bench"], d.get("dates", [])
+        # a cache without dates cannot date signals -> treat it as a miss and refetch
+        if d.get("bench") and d.get("dates") and len(d.get("prices", {})) > 5:
+            return d["prices"], d["bench"], d["dates"]
 
     fy = _fy()
     to = datetime.now(IST)
@@ -242,19 +245,27 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
 
     bench, bench_dates = one(benchmark)
     prices, total = {}, len(symbols)
+    skipped = []
     for i, s in enumerate(symbols):
         try:
             c, _d = one(s)
             if len(c) > 40:
                 prices[s] = c
-        except Exception:
-            pass
+        except Exception as err:      # noqa
+            skipped.append((s, str(err)[:80]))
         if progress and (i + 1) % 10 == 0:
             progress(i + 1, total)
         time.sleep(throttle)
 
+    # partial data is a fact the caller must be able to see, not swallow
+    global LAST_SKIPPED
+    LAST_SKIPPED = skipped
+    if skipped:
+        print(f"  [fetch] {len(prices)}/{total} loaded, {len(skipped)} skipped "
+              f"(first: {skipped[0][0]} -> {skipped[0][1]})")
     with open(cp, "w") as f:
         json.dump({"prices": prices, "bench": bench, "dates": bench_dates,
+                   "skipped": [x[0] for x in skipped],
                    "at": datetime.now(IST).isoformat()}, f)
     return prices, bench, bench_dates
 
