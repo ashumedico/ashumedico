@@ -88,10 +88,17 @@ def option_from_chain(chain, strike, direction):
 
 
 # ---------------- the card ----------------
-def min_days_for_thesis(hold_bars=20):
-    """A target that needs weeks cannot be bought on an option expiring in days.
-    Require the expiry to outlast the intended hold with room to spare."""
-    return int(hold_bars * 1.4) + 5
+def min_days_for_thesis(hold_bars=None):
+    """How much life the expiry must have left - and no more.
+
+    Two failures, opposite directions. Too little time and the option dies before the
+    target prints. Too much and you pay for months of time value you will never use:
+    jumping a series out costs real premium, and on a small account that cost is the
+    whole edge. So the rule is "the NEAREST series that outlasts the intended hold",
+    which in practice means the next month, not the one after it.
+    """
+    hold = int(hold_bars if hold_bars is not None else getattr(config, "HOLD_BARS", 10))
+    return int(hold * 1.4) + 5
 
 
 def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
@@ -216,6 +223,31 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
                     "one_lot_risk": round(risk_per_unit * lot),
                     "contract_value": contract_value,
                     "lot_warning": lot_warning}
+
+    # ---- can he actually pay for it? ----
+    # Risk sizing answers "how much am I willing to lose". On a small account a second
+    # question bites first: the cash to buy ONE lot. F&O lots do not get smaller to suit
+    # the account, so this is a hard yes/no - and printing a quantity he cannot fund is
+    # the same class of lie as printing a wrong lot.
+    if card.get("option"):
+        o = card["option"]
+        cost_per_lot = round(o["premium"] * lot)
+        risk_per_lot = round((o["premium"] - o["stop"]) * lot)
+        card["size"].update({
+            "cost_per_lot": cost_per_lot,
+            "cost_pct": round(100 * cost_per_lot / capital, 1) if capital else None,
+            "risk_per_lot": risk_per_lot,
+            "risk_pct_of_capital": round(100 * risk_per_lot / capital, 1) if capital else None,
+            "affordable_lots": int(capital // cost_per_lot) if cost_per_lot else 0,
+        })
+        if cost_per_lot > capital:
+            card["size"]["afford_note"] = (
+                f"one lot costs Rs {cost_per_lot:,} - more than your entire Rs "
+                f"{int(capital):,} capital. This name is not tradeable for you.")
+        elif cost_per_lot > 0.5 * capital:
+            card["size"]["afford_note"] = (
+                f"one lot costs Rs {cost_per_lot:,} = {card['size']['cost_pct']}% of capital. "
+                f"That is one position and no room for a second.")
 
     # ---- the exit contract: mechanical, decided BEFORE entry ----
     o = card.get("option")
