@@ -1,0 +1,217 @@
+"""
+robustness.py  —  is the edge real, or did one lucky stretch flatter it?
+
+A single backtest number is the easiest way to fool yourself. The sweep said
+"E +own-trend, +22.3% vs NIFTY 5.4%". Before trusting that with money, four questions
+have to be answered, and each one can kill the idea:
+
+  1. OUT-OF-SAMPLE   Pick the setup on the first half. Does it still work on the
+                     second half, which it never saw? This is the real test.
+  2. COST SENSITIVITY At what brokerage+slippage does the edge die? 300 trades makes
+                     this the single biggest fragility - F&O costs are not 15bps.
+  3. REGIME GATE      RRG is relative. Does blocking entries while the index itself is
+                     unhealthy improve the drawdown?
+  4. PARAMETER        Does it only work at one magic setting (overfit), or across a
+     STABILITY        range? A real edge is a plateau, not a spike.
+
+    python robustness.py                 # full suite on live data
+    python robustness.py --demo          # synthetic (mechanics only)
+    python robustness.py --days 500
+
+NOT financial advice. This is the test that tries to DISPROVE the edge.
+"""
+import argparse, statistics
+from datetime import datetime, timezone, timedelta
+
+import rrg_engine as E
+import rrg_strategy as S
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _slice(prices, bench, a, b):
+    return {s: c[a:b] for s, c in prices.items() if len(c) >= b}, bench[a:b]
+
+
+def _fmt(r):
+    if not r:
+        return "  (sample too small)"
+    cagr = f"{r['cagr']:>7.1f}" if r.get("cagr") is not None else f"{'n/a':>7}"
+    return (f"{r['total_return']:>8.1f}%{cagr}%{r['sharpe']:>8.2f}"
+            f"{r['max_dd']:>9.1f}%{r['trades']:>8}{r['win_rate']:>7.1f}%")
+
+
+# ---------------- 1. out-of-sample ----------------
+def out_of_sample(prices, bench, step=5, max_pos=10):
+    n = len(bench)
+    mid = n // 2
+    print("\n  1) OUT-OF-SAMPLE  — choose on the first half, verify on the unseen second half")
+    print("  " + "-" * 74)
+    print(f"  {'SETUP':<20}{'RETURN':>9}{'CAGR':>8}{'SHARPE':>8}{'MAXDD':>10}{'TRADES':>8}{'WIN':>8}")
+    print("  " + "-" * 74)
+
+    p1, b1 = _slice(prices, bench, 0, mid)
+    p2, b2 = _slice(prices, bench, mid - 60, n)      # carry 60 bars so indicators are warm
+
+    in_rows = []
+    for label, (rule, params) in S.RULESETS.items():
+        r = S.backtest(p1, b1, rule, params, step=step, max_pos=max_pos)
+        if r:
+            in_rows.append((label, rule, params, r))
+    if not in_rows:
+        print("  not enough history to split — fetch more days.")
+        return None
+    in_rows.sort(key=lambda x: x[3]["sharpe"], reverse=True)
+    best_label, rule, params, in_r = in_rows[0]
+
+    print(f"  IN-SAMPLE  (1st half)")
+    print(f"  {best_label:<20}{_fmt(in_r)}")
+    out_r = S.backtest(p2, b2, rule, params, step=step, max_pos=max_pos)
+    print(f"  OUT-OF-SAMPLE  (2nd half, never seen)")
+    print(f"  {best_label:<20}{_fmt(out_r)}")
+
+    bm2 = S.benchmark_stats(b2, step=step)
+    bm_cagr = f"{bm2['cagr']:>7.1f}%" if bm2.get("cagr") is not None else f"{'n/a':>8}"
+    print(f"  {'NIFTY (2nd half)':<20}{bm2['total_return']:>8.1f}%{bm_cagr}"
+          f"{'—':>8}{bm2['max_dd']:>9.1f}%")
+    print("  " + "-" * 74)
+    if not out_r:
+        print("  VERDICT: second half too short to judge. Get more history.")
+    elif out_r["sharpe"] > 0.3 and out_r["total_return"] > bm2["total_return"]:
+        print(f"  VERDICT: HOLDS UP. '{best_label}' survived unseen data and still beat NIFTY.")
+    elif out_r["total_return"] > 0:
+        print(f"  VERDICT: WEAKER out-of-sample — positive but no longer clearly beating NIFTY.")
+        print("           Treat the headline number as optimistic.")
+    else:
+        print(f"  VERDICT: FAILS out-of-sample. The first-half result was likely luck.")
+        print("           Do NOT size this up.")
+    return {"setup": best_label, "rule": rule, "params": params,
+            "in_sample": in_r, "out_sample": out_r, "bench_out": bm2}
+
+
+# ---------------- 2. cost sensitivity ----------------
+def cost_sensitivity(prices, bench, rule, params, step=5, max_pos=10):
+    print("\n  2) COST SENSITIVITY  — where does the edge die?")
+    print("  " + "-" * 62)
+    print(f"  {'COST (bps/trade)':<20}{'RETURN':>10}{'SHARPE':>9}{'MAXDD':>10}")
+    print("  " + "-" * 62)
+    rows = []
+    for bps in (5, 15, 25, 35, 50, 75):
+        r = S.backtest(prices, bench, rule, params, step=step, max_pos=max_pos, cost_bps=bps)
+        if r:
+            rows.append((bps, r))
+            tag = "   <- realistic F&O" if bps in (25, 35) else ""
+            print(f"  {bps:<20}{r['total_return']:>9.1f}%{r['sharpe']:>9.2f}"
+                  f"{r['max_dd']:>9.1f}%{tag}")
+    print("  " + "-" * 62)
+    dead = next((bps for bps, r in rows if r["total_return"] <= 0), None)
+    if dead:
+        print(f"  Edge turns NEGATIVE at ~{dead}bps per trade.")
+    else:
+        print("  Edge survives every cost level tested.")
+    real = next((r for bps, r in rows if bps == 35), None)
+    if real:
+        print(f"  At a realistic 35bps: {real['total_return']:.1f}% "
+              f"(Sharpe {real['sharpe']:.2f}) — plan on this, not the headline.")
+    return rows
+
+
+# ---------------- 3. regime gate ----------------
+def regime_test(prices, bench, rule, params, step=5, max_pos=10):
+    print("\n  3) MARKET REGIME GATE  — block longs when the index itself is weak?")
+    print("  " + "-" * 68)
+    print(f"  {'VARIANT':<24}{'RETURN':>9}{'SHARPE':>9}{'MAXDD':>10}{'TRADES':>9}")
+    print("  " + "-" * 68)
+    off = S.backtest(prices, bench, rule, params, step=step, max_pos=max_pos)
+    on_params = dict(params); on_params["need_regime"] = True
+    on = S.backtest(prices, bench, rule, on_params, step=step, max_pos=max_pos)
+    for label, r in (("regime gate OFF", off), ("regime gate ON", on)):
+        if r:
+            print(f"  {label:<24}{r['total_return']:>8.1f}%{r['sharpe']:>9.2f}"
+                  f"{r['max_dd']:>9.1f}%{r['trades']:>9}")
+    print("  " + "-" * 68)
+    if off and on:
+        if on["sharpe"] > off["sharpe"] and on["max_dd"] > off["max_dd"]:
+            print("  Gate HELPS on both risk and return — turn it on (need_regime: true).")
+        elif on["max_dd"] > off["max_dd"]:
+            print("  Gate cuts the drawdown but costs return — worth it if you hate pain.")
+        else:
+            print("  Gate does not help on this sample — leave it off, revisit in a bear phase.")
+    return {"off": off, "on": on}
+
+
+# ---------------- 4. parameter stability ----------------
+def param_stability(prices, bench, rule, params, step=5, max_pos=10):
+    print("\n  4) PARAMETER STABILITY  — a real edge is a plateau, not a spike")
+    print("  " + "-" * 68)
+    results = []
+    print(f"  {'VARIATION':<28}{'RETURN':>10}{'SHARPE':>9}")
+    print("  " + "-" * 68)
+    grid = [("rebalance 3 bars", {"step": 3}), ("rebalance 5 bars", {"step": 5}),
+            ("rebalance 10 bars", {"step": 10}),
+            ("max 5 positions", {"max_pos": 5}), ("max 10 positions", {"max_pos": 10}),
+            ("max 15 positions", {"max_pos": 15}),
+            ("RS window 8", {"win": 8}), ("RS window 10", {"win": 10}),
+            ("RS window 14", {"win": 14})]
+    for label, over in grid:
+        kw = {"step": step, "max_pos": max_pos}
+        kw.update(over)
+        r = S.backtest(prices, bench, rule, params, **kw)
+        if r:
+            results.append(r["sharpe"])
+            print(f"  {label:<28}{r['total_return']:>9.1f}%{r['sharpe']:>9.2f}")
+    print("  " + "-" * 68)
+    if len(results) >= 4:
+        pos = sum(1 for x in results if x > 0)
+        print(f"  Sharpe across {len(results)} variations: "
+              f"median {statistics.median(results):.2f}, "
+              f"range {min(results):.2f} to {max(results):.2f}, "
+              f"{pos}/{len(results)} positive.")
+        if pos == len(results) and min(results) > 0.2:
+            print("  STABLE — works across every setting tried, not just one. Good sign.")
+        elif pos >= len(results) * 0.7:
+            print("  MOSTLY STABLE — a few settings fail; avoid the extremes.")
+        else:
+            print("  FRAGILE — only some settings work. Likely overfit; do not trust the best one.")
+    return results
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--days", type=int, default=400)
+    ap.add_argument("--step", type=int, default=5)
+    ap.add_argument("--max-pos", type=int, default=10)
+    a = ap.parse_args()
+
+    print("=" * 76)
+    print("  ROBUSTNESS SUITE  —  trying to DISPROVE the edge")
+    print("=" * 76)
+
+    if a.demo:
+        print("  [DEMO] synthetic data — mechanics only, not a real edge.")
+        _, prices, bench = E.demo_points()
+    else:
+        def prog(i, n):
+            print(f"    fetching {i}/{n}…", end="\r")
+        from fno_universe import fno_stocks
+        prices, bench, _d = E.fetch_history(fno_stocks(), days=a.days, progress=prog)
+        print(f"\n  history: {len(prices)} names, {len(bench)} bars")
+
+    oos = out_of_sample(prices, bench, a.step, a.max_pos)
+    if not oos:
+        return
+    rule, params = oos["rule"], oos["params"]
+    cost_sensitivity(prices, bench, rule, params, a.step, a.max_pos)
+    regime_test(prices, bench, rule, params, a.step, a.max_pos)
+    param_stability(prices, bench, rule, params, a.step, a.max_pos)
+
+    print("\n" + "=" * 76)
+    print("  Read the four verdicts together. If out-of-sample fails or the parameters")
+    print("  are fragile, the headline return is not an edge — it is a coincidence.")
+    print("  A backtest is a hypothesis, not a promise.")
+    print("=" * 76 + "\n")
+
+
+if __name__ == "__main__":
+    main()

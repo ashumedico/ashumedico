@@ -93,6 +93,16 @@ RULESETS = {
 
 
 # ---------------- walk-forward backtest ----------------
+def bench_uptrend(bench, t, fast=20, slow=50):
+    """Is the INDEX itself healthy at bar t? RRG is relative: a name can lead a falling
+    market and still lose money. This is the market-level gate that filter lacks."""
+    hist = bench[:t]
+    if len(hist) < slow + 2:
+        return True
+    f = E.ema(hist, fast)[-1]; sl = E.ema(hist, slow)[-1]
+    return f > sl and hist[-1] > sl
+
+
 def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
              hold_min=5, cost_bps=15, tail=3, win=10, mom_win=5):
     """Equal-weight long-only rotation. Rebalance every `step` bars.
@@ -123,8 +133,9 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
                 closed_rs.append(px / held[name]["entry_px"] - 1)
                 del held[name]
 
-        # --- entries ---
-        if len(held) < max_pos:
+        # --- entries (blocked entirely when the index itself is unhealthy) ---
+        regime_ok = bench_uptrend(bench, t) if params.get("need_regime") else True
+        if len(held) < max_pos and regime_ok:
             cands = [p for p in pts if _entry_ok(p, rule, params) and p["name"] not in held
                      and p["name"] in by_name and len(by_name[p["name"]]) > t]
             cands.sort(key=lambda p: (p["distance"] * (1 + p["velocity"])), reverse=True)
