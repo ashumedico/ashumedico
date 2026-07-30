@@ -23,9 +23,10 @@ CFG = "config.py"
 
 # key -> (python literal formatter, human description)
 KEYS = {
-    "CAPITAL":   (lambda v: str(int(v)),        "money in the account (Rs)"),
-    "RISK_PCT":  (lambda v: str(round(v, 4)),   "fraction of capital risked per trade"),
-    "HOLD_BARS": (lambda v: str(int(v)),        "sessions a trade is meant to run"),
+    "CAPITAL":       (lambda v: str(int(v)),      "money in the account (Rs)"),
+    "RISK_PCT":      (lambda v: str(round(v, 4)), "fraction of capital risked per trade"),
+    "HOLD_BARS":     (lambda v: str(int(v)),      "sessions a trade is meant to run"),
+    "MAX_POSITIONS": (lambda v: str(int(v)),      "how many trades may be open at once"),
 }
 
 
@@ -65,6 +66,8 @@ def main():
     ap.add_argument("--capital", type=float, help="rupees actually in the account")
     ap.add_argument("--risk-pct", type=float, help="percent of capital risked per trade, e.g. 5")
     ap.add_argument("--hold-days", type=int, help="sessions a trade is meant to run")
+    ap.add_argument("--max-positions", type=int,
+                    help="how many trades may be open at once (1 = one at a time)")
     a = ap.parse_args()
 
     updates = {}
@@ -74,6 +77,8 @@ def main():
         updates["RISK_PCT"] = KEYS["RISK_PCT"][0](a.risk_pct / 100.0)
     if a.hold_days is not None:
         updates["HOLD_BARS"] = KEYS["HOLD_BARS"][0](a.hold_days)
+    if a.max_positions is not None:
+        updates["MAX_POSITIONS"] = KEYS["MAX_POSITIONS"][0](a.max_positions)
 
     if updates and not write(updates):
         return
@@ -83,7 +88,7 @@ def main():
     print("  " + "-" * 52)
     for k, (_fmt, desc) in KEYS.items():
         val = cur.get(k, "(not set - using the built-in default)")
-        print(f"  {k:<11} {val:<14} {desc}")
+        print(f"  {k:<14} {val:<14} {desc}")
     cap = float(cur.get("CAPITAL", 0) or 0)
     risk = float(cur.get("RISK_PCT", 0) or 0)
     if cap and risk:

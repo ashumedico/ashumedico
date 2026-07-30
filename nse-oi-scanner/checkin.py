@@ -206,6 +206,12 @@ def record_buy(card, point):
     if any(p["name"] == card["name"] for p in bk["open"]):
         print(f"  {Y}{card['name']} pehle se book mein hai.{X}")
         return
+    cap_pos = int(getattr(config, "MAX_POSITIONS", 1) or 1)
+    if len(bk["open"]) >= cap_pos:
+        print(f"  {Y}Pehle se {len(bk['open'])} position khuli hai aur teri limit "
+              f"{cap_pos} hai - record nahi kiya.{X}")
+        print(f"  {DIM}Limit badalni ho:  python configure.py --max-positions N{X}")
+        return
     o = card.get("option") or {}
     bk["open"].append({
         "name": card["name"], "symbol": card.get("symbol"),
@@ -317,16 +323,21 @@ def main():
     held = {p["name"] for p in bk["open"]}
     fresh = [p for p in sel["longs"] if p["name"] not in held]
 
-    # One position at a time. Suggesting a second while the first is live is not a
-    # suggestion he can act on - the money is already in the market - and a ticket he
-    # cannot take is just noise at the top of the screen.
+    # Position cap. At one-at-a-time, a second suggestion while the first trade is live
+    # is not a suggestion he can act on - the money is already in the market - and a
+    # ticket he cannot take is just noise at the top of the screen.
     card = chk = point = None
     skipped = []
-    if bk["open"] and not a.buy:
+    cap_pos = int(getattr(config, "MAX_POSITIONS", 1) or 1)
+    if len(bk["open"]) >= cap_pos and not a.buy:
+        open_names = ", ".join(p["name"] for p in bk["open"])
         print(f"  {B}AAJ KA NAYA TRADE{X}")
         print("  " + "-" * 66)
-        print(f"  {DIM}Ek time pe ek trade - abhi {bk['open'][0]['name']} chal raha hai.{X}")
-        print(f"  {DIM}Pehle usko band kar, phir agla dikhega.{X}\n")
+        if cap_pos == 1:
+            print(f"  {DIM}Ek time pe ek trade - abhi {open_names} chal raha hai.{X}")
+        else:
+            print(f"  {DIM}{len(bk['open'])}/{cap_pos} slot bhare hain - {open_names}.{X}")
+        print(f"  {DIM}Pehle inme se ek band kar, phir agla dikhega.{X}\n")
         scorecard(bk)
         print("=" * 70)
         print(f"  {DIM}Bas itna hi. Not financial advice - decision tera.{X}")
