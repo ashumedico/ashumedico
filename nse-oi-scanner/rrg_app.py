@@ -116,6 +116,36 @@ k3.metric("🔵 Improving", c["IMPROVING"])
 k4.metric("Candidates", len(picks))
 k5.metric("Mode", mode.split(" ")[0])
 
+# ---------------- refresh bar (right above the signals) ----------------
+if "loaded_at" not in st.session_state:
+    st.session_state.loaded_at = datetime.now(IST)
+
+r1, r2, r3 = st.columns([1.1, 2.2, 1.2])
+with r1:
+    if st.button("🔄 Refresh now", use_container_width=True, type="primary"):
+        st.cache_data.clear()
+        st.session_state.loaded_at = datetime.now(IST)
+        st.rerun()
+with r2:
+    loaded = st.session_state.loaded_at
+    mins = int((datetime.now(IST) - loaded).total_seconds() // 60)
+    age_txt = "just now" if mins < 1 else f"{mins} min ago"
+    bar_date = points[0].get("last_date") if points else None
+    st.markdown(
+        f"<div style='padding-top:6px'>Data loaded <b>{age_txt}</b> "
+        f"({loaded:%H:%M IST})"
+        + (f" &nbsp;·&nbsp; latest bar <b>{bar_date}</b>" if bar_date else "")
+        + (" &nbsp;·&nbsp; <span style='color:#d29922'>market closed</span>"
+           if not (9 <= datetime.now(IST).hour < 16) else
+           " &nbsp;·&nbsp; <span style='color:#3fb950'>market hours</span>")
+        + "</div>", unsafe_allow_html=True)
+with r3:
+    auto = st.toggle("Auto every 5 min", value=False,
+                     help="Re-pulls data and re-scores the board every 5 minutes.")
+
+if mins >= 15 and not demo:
+    st.warning(f"⚠️ This data is **{mins} minutes old** — hit **Refresh now** before acting on it.")
+
 # ---------------- ACTION BOARD (what the RRG alone never tells you) ----------------
 st.markdown("### 📋 Action board — what to do right now")
 if not sel["longs"]:
@@ -357,3 +387,10 @@ else:
 
 st.caption(f"{datetime.now(IST):%a %d %b %Y · %H:%M IST} · NOT financial advice · "
            "signals are inputs; the decision is yours")
+
+# auto-refresh last, so the whole page has rendered before we sleep
+if auto:
+    time.sleep(300)
+    st.cache_data.clear()
+    st.session_state.loaded_at = datetime.now(IST)
+    st.rerun()
