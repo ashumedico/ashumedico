@@ -87,6 +87,20 @@ def _exit_ok(p, params):
     return False
 
 
+# How OFTEN you actually trade changes which setup is right. RRG is natively a
+# weekly/positional tool - running it on a 5-day rebalance with 10 slots generates
+# ~190 trades a year, which only suits someone at the screen daily. For an occasional
+# trader the same signal needs fewer slots, a longer hold, and far less churn.
+PROFILES = {
+    "active":     {"step": 5,  "max_pos": 10, "hold_min": 5,
+                   "note": "~190 trades/yr - screen every day"},
+    "swing":      {"step": 10, "max_pos": 6,  "hold_min": 10,
+                   "note": "~2 weeks per decision, a handful of positions"},
+    "positional": {"step": 20, "max_pos": 4,  "hold_min": 20,
+                   "note": "~monthly decisions, 4 slots - checks in when free"},
+}
+
+
 RULESETS = {
     "A hold_leading":    ("hold_leading",   {}),
     "B cross_leading":   ("cross_leading",  {}),
@@ -198,10 +212,14 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
             closed_rs.append(c[min(t, len(c)) - 1] / h["entry_px"] - 1)
 
     # --- metrics (honest: no annualising a sample too small to support it) ---
-    MIN_PERIODS = 20
+    # A longer rebalance step means fewer periods for the same history, so a flat
+    # period floor silently dropped the whole positional profile from the sweep.
+    # Require a meaningful SPAN of bars instead, and flag thin samples rather than
+    # hiding them.
     periods = len(equity) - 1
-    if periods < MIN_PERIODS:
+    if periods < 12 or periods * step < 180:
         return None
+    low_sample = periods < 25
     total = equity[-1] - 1
     per_year = 252 / step
     years = periods / per_year
@@ -220,7 +238,8 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
             "trades": len(closed_rs), "entries": entries,
             "avg_exposure": round(sum(exposure) / len(exposure), 2) if exposure else 1.0,
             "win_rate": round(wins / len(closed_rs) * 100, 1) if closed_rs else 0,
-            "years": round(years, 2), "equity": [round(e, 4) for e in equity]}
+            "years": round(years, 2), "low_sample": low_sample,
+            "equity": [round(e, 4) for e in equity]}
 
 
 def benchmark_stats(bench, start=60, step=5):
@@ -242,17 +261,21 @@ def benchmark_stats(bench, start=60, step=5):
 
 
 # ---------------- the sweep: which setup wins? ----------------
-def sweep(prices, bench, step=5, max_pos=10, verbose=True):
+def sweep(prices, bench, step=5, max_pos=10, verbose=True, hold_min=5, profile=None):
     rows = []
     for label, (rule, params) in RULESETS.items():
-        r = backtest(prices, bench, rule, params, step=step, max_pos=max_pos)
+        r = backtest(prices, bench, rule, params, step=step, max_pos=max_pos,
+                     hold_min=hold_min)
         if r:
             r["setup"] = label; r["rule"] = rule; r["params"] = params
             rows.append(r)
     bm = benchmark_stats(bench, step=step)
     rows.sort(key=lambda r: r["sharpe"], reverse=True)
     if verbose:
-        print(f"\n  RRG SETUP SWEEP  ·  walk-forward, no lookahead  ·  rebalance every {step} bars")
+        head = f"  RRG SETUP SWEEP  ·  walk-forward, no lookahead  ·  rebalance every {step} bars"
+        if profile:
+            head += f"  ·  profile: {profile.upper()}"
+        print("\n" + head)
         print("  " + "-" * 78)
         print(f"  {'SETUP':<20}{'RETURN%':>9}{'CAGR%':>8}{'SHARPE':>8}{'MAXDD%':>9}"
               f"{'TRADES':>8}{'WIN%':>7}{'EXP':>6}")
@@ -260,9 +283,10 @@ def sweep(prices, bench, step=5, max_pos=10, verbose=True):
         for r in rows:
             cagr = f"{r['cagr']:>8.1f}" if r.get("cagr") is not None else f"{'n/a':>8}"
             exp = r.get("avg_exposure", 1.0)
+            flag = " *" if r.get("low_sample") else ""
             print(f"  {r['setup']:<20}{r['total_return']:>9.1f}{cagr}"
                   f"{r['sharpe']:>8.2f}{r['max_dd']:>9.1f}{r['trades']:>8}{r['win_rate']:>7.1f}"
-                  f"{exp:>6.2f}")
+                  f"{exp:>6.2f}{flag}")
         print("  " + "-" * 78)
         bcagr = f"{bm['cagr']:>8.1f}" if bm.get("cagr") is not None else f"{'n/a':>8}"
         print(f"  {'NIFTY (buy & hold)':<20}{bm['total_return']:>9.1f}{bcagr}"
@@ -276,6 +300,9 @@ def sweep(prices, bench, step=5, max_pos=10, verbose=True):
             beat = "beats" if best["total_return"] > bm["total_return"] else "does NOT beat"
             print(f"  -> this setup {beat} buy-and-hold on this sample.")
         print("  " + "-" * 78)
+        if any(r.get("low_sample") for r in rows):
+            print("  * = thin sample (few rebalances). Direction is informative,")
+            print("      the exact Sharpe is not - get more history to firm it up.")
         print("  EXP = average exposure. Below 1.00 means volatility targeting was")
         print("  de-risking - lower return there is the PRICE of a smaller drawdown.")
         print("  A backtest is a hypothesis, not a promise. Costs assumed 15bps/trade.\n")
@@ -323,9 +350,17 @@ def main():
     ap.add_argument("--demo", action="store_true", help="synthetic data (mechanics proof)")
     ap.add_argument("--sweep", action="store_true", help="live data sweep (needs Fyers token)")
     ap.add_argument("--days", type=int, default=300)
-    ap.add_argument("--step", type=int, default=5, help="rebalance every N bars")
-    ap.add_argument("--max-pos", type=int, default=10)
+    ap.add_argument("--step", type=int, default=None, help="rebalance every N bars")
+    ap.add_argument("--max-pos", type=int, default=None)
+    ap.add_argument("--profile", default="positional",
+                    choices=list(PROFILES), help="how often you actually trade")
+    ap.add_argument("--all-profiles", action="store_true",
+                    help="compare active vs swing vs positional")
     a = ap.parse_args()
+    prof = PROFILES[a.profile]
+    step = a.step or prof["step"]
+    max_pos = a.max_pos or prof["max_pos"]
+    hold_min = prof["hold_min"]
 
     if a.demo:
         print("  [DEMO] synthetic universe — proves the harness, NOT a real edge.")
@@ -337,7 +372,33 @@ def main():
         prices, bench, _dates = E.fetch_history(fno_stocks(), days=a.days, progress=prog)
         print(f"\n  history: {len(prices)} names, {len(bench)} bars")
 
-    rows, bm = sweep(prices, bench, step=a.step, max_pos=a.max_pos)
+    if a.all_profiles:
+        print("\n  COMPARING TRADING PROFILES  (best setup within each)")
+        print("  " + "-" * 74)
+        print(f"  {'PROFILE':<14}{'BEST SETUP':<22}{'RETURN':>9}{'SHARPE':>8}{'MAXDD':>9}{'TRADES':>8}")
+        print("  " + "-" * 74)
+        keep = None
+        for name, p in PROFILES.items():
+            rws, bmk = sweep(prices, bench, step=p["step"], max_pos=p["max_pos"],
+                             hold_min=p["hold_min"], verbose=False)
+            if not rws:
+                continue
+            b = rws[0]
+            print(f"  {name:<14}{b['setup']:<22}{b['total_return']:>8.1f}%"
+                  f"{b['sharpe']:>8.2f}{b['max_dd']:>8.1f}%{b['trades']:>8}")
+            if name == a.profile:
+                keep = rws
+        print("  " + "-" * 74)
+        print(f"  NIFTY buy & hold: {bmk['total_return']:.1f}%  maxDD {bmk['max_dd']:.1f}%")
+        print(f"  Fewer trades is not a compromise for you - it is less cost drag and")
+        print(f"  fewer decisions to get wrong.\n")
+        if keep and not a.demo:
+            save_best(keep)
+        return
+
+    print(f"  profile: {a.profile}  ({prof['note']})")
+    rows, bm = sweep(prices, bench, step=step, max_pos=max_pos,
+                     hold_min=hold_min, profile=a.profile)
     if not a.demo:
         save_best(rows)
 
