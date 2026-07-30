@@ -184,23 +184,29 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     # the quantity unbuyable and the risk figure meaningless. Prefer the live option
     # chain (authoritative), then a config override, then the Fyers symbol master, and
     # only then a generic fallback.
+    chain_lot = int(lot) if lot else None
     if not lot:
         lot = getattr(config, "LOT_SIZES", {}).get(point["name"])
-    if not lot:
-        try:
-            from fno_universe import lot_sizes
-            lot = lot_sizes().get(point["name"])
-        except Exception:
-            lot = None
-    lot = int(lot or getattr(config, "DEFAULT_LOT", 1) or 1)
+    try:
+        from fno_universe import lot_sizes
+        master_lot = lot_sizes().get(point["name"])
+    except Exception:
+        master_lot = None
+    lot = int(lot or master_lot or getattr(config, "DEFAULT_LOT", 1) or 1)
     lots = max(0, units // max(lot, 1))
-    # Sanity check the lot itself. Every NSE F&O contract is sized to roughly Rs 5-10
-    # lakh of underlying; anything far below that means the lot came from the wrong
-    # column and the whole quantity is fiction. Say so rather than print it straight.
+    # Sanity-check the lot itself, two ways.
+    # 1) Every NSE F&O contract is sized to roughly Rs 5-10 lakh of underlying. Far below
+    #    that means the lot came from the wrong place and the quantity is fiction.
+    # 2) If the live chain and the symbol master disagree, one of them is stale - a split
+    #    revises the lot (COFORGE went 75 -> 375 on a 5:1). Trade the chain, but say so.
     contract_value = round(spot * lot)
-    lot_warning = (f"lot {lot} gives a contract value of only Rs {contract_value:,} - "
-                   f"NSE F&O contracts are ~Rs 5-10 lakh, so verify the lot before you order"
-                   ) if contract_value < 200000 else None
+    lot_warning = None
+    if contract_value < 200000:
+        lot_warning = (f"lot {lot} gives a contract value of only Rs {contract_value:,} - "
+                       f"NSE F&O contracts are ~Rs 5-10 lakh, so verify the lot before you order")
+    elif chain_lot and master_lot and chain_lot != master_lot:
+        lot_warning = (f"lot mismatch: live chain says {chain_lot}, symbol master says "
+                       f"{master_lot} - using {chain_lot}; a recent split may have revised it")
     card["size"] = {"risk_budget": round(budget), "lot": lot, "lots": lots,
                     "qty": lots * max(lot, 1),
                     "risk_per_unit": round(risk_per_unit, 2),
