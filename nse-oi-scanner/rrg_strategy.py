@@ -52,6 +52,10 @@ def _entry_ok(p, rule, params):
         base = q == "IMPROVING" and pq == "LAGGING"
     elif rule == "improving_or_leading":
         base = (q == "IMPROVING" and pq == "LAGGING") or (q == "LEADING" and pq != "LEADING")
+    elif rule == "momentum_only":
+        # Deliberately ignores the rotation entirely. This is the ablation control:
+        # if it scores as well as the full machine, the rotation is decoration.
+        base = p["abs_trend"] > 0
     else:
         base = False
     if not base:
@@ -78,7 +82,9 @@ def _entry_ok_short(p, rule, params):
     failed. Shorts come from the weak side of the rotation, with the same own-trend
     filter inverted so a name must also be falling in absolute terms."""
     q, pq = p["quadrant"], p["prev_quadrant"]
-    if rule == "hold_leading":                 # mirror: hold everything Lagging
+    if rule == "momentum_only":
+        base = p["abs_trend"] < 0              # control, mirrored for the short book
+    elif rule == "hold_leading":               # mirror: hold everything Lagging
         base = q == "LAGGING"
     elif rule == "cross_leading":              # mirror: the cross INTO Lagging
         base = q == "LAGGING" and pq != "LAGGING"
@@ -118,6 +124,8 @@ def _exit_ok(p, params):
     Banding cuts turnover more efficiently than simply rebalancing less often,
     because it keeps full exposure to the signal while dropping the noise trades."""
     band = float(params.get("exit_band", 0.0))
+    if params.get("rule") == "momentum_only":
+        return p["abs_trend"] < 0              # control exits on trend alone
     if params.get("exit_on_weaken", True):
         # both WEAKENING and LAGGING sit below the momentum axis
         if p["y"] < 100 - band:
@@ -178,6 +186,7 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
     side: "long" (default), "short", or "both" - "both" splits the slots and lets the
     short book carry the falling half of the universe, which a long-only version cannot.
     cost_bps = round-trip slippage+brokerage per trade in basis points."""
+    params = dict(params); params.setdefault("rule", rule)
     side = side or params.get("side", "long")
     want_long = side in ("long", "both")
     want_short = side in ("short", "both")
@@ -214,7 +223,8 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
         # a weak index calls for, so they are never gated on it. ---
         regime_ok = bench_uptrend(bench, t) if params.get("need_regime") else True
         usable = lambda p: p["name"] not in held and p["name"] in by_name and len(by_name[p["name"]]) > t
-        rank = lambda p: p["distance"] * (1 + p["velocity"])
+        rank = ((lambda p: p.get("abs_pct", 0)) if rule == "momentum_only"
+                else (lambda p: p["distance"] * (1 + p["velocity"])))
 
         if len(held) < max_pos:
             slots = max_pos - len(held)

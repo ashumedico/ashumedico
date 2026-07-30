@@ -24,3 +24,4 @@ config.py.bak-*
 positions.json
 alerts_sent.json
 robustness_report.txt
+hypothesis_report.txt
