@@ -184,25 +184,32 @@ else:
     expiry_label = getattr(config, "FUT_EXPIRY", "current")
     # one batched quote call covers every card's live entry check
     live_ltp = {} if demo else E.live_quote([p["symbol"] for p in sel["longs"][:5]])
+
+    # Only the top candidate gets a live option-chain call - five sequential chain
+    # fetches is what made this page hang after hours. But stock F&O all share the same
+    # monthly series, so that ONE call also tells us which expiry every other card should
+    # quote. Before this, cards 2-5 silently inherited config.FUT_EXPIRY, which is exactly
+    # the stale-expiry bug the check-in had, just without a warning to catch it.
+    top_chain, top_lot, exp_all, dte_all = None, None, expiry_label, 25
+    if not demo:
+        try:
+            import option_chain as oc
+            top_chain, _lbl, _days, top_lot = oc.tradeable_chain(
+                sel["longs"][0]["symbol"], TC.min_days_for_thesis())
+            if _lbl:
+                exp_all, dte_all = _lbl, _days
+        except Exception:
+            top_chain = None
+
     tabs = st.tabs([f"#{i+1}  {p['name']}" for i, p in enumerate(sel["longs"][:5])])
     for tab, p in zip(tabs, sel["longs"][:5]):
         with tab:
             closes = prices.get(p["symbol"]) or [p["close"]]
-            # Only the top candidate gets a live option-chain call. Five sequential
-            # chain fetches is what made this page hang after hours - the rest use the
-            # estimated premium, which is labelled as such on the card.
-            chain, lot, exp_lbl, dte = None, None, expiry_label, 25
-            if not demo and p is sel["longs"][0]:
-                try:
-                    import option_chain as oc
-                    chain, lbl, days, lot = oc.tradeable_chain(
-                        p["symbol"], TC.min_days_for_thesis())
-                    if lbl:
-                        exp_lbl, dte = lbl, days
-                except Exception:
-                    chain = None
-            card = TC.build_card(p, closes, chain=chain, lot=lot, expiry_label=exp_lbl,
-                                 days_to_expiry=dte,
+            top = p is sel["longs"][0]
+            chain = top_chain if top else None      # others use the estimated premium,
+            lot = top_lot if top else None          # labelled as such on the card
+            card = TC.build_card(p, closes, chain=chain, lot=lot, expiry_label=exp_all,
+                                 days_to_expiry=dte_all,
                                  capital=cap_cfg, risk_pct=getattr(config, "RISK_PCT", 0.005))
             o = card.get("option", {})
             for _w in (o.get("expiry_warning"), card["size"].get("lot_warning")):
