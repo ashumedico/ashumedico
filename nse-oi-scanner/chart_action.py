@@ -167,6 +167,10 @@ def fetch_candles(symbol, resolution="15", days=5):
     IST = timezone(timedelta(hours=5, minutes=30))
     token = open(config.TOKEN_FILE).read().strip()
     fy = fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
+    # Fyers rejects 1D/1W/1M requests spanning >366 days (use rrg_engine.fetch_history,
+    # which chunks, when you need more than a year of daily bars).
+    if resolution in ("D", "1D", "W", "1W", "M", "1M"):
+        days = min(days, 360)
     to = datetime.now(IST); frm = to - timedelta(days=days)
     r = fy.history({"symbol": symbol, "resolution": resolution, "date_format": "1",
                     "range_from": frm.strftime("%Y-%m-%d"), "range_to": to.strftime("%Y-%m-%d"),

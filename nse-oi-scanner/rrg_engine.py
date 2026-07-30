@@ -182,15 +182,29 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
             return d["prices"], d["bench"]
 
     fy = _fy()
-    to = datetime.now(IST); frm = to - timedelta(days=int(days * 1.6) + 10)
+    to = datetime.now(IST)
+    # `days` is in BARS; ~250 trading days per calendar year -> pad to calendar days
+    span_days = int(days * 1.45) + 15
+    frm = to - timedelta(days=span_days)
+
+    # Fyers rejects any single 1D/1W/1M request spanning more than 366 days,
+    # so walk the range in sub-year chunks and stitch the candles together.
+    CHUNK = 360
 
     def one(sym):
-        r = fy.history({"symbol": sym, "resolution": resolution, "date_format": "1",
-                        "range_from": frm.strftime("%Y-%m-%d"),
-                        "range_to": to.strftime("%Y-%m-%d"), "cont_flag": "1"})
-        if not isinstance(r, dict) or r.get("s") != "ok":
-            raise RuntimeError(str(r)[:120])
-        return [c[4] for c in r.get("candles", [])]
+        candles = {}
+        cur = frm
+        while cur < to:
+            chunk_end = min(cur + timedelta(days=CHUNK), to)
+            r = fy.history({"symbol": sym, "resolution": resolution, "date_format": "1",
+                            "range_from": cur.strftime("%Y-%m-%d"),
+                            "range_to": chunk_end.strftime("%Y-%m-%d"), "cont_flag": "1"})
+            if not isinstance(r, dict) or r.get("s") != "ok":
+                raise RuntimeError(str(r)[:150])
+            for c in r.get("candles", []):
+                candles[c[0]] = c          # keyed by epoch -> de-dupes chunk overlaps
+            cur = chunk_end + timedelta(days=1)
+        return [candles[k][4] for k in sorted(candles)]
 
     bench = one(benchmark)
     prices, total = {}, len(symbols)
