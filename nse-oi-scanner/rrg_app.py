@@ -21,9 +21,17 @@ import streamlit as st
 
 import rrg_engine as E
 import rrg_strategy as S
-import rrg_view as V
 import risk_gate
 import execution as ex
+
+# Plotly gives the interactive RRG. If it is missing we still run — falling back to
+# the matplotlib render — so a missing package never blanks the whole cockpit.
+try:
+    import rrg_view as V
+    HAVE_PLOTLY = True
+except Exception:                      # noqa
+    V = None
+    HAVE_PLOTLY = False
 
 IST = timezone(timedelta(hours=5, minutes=30))
 st.set_page_config(page_title="Aashish Trading OS · RRG", page_icon="🎯", layout="wide")
@@ -109,10 +117,18 @@ k5.metric("Mode", mode.split(" ")[0])
 # ---------------- MAIN WINDOW: the RRG ----------------
 main, side = st.columns([2.5, 1])
 with main:
-    st.plotly_chart(
-        V.rrg_figure(points, picks=picks,
-                     title=f"{len(points)} F&O names vs NIFTY · {mode}"),
-        use_container_width=True)
+    if HAVE_PLOTLY:
+        st.plotly_chart(
+            V.rrg_figure(points, picks=picks,
+                         title=f"{len(points)} F&O names vs NIFTY · {mode}"),
+            use_container_width=True)
+    else:
+        st.warning("Interactive chart needs **plotly** — showing the static render. "
+                   "Install it once with:  `python -m pip install plotly`")
+        import rrg as rrg_static
+        legacy = [{**p, "signal": p.get("signal"), "tail": p.get("tail", [(p["x"], p["y"])])}
+                  for p in points]
+        st.image(rrg_static.render_chart(legacy, "charts/app_rrg.png"))
     st.caption("Position = rotation · ▲ fresh buying / ▼ fresh selling · "
                "gold ring = candidate under your validated setup · hover any dot for detail")
 
