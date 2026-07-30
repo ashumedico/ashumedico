@@ -20,13 +20,29 @@ have to be answered, and each one can kill the idea:
 
 NOT financial advice. This is the test that tries to DISPROVE the edge.
 """
-import argparse, statistics
+import argparse, statistics, sys
 from datetime import datetime, timezone, timedelta
 
 import rrg_engine as E
 import rrg_strategy as S
 
 IST = timezone(timedelta(hours=5, minutes=30))
+REPORT = "robustness_report.txt"
+
+
+class _Tee:
+    """Mirror everything to a file. The most important verdict was scrolling off the
+    top of the console, which is a bad place to keep a conclusion."""
+    def __init__(self, path):
+        self.f = open(path, "w", encoding="utf-8")
+        self.out = sys.stdout
+
+    def write(self, s):
+        self.out.write(s)
+        self.f.write(s)
+
+    def flush(self):
+        self.out.flush(); self.f.flush()
 
 
 def _slice(prices, bench, a, b):
@@ -59,8 +75,11 @@ def out_of_sample(prices, bench, step=5, max_pos=10):
         if r:
             in_rows.append((label, rule, params, r))
     if not in_rows:
-        # each half must still hold enough rebalances to mean anything
-        need_bars = (12 * step + 60) * 2
+        # Each HALF must survive the warmup and still hold a meaningful span, so the
+        # requirement is (warmup + span) per half - not a bar count for the whole run.
+        # The earlier formula under-stated it and produced "you have 400, need 240"
+        # immediately followed by a failure.
+        need_bars = (60 + max(180, 12 * step)) * 2
         print(f"  NOT ENOUGH HISTORY to split at this cadence.")
         print(f"  A {step}-bar rebalance needs ~{need_bars} bars to test out-of-sample;")
         print(f"  you have {n}. Re-run with:  --days {int(need_bars * 1.5)}")
@@ -185,6 +204,7 @@ def param_stability(prices, bench, rule, params, step=5, max_pos=10):
 
 
 def main():
+    sys.stdout = _Tee(REPORT)
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--days", type=int, default=400)
@@ -216,13 +236,42 @@ def main():
     if not oos:
         return
     rule, params = oos["rule"], oos["params"]
-    cost_sensitivity(prices, bench, rule, params, a.step, a.max_pos)
+    cost_rows = cost_sensitivity(prices, bench, rule, params, a.step, a.max_pos)
+    real35 = next((r for bps, r in cost_rows if bps == 35), None)
     regime_test(prices, bench, rule, params, a.step, a.max_pos)
-    param_stability(prices, bench, rule, params, a.step, a.max_pos)
+    stab = param_stability(prices, bench, rule, params, a.step, a.max_pos)
 
+    # ---- the bottom line, repeated LAST so it cannot scroll away ----
     print("\n" + "=" * 76)
-    print("  Read the four verdicts together. If out-of-sample fails or the parameters")
-    print("  are fragile, the headline return is not an edge — it is a coincidence.")
+    print("  BOTTOM LINE")
+    print("=" * 76)
+    o = oos.get("out_sample"); i = oos.get("in_sample"); bmk = oos.get("bench_out", {})
+    print(f"  Setup tested      : {oos['setup']}   (profile {a.profile})")
+    if i:
+        print(f"  In-sample         : {i['total_return']:+.1f}%  Sharpe {i['sharpe']:.2f}  "
+              f"maxDD {i['max_dd']:.1f}%  ({i['trades']} trades)")
+    if o:
+        print(f"  OUT-OF-SAMPLE     : {o['total_return']:+.1f}%  Sharpe {o['sharpe']:.2f}  "
+              f"maxDD {o['max_dd']:.1f}%  ({o['trades']} trades)")
+        print(f"  NIFTY same period : {bmk.get('total_return', 0):+.1f}%  "
+              f"maxDD {bmk.get('max_dd', 0):.1f}%")
+        if o["sharpe"] > 0.3 and o["total_return"] > bmk.get("total_return", 0):
+            print("\n  >> HOLDS UP. Survived data it never saw, and still beat the index.")
+            print("     Next: paper-trade it for a few weeks before sizing up.")
+        elif o["total_return"] > 0:
+            print("\n  >> WEAKER out-of-sample. Positive, but no longer clearly beating NIFTY.")
+            print("     Treat the headline as optimistic; keep size small.")
+        else:
+            print("\n  >> FAILS out-of-sample. The headline was likely luck.")
+            print("     Do NOT put money behind this setup.")
+    if real35:
+        print(f"\n  At realistic 35bps costs: {real35['total_return']:+.1f}%  "
+              f"(Sharpe {real35['sharpe']:.2f})  <- plan on this, not the headline")
+    if stab:
+        pos = sum(1 for x in stab if x > 0)
+        print(f"  Parameter stability     : {pos}/{len(stab)} variations positive, "
+              f"median Sharpe {statistics.median(stab):.2f}")
+    print(f"\n  Full run saved to: {REPORT}")
     print("  A backtest is a hypothesis, not a promise.")
     print("=" * 76 + "\n")
 

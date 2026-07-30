@@ -23,3 +23,4 @@ fno_lots.json
 config.py.bak-*
 positions.json
 alerts_sent.json
+robustness_report.txt
