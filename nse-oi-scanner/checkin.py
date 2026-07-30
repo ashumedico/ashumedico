@@ -130,13 +130,19 @@ def review_open(bk, quotes):
     return actions
 
 
-def show_new(card, chk, point):
+def show_new(card, chk, point, skipped=None):
     """Question 2: is there a new trade, and can he act on it right now."""
     print(f"  {B}AAJ KA NAYA TRADE{X}")
     print("  " + "-" * 66)
+    for name, cost in (skipped or []):
+        print(f"  {DIM}chhoda: {name} - ek lot Rs {cost:,} ka, capital se zyada{X}")
     if not card:
-        print(f"  {DIM}Aaj kuch nahi. Koi naam setup pass nahi kar raha.{X}")
-        print(f"  {DIM}Na lena bhi ek position hai - ghar ja.{X}\n")
+        if skipped:
+            print(f"  {Y}Setup toh mila, par ek bhi lot afford nahi hota.{X}")
+            print(f"  {DIM}Ye capital ka issue hai, signal ka nahi - aaj rehne de.{X}\n")
+        else:
+            print(f"  {DIM}Aaj kuch nahi. Koi naam setup pass nahi kar raha.{X}")
+            print(f"  {DIM}Na lena bhi ek position hai - ghar ja.{X}\n")
         return
     o = card.get("option") or {}
     state = chk.get("state") if chk else None
@@ -156,11 +162,26 @@ def show_new(card, chk, point):
               f"   premium ~{o['premium']}  {DIM}[{o['premium_source']}]{X}")
         if o.get("days_to_expiry") is not None:
             print(f"    EXPIRY  : {o['days_to_expiry']} din baaki")
-    print(f"    QTY     : {card['size']['qty']}  "
-          f"({card['size']['lots']} lot x {card['size']['lot']})"
-          + (f"   {DIM}= Rs {card['size']['contract_value']:,} ka contract{X}"
-             if card['size'].get('contract_value') else ""))
-    for w in (o.get("expiry_warning"), card["size"].get("lot_warning")):
+    s = card["size"]
+    # Lots are indivisible, so the risk rule cannot always be honoured exactly. When the
+    # smallest tradeable size risks more than the rule allows, show that number plainly
+    # instead of rounding down to a qty of 0 - and let him decide, rather than deciding
+    # for him by silently sizing up.
+    lots = max(s["lots"], 1) if s.get("cost_per_lot") else s["lots"]
+    print(f"    QTY     : {lots * s['lot']}  ({lots} lot x {s['lot']})")
+    if s.get("cost_per_lot"):
+        cost = s["cost_per_lot"] * lots
+        risk = s.get("risk_per_lot", 0) * lots
+        cpc, rpc = s.get("cost_pct"), s.get("risk_pct_of_capital")
+        col = R if (rpc or 0) > 10 else Y if (rpc or 0) > 5 else G
+        print(f"    LAGEGA  : Rs {cost:,}  ({cpc}% capital)"
+              f"   RISK: {col}Rs {risk:,} ({rpc}% capital){X}")
+        if s.get("too_big"):
+            print(f"    {Y}   tera rule {s['risk_budget']:,} ka risk kehta hai, "
+                  f"chhota se chhota lot {s['risk_per_lot']:,} ka hai - tu decide kar{X}")
+    if s.get("afford_note"):
+        print(f"    {Y}!! {s['afford_note']}{X}")
+    for w in (o.get("expiry_warning"), s.get("lot_warning")):
         if w:
             print(f"    {R}!! {w}{X}")
     print(f"    LIMIT   : {card['stock']['entry']}")
@@ -296,10 +317,25 @@ def main():
     held = {p["name"] for p in bk["open"]}
     fresh = [p for p in sel["longs"] if p["name"] not in held]
 
+    # One position at a time. Suggesting a second while the first is live is not a
+    # suggestion he can act on - the money is already in the market - and a ticket he
+    # cannot take is just noise at the top of the screen.
     card = chk = point = None
-    if fresh:
-        point = fresh[0]
-        closes = prices.get(point["symbol"]) or [point["close"]]
+    skipped = []
+    if bk["open"] and not a.buy:
+        print(f"  {B}AAJ KA NAYA TRADE{X}")
+        print("  " + "-" * 66)
+        print(f"  {DIM}Ek time pe ek trade - abhi {bk['open'][0]['name']} chal raha hai.{X}")
+        print(f"  {DIM}Pehle usko band kar, phir agla dikhega.{X}\n")
+        scorecard(bk)
+        print("=" * 70)
+        print(f"  {DIM}Bas itna hi. Not financial advice - decision tera.{X}")
+        print("=" * 70 + "\n")
+        return
+
+    capital = float(getattr(config, "CAPITAL", 500000))
+    for cand in fresh:
+        closes = prices.get(cand["symbol"]) or [cand["close"]]
         chain, lot = None, None
         expiry_label = getattr(config, "FUT_EXPIRY", "current")
         dte = 25
@@ -311,13 +347,23 @@ def main():
             try:
                 import option_chain as oc
                 chain, lbl, days, lot = oc.tradeable_chain(
-                    point["symbol"], TC.min_days_for_thesis())
+                    cand["symbol"], TC.min_days_for_thesis())
                 if lbl:
                     expiry_label, dte = lbl, days
             except Exception:
                 chain = None
-        card = TC.build_card(point, closes, chain=chain, lot=lot,
-                             expiry_label=expiry_label, days_to_expiry=dte)
+        c = TC.build_card(cand, closes, chain=chain, lot=lot,
+                          expiry_label=expiry_label, days_to_expiry=dte)
+        # An unaffordable ticket is not a trade. Move down the ranking instead of
+        # printing a quantity the account cannot fund.
+        cost = c["size"].get("cost_per_lot")
+        if cost and cost > capital:
+            skipped.append((cand["name"], cost))
+            continue
+        point, card = cand, c
+        break
+
+    if card:
         ltp = (E.live_quote([point["symbol"]]).get(point["symbol"])
                if not a.demo else point["close"])
         chk = E.entry_check(card, ltp)
@@ -329,7 +375,7 @@ def main():
             print(f"  {Y}Aaj koi trade suggest nahi hua - kuch record nahi kiya.{X}")
         return
 
-    show_new(card, chk, point)
+    show_new(card, chk, point, skipped)
     scorecard(bk)
 
     print("=" * 70)
