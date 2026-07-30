@@ -123,6 +123,85 @@ def rrg_figure(points, picks=None, show_tails=True, dark=True, title=None):
     return fig
 
 
+def trade_chart(card, closes, dates=None, point=None, ltp=None, bars=70, dark=True):
+    """The suggested trade drawn on its own price chart, with every level marked.
+
+    Shows what the numbers mean visually: where the stop sits under recent structure,
+    how far T1/T2 are, the shaded risk vs reward blocks, and the bar the signal fired on
+    so a stale idea is obvious at a glance."""
+    plan = card.get("stock", {}) or {}
+    entry, stop = plan.get("entry"), plan.get("stop")
+    t1, t2 = plan.get("t1"), plan.get("t2")
+    px = list(closes)[-bars:]
+    if not px:
+        return go.Figure()
+    if dates and len(dates) >= len(closes):
+        xs = list(dates)[-len(closes):][-bars:]
+    else:
+        xs = list(range(-len(px) + 1, 1))
+
+    ink = "#e6edf3" if dark else "#161b22"
+    grid = "rgba(255,255,255,0.06)" if dark else "rgba(0,0,0,0.06)"
+    paper = "#0e1116" if dark else "#ffffff"
+    fig = go.Figure()
+
+    # reward block (entry -> T2) and risk block (entry -> stop)
+    if entry and t2:
+        fig.add_hrect(y0=entry, y1=t2, fillcolor="#3fb950", opacity=0.07, line_width=0)
+    if entry and stop:
+        fig.add_hrect(y0=stop, y1=entry, fillcolor="#f4516c", opacity=0.09, line_width=0)
+
+    fig.add_trace(go.Scatter(
+        x=xs, y=px, mode="lines", name="Price",
+        line=dict(color="#58a6ff", width=2),
+        hovertemplate="%{x}<br>₹%{y:,.2f}<extra></extra>"))
+
+    def level(val, colour, label, dash=None):
+        if not val:
+            return
+        fig.add_hline(y=val, line_color=colour, line_width=1.6,
+                      line_dash=dash, opacity=0.95,
+                      annotation_text=f"  {label} ₹{val:,.2f}",
+                      annotation_position="right",
+                      annotation_font=dict(color=colour, size=11))
+
+    level(t2, "#178a52", "T2 · book rest")
+    level(t1, "#3fb950", "T1 · book half", "dot")
+    level(entry, "#2f6fed", "ENTRY")
+    level(stop, "#f4516c", "STOP")
+
+    # where the signal fired
+    if point and point.get("age_bars"):
+        age = int(point["age_bars"])
+        if 0 < age <= len(xs):
+            fig.add_vline(x=xs[-age], line_color="#d29922", line_width=1.3,
+                          line_dash="dash",
+                          annotation_text=f"signal · {point.get('signal_date') or ''}",
+                          annotation_position="top left",
+                          annotation_font=dict(color="#d29922", size=10))
+
+    # live price marker
+    if ltp:
+        fig.add_trace(go.Scatter(
+            x=[xs[-1]], y=[ltp], mode="markers+text", name="Live",
+            marker=dict(color="#f0b429", size=11, symbol="diamond"),
+            text=[f" ₹{ltp:,.2f}"], textposition="middle right",
+            textfont=dict(color="#f0b429", size=11),
+            hovertemplate="live ₹%{y:,.2f}<extra></extra>"))
+
+    rr = plan.get("rr2")
+    fig.update_layout(
+        title=dict(text=f"{card.get('name','')} — {card.get('action','')}"
+                        + (f"   ·   R:R up to {rr}" if rr else ""),
+                   font=dict(size=13, color=ink)),
+        xaxis=dict(gridcolor=grid, color=ink, showgrid=True),
+        yaxis=dict(gridcolor=grid, color=ink, title="₹", side="left"),
+        paper_bgcolor=paper, plot_bgcolor=paper, font=dict(color=ink),
+        showlegend=False, height=330,
+        margin=dict(l=52, r=104, t=42, b=34), hovermode="x unified")
+    return fig
+
+
 def export_html(points, path="rrg_live.html", picks=None, title=None):
     fig = rrg_figure(points, picks=picks, title=title)
     fig.write_html(path, include_plotlyjs="inline", full_html=True)

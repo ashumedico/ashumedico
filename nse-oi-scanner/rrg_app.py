@@ -270,6 +270,16 @@ else:
                       f"premium ₹{o['t2']}  ·  R:R {card['stock']['rr2']}" if o
                       else f"R:R {card['stock']['rr2']}", delta_color="off")
 
+            # --- the trade drawn out: entry, stop, T1, T2, signal bar, live price ---
+            if HAVE_PLOTLY:
+                st.plotly_chart(
+                    V.trade_chart(card, closes, dates=getattr(E, "LAST_DATES", None),
+                                  point=p, ltp=ltp),
+                    use_container_width=True,
+                    key=f"trade_chart_{card['name']}")
+                st.caption("Green block = reward to T2 · red block = risk to stop · "
+                           "amber dashed = the bar the signal fired on")
+
             st.markdown("**The exit contract — decided now, followed without renegotiating**")
             st.table([{"When": lbl, "Do this": rule} for lbl, rule in card["rules"]])
 

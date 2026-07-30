@@ -33,6 +33,7 @@ except ImportError:
     config = _C()
 
 LAST_SKIPPED = []          # symbols the last live fetch could not load
+LAST_DATES = []            # candle dates of the last load (for charting x-axes)
 
 QUADRANTS = ("LEADING", "WEAKENING", "LAGGING", "IMPROVING")
 QUAD_COLOR = {"LEADING": "#1f9d63", "WEAKENING": "#e0a11b",
@@ -206,6 +207,7 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
     """Daily closes for every symbol + the benchmark. Cached per day so the
     full-universe pull happens once, then loads instantly."""
     benchmark = benchmark or getattr(config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX")
+    global LAST_SKIPPED, LAST_DATES
     key = f"hist2_{resolution}_{days}"      # v2 = includes candle dates
     cp = _cache_path(key)
     if use_cache and os.path.exists(cp):
@@ -213,6 +215,7 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
             d = json.load(f)
         # a cache without dates cannot date signals -> treat it as a miss and refetch
         if d.get("bench") and d.get("dates") and len(d.get("prices", {})) > 5:
+            LAST_DATES = d["dates"]
             return d["prices"], d["bench"], d["dates"]
 
     fy = _fy()
@@ -272,8 +275,8 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
         time.sleep(throttle)
 
     # partial data is a fact the caller must be able to see, not swallow
-    global LAST_SKIPPED
     LAST_SKIPPED = skipped
+    LAST_DATES = bench_dates
     if skipped:
         print(f"  [fetch] {len(prices)}/{total} loaded, {len(skipped)} skipped "
               f"(first: {skipped[0][0]} -> {skipped[0][1]})")
@@ -428,4 +431,6 @@ def demo_points(tail=6, n_bars=400, seed=7):
     buildup = {}
     for i, nm in enumerate(names):
         buildup[nm] = ["LONG BUILDUP", "SHORT COVERING", "SHORT BUILDUP", "LONG UNWINDING"][i % 4]
+    global LAST_DATES
+    LAST_DATES = dts
     return build_points(prices, bench, buildup, tail=tail, dates=dts), prices, bench
