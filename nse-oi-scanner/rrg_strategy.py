@@ -70,6 +70,46 @@ def _entry_ok(p, rule, params):
     return True
 
 
+def _entry_ok_short(p, rule, params):
+    """Mirror of the long rules for the short book.
+
+    Half the universe was unusable while this was long-only, and a long-only rotation
+    structurally loses in a falling market - which is exactly how the out-of-sample test
+    failed. Shorts come from the weak side of the rotation, with the same own-trend
+    filter inverted so a name must also be falling in absolute terms."""
+    q, pq = p["quadrant"], p["prev_quadrant"]
+    if rule == "hold_leading":                 # mirror: hold everything Lagging
+        base = q == "LAGGING"
+    elif rule == "cross_leading":              # mirror: the cross INTO Lagging
+        base = q == "LAGGING" and pq != "LAGGING"
+    elif rule == "cross_improving":            # mirror: Leading -> Weakening
+        base = q == "WEAKENING" and pq == "LEADING"
+    elif rule == "improving_or_leading":
+        base = ((q == "WEAKENING" and pq == "LEADING") or
+                (q == "LAGGING" and pq != "LAGGING"))
+    else:
+        base = False
+    if not base:
+        return False
+    if p["distance"] < params.get("min_distance", 0.0):
+        return False
+    if params.get("need_trend", False) and p["abs_trend"] >= 0:
+        return False                            # must be falling on its own too
+    if params.get("need_buildup") and p.get("signal") not in ("SHORT BUILDUP", "LONG UNWINDING"):
+        return False
+    return True
+
+
+def _exit_ok_short(p, params):
+    """Cover when the rotation turns back up (or the downtrend breaks)."""
+    band = float(params.get("exit_band", 0.0))
+    if p["y"] > 100 + band:
+        return True
+    if params.get("need_trend", False) and p["abs_trend"] > 0:
+        return True
+    return False
+
+
 def _exit_ok(p, params):
     """Exit when the rotation turns against us (or own trend breaks).
 
@@ -133,9 +173,14 @@ def bench_uptrend(bench, t, fast=20, slow=50):
 
 
 def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
-             hold_min=5, cost_bps=15, tail=3, win=10, mom_win=5):
-    """Equal-weight long-only rotation. Rebalance every `step` bars.
+             hold_min=5, cost_bps=15, tail=3, win=10, mom_win=5, side=None):
+    """Equal-weight rotation. Rebalance every `step` bars.
+    side: "long" (default), "short", or "both" - "both" splits the slots and lets the
+    short book carry the falling half of the universe, which a long-only version cannot.
     cost_bps = round-trip slippage+brokerage per trade in basis points."""
+    side = side or params.get("side", "long")
+    want_long = side in ("long", "both")
+    want_short = side in ("short", "both")
     n = len(bench)
     if n <= start + step * 3:
         return None
@@ -158,19 +203,33 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
             held[name]["bars"] += step
             if p is None:
                 continue
-            if held[name]["bars"] >= hold_min and _exit_ok(p, params):
+            h = held[name]
+            gone = (_exit_ok_short(p, params) if h["dir"] < 0 else _exit_ok(p, params))
+            if h["bars"] >= hold_min and gone:
                 px = by_name[name][t - 1]
-                closed_rs.append(px / held[name]["entry_px"] - 1)
+                closed_rs.append((px / h["entry_px"] - 1) * h["dir"])
                 del held[name]
 
-        # --- entries (blocked entirely when the index itself is unhealthy) ---
+        # --- entries. The regime gate only ever blocked LONGS; shorts are exactly what
+        # a weak index calls for, so they are never gated on it. ---
         regime_ok = bench_uptrend(bench, t) if params.get("need_regime") else True
-        if len(held) < max_pos and regime_ok:
-            cands = [p for p in pts if _entry_ok(p, rule, params) and p["name"] not in held
-                     and p["name"] in by_name and len(by_name[p["name"]]) > t]
-            cands.sort(key=lambda p: (p["distance"] * (1 + p["velocity"])), reverse=True)
-            for p in cands[:max_pos - len(held)]:
-                held[p["name"]] = {"entry_px": by_name[p["name"]][t - 1], "bars": 0}
+        usable = lambda p: p["name"] not in held and p["name"] in by_name and len(by_name[p["name"]]) > t
+        rank = lambda p: p["distance"] * (1 + p["velocity"])
+
+        if len(held) < max_pos:
+            slots = max_pos - len(held)
+            picks = []
+            if want_long and regime_ok:
+                longs = sorted([p for p in pts if usable(p) and _entry_ok(p, rule, params)],
+                               key=rank, reverse=True)
+                picks += [(p, +1) for p in longs[:(slots // 2 if want_short else slots)]]
+            if want_short:
+                taken = {p["name"] for p, _ in picks}
+                shorts = sorted([p for p in pts if usable(p) and p["name"] not in taken
+                                 and _entry_ok_short(p, rule, params)], key=rank, reverse=True)
+                picks += [(p, -1) for p in shorts[:slots - len(picks)]]
+            for p, d in picks[:slots]:
+                held[p["name"]] = {"entry_px": by_name[p["name"]][t - 1], "bars": 0, "dir": d}
                 entries += 1
 
         # --- mark to market over the next `step` bars ---
@@ -179,7 +238,7 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
             for name, h in held.items():
                 c = by_name[name]
                 if t + step - 1 < len(c):
-                    rets.append(c[t + step - 1] / c[t - 1] - 1)
+                    rets.append((c[t + step - 1] / c[t - 1] - 1) * h["dir"])
             gross = sum(rets) / len(rets) if rets else 0.0
         else:
             gross = 0.0
@@ -209,7 +268,7 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
     for name, h in held.items():
         c = by_name.get(name)
         if c:
-            closed_rs.append(c[min(t, len(c)) - 1] / h["entry_px"] - 1)
+            closed_rs.append((c[min(t, len(c)) - 1] / h["entry_px"] - 1) * h["dir"])
 
     # --- metrics (honest: no annualising a sample too small to support it) ---
     # A longer rebalance step means fewer periods for the same history, so a flat

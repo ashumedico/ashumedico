@@ -116,6 +116,91 @@ def out_of_sample(prices, bench, step=5, max_pos=10):
             "in_sample": in_r, "out_sample": out_r, "bench_out": bm2}
 
 
+# ---------------- 1b. multi-fold walk-forward ----------------
+def walkforward(prices, bench, step=5, max_pos=10, folds=4, side="long"):
+    """The honest test. A single 50/50 split can itself be luck, so this repeats it.
+
+    For each fold: pick the best setup on everything BEFORE the fold, then trade the
+    fold blind. Nothing is ever chosen using the data it is judged on. The question is
+    not "did it win once" but "how often does it win on data it has never seen".
+    """
+    n = len(bench)
+    warm = 60
+    need_per_seg = warm + 12 * step
+    # Use as many folds as the history actually supports rather than failing outright:
+    # a longer rebalance eats history fast, so a fixed fold count silently rules out
+    # exactly the cadence being tested.
+    max_folds = n // need_per_seg - 1
+    if max_folds < 2:
+        print(f"\n  1b) WALK-FORWARD - need ~{need_per_seg * 3} bars for even 2 folds "
+              f"at a {step}-bar rebalance; have {n}.")
+        print("      Test at a faster cadence (--profile swing) or fetch more history.")
+        return None
+    if max_folds < folds:
+        print(f"\n  [history allows {max_folds} folds, not {folds} - using {max_folds}]")
+        folds = max_folds
+    seg = n // (folds + 1)
+
+    print(f"\n  1b) WALK-FORWARD  — {folds} folds, each traded blind ({side} book)")
+    print("  " + "-" * 74)
+    print(f"  {'FOLD':<6}{'CHOSEN ON TRAIN':<22}{'OOS RET':>9}{'SHARPE':>8}"
+          f"{'MAXDD':>9}{'NIFTY':>8}{'TRADES':>8}")
+    print("  " + "-" * 74)
+
+    results = []
+    skipped_folds = []
+    for k in range(1, folds + 1):
+        tr_end = seg * k
+        if tr_end < need_per_seg * 2:
+            # training window too short to choose a setup from - say so, do not drop it
+            skipped_folds.append(k)
+            continue
+        te_a, te_b = tr_end - warm, min(seg * (k + 1), n)
+        p_tr, b_tr = _slice(prices, bench, 0, tr_end)
+        p_te, b_te = _slice(prices, bench, te_a, te_b)
+
+        best = None
+        for label, (rule, params) in S.RULESETS.items():
+            r = S.backtest(p_tr, b_tr, rule, params, step=step, max_pos=max_pos, side=side)
+            if r and (best is None or r["sharpe"] > best[3]["sharpe"]):
+                best = (label, rule, params, r)
+        if not best:
+            skipped_folds.append(k)
+            continue
+        label, rule, params, _ = best
+        oos = S.backtest(p_te, b_te, rule, params, step=step, max_pos=max_pos, side=side)
+        bm = S.benchmark_stats(b_te, step=step)
+        if not oos:
+            print(f"  {k:<6}{label:<22}{'(fold too short)':>34}")
+            continue
+        results.append({"fold": k, "setup": label, "oos": oos, "bench": bm})
+        print(f"  {k:<6}{label:<22}{oos['total_return']:>8.1f}%{oos['sharpe']:>8.2f}"
+              f"{oos['max_dd']:>8.1f}%{bm['total_return']:>7.1f}%{oos['trades']:>8}")
+
+    print("  " + "-" * 74)
+    if skipped_folds:
+        print(f"  (folds {skipped_folds} skipped - training window too short to choose from)")
+    if not results:
+        return None
+    rets = [r["oos"]["total_return"] for r in results]
+    beats = sum(1 for r in results if r["oos"]["total_return"] > r["bench"]["total_return"])
+    wins = sum(1 for x in rets if x > 0)
+    avg = sum(rets) / len(rets)
+    print(f"  {wins}/{len(results)} folds positive · {beats}/{len(results)} beat NIFTY · "
+          f"average OOS {avg:+.1f}% · median {statistics.median(rets):+.1f}%")
+    if len(results) < 2:
+        print("  >> INCONCLUSIVE. Only one fold completed - that is a single coin flip,")
+        print("     not evidence. Fetch more history or test a faster cadence.")
+    elif wins == len(results) and beats >= len(results) - 1:
+        print("  >> CONSISTENT. Wins on data it never saw, fold after fold.")
+    elif wins >= len(results) * 0.6 and avg > 0:
+        print("  >> MIXED but positive. A real but unreliable edge - keep size small.")
+    else:
+        print("  >> NOT AN EDGE. It does not survive unseen data repeatedly.")
+    return {"results": results, "wins": wins, "beats": beats, "avg": avg,
+            "folds": len(results)}
+
+
 # ---------------- 2. cost sensitivity ----------------
 def cost_sensitivity(prices, bench, rule, params, step=5, max_pos=10):
     print("\n  2) COST SENSITIVITY  — where does the edge die?")
@@ -212,6 +297,8 @@ def main():
     ap.add_argument("--max-pos", type=int, default=None)
     ap.add_argument("--profile", default="positional", choices=list(S.PROFILES),
                     help="test at the cadence you actually trade")
+    ap.add_argument("--folds", type=int, default=4,
+                    help="walk-forward folds - more folds, harder to fool")
     a = ap.parse_args()
     prof = S.PROFILES[a.profile]
     a.step = a.step or prof["step"]
@@ -224,7 +311,7 @@ def main():
 
     if a.demo:
         print("  [DEMO] synthetic data — mechanics only, not a real edge.")
-        _, prices, bench = E.demo_points()
+        _, prices, bench = E.demo_points(n_bars=max(400, int(a.days * 0.69)))
     else:
         def prog(i, n):
             print(f"    fetching {i}/{n}…", end="\r")
@@ -233,9 +320,23 @@ def main():
         print(f"\n  history: {len(prices)} names, {len(bench)} bars")
 
     oos = out_of_sample(prices, bench, a.step, a.max_pos)
-    if not oos:
-        return
-    rule, params = oos["rule"], oos["params"]
+    if oos:
+        rule, params = oos["rule"], oos["params"]
+    else:
+        # The single split could not run, but the remaining tests still inform. Pick the
+        # best full-sample setup for them and label it honestly as in-sample.
+        rows, _bm = S.sweep(prices, bench, step=a.step, max_pos=a.max_pos, verbose=False)
+        if not rows:
+            print("  Not enough history for any test. Re-run with more --days.")
+            return
+        rule, params = rows[0]["rule"], rows[0]["params"]
+        oos = {"setup": rows[0]["setup"] + " (in-sample only)", "rule": rule,
+               "params": params, "in_sample": rows[0], "out_sample": None, "bench_out": {}}
+        print(f"\n  Continuing with '{rows[0]['setup']}' chosen IN-SAMPLE - the tests below")
+        print("  are informative but not independent validation.")
+    wf_long = walkforward(prices, bench, a.step, a.max_pos, folds=a.folds, side="long")
+    wf_both = walkforward(prices, bench, a.step, a.max_pos, folds=a.folds, side="both")
+
     cost_rows = cost_sensitivity(prices, bench, rule, params, a.step, a.max_pos)
     real35 = next((r for bps, r in cost_rows if bps == 35), None)
     regime_test(prices, bench, rule, params, a.step, a.max_pos)
@@ -264,6 +365,13 @@ def main():
         else:
             print("\n  >> FAILS out-of-sample. The headline was likely luck.")
             print("     Do NOT put money behind this setup.")
+    for tag, wf in (("long only", wf_long), ("long+short", wf_both)):
+        if wf:
+            print(f"\n  WALK-FORWARD ({tag}): {wf['wins']}/{wf['folds']} folds positive, "
+                  f"{wf['beats']}/{wf['folds']} beat NIFTY, avg {wf['avg']:+.1f}%")
+    if wf_long or wf_both:
+        best_wf = max([w for w in (wf_long, wf_both) if w], key=lambda w: w["avg"])
+        print("  ^ this is the number that matters. One split can be luck; several cannot.")
     if real35:
         print(f"\n  At realistic 35bps costs: {real35['total_return']:+.1f}%  "
               f"(Sharpe {real35['sharpe']:.2f})  <- plan on this, not the headline")
