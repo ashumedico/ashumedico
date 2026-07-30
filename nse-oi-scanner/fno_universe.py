@@ -61,10 +61,48 @@ def _parse_fyers(text):
 LOTS_CACHE = "fno_lots.json"
 
 
-# Fyers symbol-master column layout. Index 3 is the minimum lot size; the older
-# "first integer column that looks plausible" heuristic picked index 2 instead
-# (exchange instrument type, a constant like 11/13) and silently sized every trade off it.
+# Fyers symbol-master column layout: index 3 is the minimum lot size. Used only as a
+# last resort - _detect_lot_col() below derives the column from the data instead, so a
+# change in the file's layout can't quietly go back to sizing trades off the wrong number.
 FYERS_LOT_COL = 3
+
+
+def _detect_lot_col(rows, fallback=FYERS_LOT_COL):
+    """Find the lot-size column without trusting a hard-coded index.
+
+    The lot size has a shape no other column shares: it is the SAME for every contract of
+    one underlying (future and every strike alike) but DIFFERENT across underlyings.
+      - instrument type, tick size, segment -> constant within AND across  (rejected)
+      - token, expiry, strike, symbol       -> varies within an underlying (rejected)
+    So we score each column on exactly that, and take the one that fits.
+
+    rows: {underlying: [split-and-stripped columns, ...]}. This is what makes the parser
+    survive a column being inserted upstream - the failure mode that produced lot 13.
+    """
+    multi = {u: rs for u, rs in rows.items() if len(rs) >= 2}
+    if len(multi) < 20:
+        return fallback
+    width = min(len(r) for rs in rows.values() for r in rs)
+    best = None
+    for i in range(width):
+        per_name, constant = {}, 0
+        for u, rs in multi.items():
+            vals = {r[i] for r in rs}
+            if len(vals) != 1:
+                continue
+            v = vals.pop()
+            if not v.isdigit() or not (1 <= int(v) <= 100000):
+                continue
+            constant += 1
+            per_name[u] = int(v)
+        if constant < 0.9 * len(multi) or len(per_name) < 20:
+            continue                      # not constant-within for most names
+        distinct = len(set(per_name.values()))
+        if distinct < 10:
+            continue                      # constant across names too -> not a lot size
+        if best is None or distinct > best[1]:
+            best = (i, distinct)
+    return best[0] if best else fallback
 
 
 def _plausible(lots):
@@ -81,19 +119,29 @@ def _plausible(lots):
     return top / len(vals) < 0.5 and len(set(vals)) >= 10
 
 
+# futures AND options rows, because detection needs several contracts per underlying
+CONTRACT_PAT = re.compile(r"NSE:([A-Z0-9&\-]+?)\d{2}[A-Z]{3}(?:FUT|\d+(?:\.\d+)?(?:CE|PE))")
+ROWS_PER_NAME = 4      # enough to test "constant within underlying"; keeps memory bounded
+
+
 def _lots_from_fyers(text):
-    pat = re.compile(r"NSE:([A-Z0-9&\-]+?)\d{2}[A-Z]{3}FUT")
-    lots = {}
+    rows = {}
     for line in text.splitlines():
-        m = pat.search(line)
+        m = CONTRACT_PAT.search(line)
         if not m or m.group(1) in INDICES:
             continue
-        cols = [c.strip() for c in line.split(",")]
-        if len(cols) <= FYERS_LOT_COL:
-            continue
-        c = cols[FYERS_LOT_COL]
-        if c.isdigit() and 1 <= int(c) <= 100000:
-            lots.setdefault(m.group(1), int(c))
+        got = rows.setdefault(m.group(1), [])
+        if len(got) < ROWS_PER_NAME:
+            got.append([c.strip() for c in line.split(",")])
+    if not rows:
+        return {}
+    col = _detect_lot_col(rows)
+    lots = {}
+    for u, rs in rows.items():
+        vals = [int(r[col]) for r in rs
+                if len(r) > col and r[col].isdigit() and 1 <= int(r[col]) <= 100000]
+        if vals:
+            lots[u] = max(set(vals), key=vals.count)        # modal, so one odd row can't win
     return lots
 
 
