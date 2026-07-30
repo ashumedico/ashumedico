@@ -188,9 +188,12 @@ else:
     for tab, p in zip(tabs, sel["longs"][:5]):
         with tab:
             closes = prices.get(p["symbol"]) or [p["close"]]
+            # Only the top candidate gets a live option-chain call. Five sequential
+            # chain fetches is what made this page hang after hours - the rest use the
+            # estimated premium, which is labelled as such on the card.
             chain = None
-            if not demo:
-                try:                     # real premiums when the market/chain is reachable
+            if not demo and p is sel["longs"][0]:
+                try:
                     import option_chain as oc
                     chain, _spot = oc.fetch_live(p["symbol"])
                 except Exception:
