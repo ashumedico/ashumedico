@@ -89,6 +89,40 @@ def take(bk, card, point):
 
 
 # ---------------- marking to market ----------------
+SESSION_OPEN = (9, 15)
+SESSION_CLOSE = (15, 30)
+
+
+def market_minutes_between(a, b):
+    """Minutes the market was actually OPEN between two timestamps.
+
+    Wall-clock elapsed is the wrong measure for a trade's age: a position opened at 15:00
+    Friday is not 3 days old on Monday morning, it is one hour old. Counting only session
+    minutes is what makes a bar-based timeout mean the same thing across an overnight or
+    a weekend."""
+    if b <= a:
+        return 0.0
+    total, day = 0.0, a
+    while day.date() <= b.date():
+        if day.weekday() < 5:                      # Sat/Sun have no session
+            o = day.replace(hour=SESSION_OPEN[0], minute=SESSION_OPEN[1],
+                            second=0, microsecond=0)
+            c = day.replace(hour=SESSION_CLOSE[0], minute=SESSION_CLOSE[1],
+                            second=0, microsecond=0)
+            lo, hi = max(o, a), min(c, b)
+            if hi > lo:
+                total += (hi - lo).total_seconds() / 60.0
+        day = (day + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return total
+
+
+def bars_held(t, bar_minutes=None):
+    bm = float(bar_minutes if bar_minutes is not None
+               else getattr(config, "BAR_MINUTES", 375))
+    mins = market_minutes_between(datetime.fromisoformat(t["opened"]), now())
+    return mins / max(bm, 1)
+
+
 def mark(bk, quotes, stale_days):
     """Move open paper trades forward against live spot. Exits follow the same contract
     the ticket printed: stop, T1 half, T2 rest, timeout. No discretion - the point is to
@@ -98,8 +132,10 @@ def mark(bk, quotes, stale_days):
         px = quotes.get(t["symbol"])
         if not px:
             continue
-        held = (now() - datetime.fromisoformat(t["opened"])).days
+        bars = bars_held(t)
         t["spot_now"] = px
+        t["bars_held"] = round(bars, 1)
+        hold_bars = float(getattr(config, "HOLD_BARS", 10))
         reason = None
         if px <= t["stop"]:
             reason = "STOP"
@@ -110,7 +146,10 @@ def mark(bk, quotes, stale_days):
             t["stop"] = t["spot_in"]                      # rest rides at breakeven
             events.append((t["name"], "T1 - aadha book, stop breakeven pe"))
             continue
-        elif held >= stale_days:
+        elif bars >= hold_bars * 2:
+            # Timeout in BARS, not days. On a 15-minute chart a "25 day" timeout never
+            # fires, so a 2.5-hour thesis would sit open for weeks and be scored as if
+            # that had been the plan.
             reason = "TIMEOUT"
         if reason:
             close(bk, t, px, reason)
@@ -242,9 +281,69 @@ def report(bk):
 
 
 # ---------------- main ----------------
+def square_off_all(bk, quotes, why="EOD"):
+    """Close everything at the last marked price. Intraday means intraday: a position
+    left open overnight is a different trade than the one the signal justified, and
+    scoring it as the same one quietly rewrites the strategy being tested."""
+    done = []
+    for t in list(bk["open"]):
+        px = quotes.get(t["symbol"]) or t.get("spot_now")
+        if px:
+            close(bk, t, px, why)
+            done.append(t["name"])
+    return done
+
+
+def next_bar_time(bar_minutes):
+    """The next candle close, on the grid the exchange actually uses (from 09:15)."""
+    n = now()
+    open_t = n.replace(hour=SESSION_OPEN[0], minute=SESSION_OPEN[1], second=5, microsecond=0)
+    if n < open_t:
+        return open_t + timedelta(minutes=bar_minutes)
+    elapsed = (n - open_t).total_seconds() / 60.0
+    k = int(elapsed // bar_minutes) + 1
+    return open_t + timedelta(minutes=k * bar_minutes)
+
+
+def session_loop(a):
+    """Trade the whole session, waking at each candle close - which is what a full-time
+    trader on a 15-minute chart actually does. Five fixed checkpoints a day cannot exit a
+    2.5-hour thesis on time; this can."""
+    import time as _time
+    bm = int(getattr(config, "BAR_MINUTES", 15))
+    close_t = now().replace(hour=SESSION_CLOSE[0], minute=SESSION_CLOSE[1] - 10,
+                            second=0, microsecond=0)
+    print(f"  {B}SESSION MODE{X}  {DIM}har {bm} min pe candle close - "
+          f"{close_t:%H:%M} pe square off. Ctrl+C se band.{X}\n")
+    while True:
+        run_once(a)
+        nxt = next_bar_time(bm)
+        if nxt >= close_t:
+            print(f"\n  {Y}Session khatam - sab square off kar raha hoon.{X}")
+            bk = load()
+            if bk["open"]:
+                q = ({t["symbol"]: t.get("spot_now") for t in bk["open"]} if a.demo
+                     else __import__("rrg_engine").live_quote(
+                         [t["symbol"] for t in bk["open"] if t.get("symbol")]))
+                for nm in square_off_all(bk, q):
+                    print(f"  {Y}>> {nm}: EOD square off{X}")
+                save(bk)
+            report(load())
+            return
+        wait = max(5, (nxt - now()).total_seconds())
+        print(f"  {DIM}agla candle close {nxt:%H:%M} - {int(wait/60)} min ruk raha hoon{X}\n")
+        try:
+            _time.sleep(wait)
+        except KeyboardInterrupt:
+            print(f"\n  {Y}Band kar diya. Book waise ka waisa hai.{X}")
+            return
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", action="store_true", help="only the scorecard")
+    ap.add_argument("--session", action="store_true",
+                    help="trade the whole session, waking at every candle close")
     ap.add_argument("--reset", action="store_true")
     ap.add_argument("--demo", action="store_true")
     a = ap.parse_args()
@@ -258,7 +357,14 @@ def main():
     if a.report:
         report(bk)
         return
+    if a.session:
+        session_loop(a)
+        return
+    run_once(a)
 
+
+def run_once(a):
+    bk = load()
     import rrg_engine as E, rrg_strategy as S, trade_card as TC, checkin as C
 
     print("\n" + "=" * 70)
