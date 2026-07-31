@@ -12,7 +12,7 @@ if not exist "access_token.txt" (
     python checkin.py
 )
 echo.
-echo   Trade le liya?  is folder mein chala:  python checkin.py --buy
-echo   Nikal gaya?     python checkin.py --sold NAAM --price 123
+echo   Trade le liya?  ->  icon  "2a - LIYA (bought)"
+echo   Nikal gaya?     ->  icon  "2b - NIKLA (sold)"
 echo.
 pause

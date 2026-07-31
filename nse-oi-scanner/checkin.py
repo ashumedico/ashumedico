@@ -150,8 +150,15 @@ def show_new(card, chk, point, skipped=None):
     """Question 2: is there a new trade, and can he act on it right now."""
     print(f"  {B}AAJ KA NAYA TRADE{X}")
     print("  " + "-" * 66)
-    for name, cost in (skipped or []):
+    for item in (skipped or []):
+        name, cost = item[0], item[1]
+        d = item[2] if len(item) > 2 else {}
         print(f"  {DIM}chhoda: {name} - ek lot Rs {cost:,} ka, capital se zyada{X}")
+        if d:
+            print(f"  {DIM}        spot {d.get('spot')} | {d.get('strike')} CE @ "
+                  f"{d.get('premium')} [{d.get('src')}] x lot {d.get('lot')}{X}")
+        if d.get("reject"):
+            print(f"  {R}        {d['reject']}{X}")
     if not card:
         if skipped:
             print(f"  {Y}Setup toh mila, par ek bhi lot afford nahi hota.{X}")
@@ -443,7 +450,14 @@ def main():
         # printing a quantity the account cannot fund.
         cost = c["size"].get("cost_per_lot")
         if cost and cost > capital:
-            skipped.append((cand["name"], cost))
+            # keep the arithmetic, not just the total - "one lot costs 12 lakh" is either
+            # a real constraint or a broken input, and only the parts tell you which
+            o = c.get("option") or {}
+            skipped.append((cand["name"], cost,
+                            {"premium": o.get("premium"), "lot": c["size"]["lot"],
+                             "src": o.get("premium_source"),
+                             "spot": c.get("spot"), "strike": o.get("strike"),
+                             "reject": o.get("premium_reject")}))
             continue
         point, card = cand, c
         break

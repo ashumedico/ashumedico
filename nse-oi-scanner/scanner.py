@@ -97,6 +97,18 @@ def fetch_live():
     if not os.path.exists(config.TOKEN_FILE):
         raise AuthError("No access token. Run:  python fyers_auth.py")
     token = open(config.TOKEN_FILE).read().strip()
+    # Fyers' SDK logs a DEBUG line per API call to stdout, which buries the ticket under
+    # request traces. Quieten it and send its log file to a folder rather than the cwd.
+    try:
+        import logging, os
+        logging.getLogger("fyers_apiv3").setLevel(logging.WARNING)
+        logging.getLogger("fyersApi").setLevel(logging.WARNING)
+        for h in list(logging.root.handlers):
+            logging.root.removeHandler(h)
+        logging.basicConfig(level=logging.WARNING)
+        os.makedirs("logs", exist_ok=True)
+    except Exception:
+        pass
     fy = fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
 
     out = {}

@@ -201,7 +201,20 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     if instrument == "OPTION":
         strike = pick_strike(spot, direction, "ITM1")
         ch_strike, ch_prem = option_from_chain(chain, strike, direction)
-        if ch_strike:
+        # Sanity-gate the chain before trusting it. A slightly-in-the-money call is worth
+        # its intrinsic plus a few percent of spot; a quote approaching the share price
+        # itself means the lookup landed on a deep-ITM strike, a stale print, or another
+        # instrument. Multiplied by a lot size that becomes a ticket claiming one lot
+        # costs more than the entire account - which is what it printed live, so the
+        # chain is checked rather than believed.
+        prem_reject = None
+        if ch_strike is not None and ch_prem is not None:
+            intrinsic = max(0.0, spot - ch_strike)
+            if ch_prem <= 0 or ch_prem > intrinsic + 0.25 * spot:
+                prem_reject = (f"chain quoted {ch_strike:g}CE at {ch_prem} against spot "
+                               f"{spot:.1f} (intrinsic {intrinsic:.1f}) - not a real "
+                               f"slightly-ITM premium; estimated instead")
+        if ch_strike is not None and ch_prem is not None and prem_reject is None:
             strike, premium = ch_strike, ch_prem
             prem_src = "live chain"
         else:
@@ -229,6 +242,11 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "max_loss_per_unit": round(premium - opt_stop, 1),
             "days_to_expiry": days_to_expiry,
             "expiry_warning": expiry_warning,
+            "premium_reject": prem_reject,
+            # the raw inputs behind the money figures, so a wrong number can be pinned to
+            # its source instead of guessed at from the total
+            "raw": {"spot": round(spot, 2), "wanted_strike": strike,
+                    "chain_strike": ch_strike, "chain_ltp": ch_prem},
         }
         risk_per_unit = max(premium - opt_stop, 1e-9)
     else:
