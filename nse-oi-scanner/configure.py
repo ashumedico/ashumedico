@@ -26,7 +26,8 @@ KEYS = {
     "CAPITAL":       (lambda v: str(int(v)),      "money in the account (Rs)"),
     "RISK_PCT":      (lambda v: str(round(v, 4)), "fraction of capital risked per trade"),
     "HOLD_BARS":     (lambda v: str(int(v)),      "BARS a trade runs (bar size below)"),
-    "MAX_POSITIONS": (lambda v: str(int(v)),      "how many trades may be open at once"),
+    "MAX_POSITIONS":  (lambda v: str(int(v)),     "how many trades may be open at once"),
+    "LOTS_PER_TRADE": (lambda v: str(int(v)),     "lots bought per trade (you buy 1)"),
     "RESOLUTION":    (lambda v: repr(str(v)),     "candle the signal runs on ('D' or '15')"),
     "BAR_MINUTES":   (lambda v: str(int(v)),      "minutes in one bar (375 = one session)"),
 }
@@ -78,6 +79,7 @@ def main():
     ap.add_argument("--hold-days", type=int, help="sessions a trade is meant to run")
     ap.add_argument("--max-positions", type=int,
                     help="how many trades may be open at once (1 = one at a time)")
+    ap.add_argument("--lots-per-trade", type=int, help="lots per trade (you buy 1)")
     ap.add_argument("--mode", choices=sorted(MODES),
                     help="intraday (15-min bars) or swing (daily bars)")
     ap.add_argument("--bar-minutes", type=int, help="minutes per bar, if not using --mode")
@@ -97,6 +99,8 @@ def main():
         updates["HOLD_BARS"] = KEYS["HOLD_BARS"][0](a.hold_days)
     if a.max_positions is not None:
         updates["MAX_POSITIONS"] = KEYS["MAX_POSITIONS"][0](a.max_positions)
+    if a.lots_per_trade is not None:
+        updates["LOTS_PER_TRADE"] = KEYS["LOTS_PER_TRADE"][0](a.lots_per_trade)
 
     if updates and not write(updates):
         return

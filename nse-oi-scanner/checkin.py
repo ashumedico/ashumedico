@@ -179,11 +179,8 @@ def show_new(card, chk, point, skipped=None):
         if o.get("days_to_expiry") is not None:
             print(f"    EXPIRY  : {o['days_to_expiry']} din baaki")
     s = card["size"]
-    # Lots are indivisible, so the risk rule cannot always be honoured exactly. When the
-    # smallest tradeable size risks more than the rule allows, show that number plainly
-    # instead of rounding down to a qty of 0 - and let him decide, rather than deciding
-    # for him by silently sizing up.
-    lots = max(s["lots"], 1) if s.get("cost_per_lot") else s["lots"]
+    # Size is fixed at one lot, so this line states the trade rather than a calculation.
+    lots = s["lots"]
     print(f"    QTY     : {lots * s['lot']}  ({lots} lot x {s['lot']})")
     if s.get("cost_per_lot"):
         # percentages must follow the quantity actually shown, not one lot - a total
@@ -196,8 +193,9 @@ def show_new(card, chk, point, skipped=None):
         print(f"    LAGEGA  : Rs {cost:,}  ({cpc}% capital)"
               f"   RISK: {col}Rs {risk:,} ({rpc}% capital){X}")
         if s.get("too_big"):
-            print(f"    {Y}   tera rule {s['risk_budget']:,} ka risk kehta hai, "
-                  f"chhota se chhota lot {s['risk_per_lot']:,} ka hai - tu decide kar{X}")
+            print(f"    {Y}   tera rule Rs {s['risk_budget']:,} tak risk allow karta hai,"
+                  f" ek lot Rs {s.get('risk_per_lot', 0):,} risk karta hai{X}")
+            print(f"    {Y}   ek lot se chhota kuch hai nahi - le ya chhod de{X}")
     if s.get("afford_note"):
         print(f"    {Y}!! {s['afford_note']}{X}")
     for w in (o.get("expiry_warning"), s.get("lot_warning")):

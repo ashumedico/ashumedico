@@ -234,7 +234,15 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     else:
         risk_per_unit = risk_pts
 
-    # ---- size from risk, not from feelings ----
+    # ---- size ----
+    # He buys ONE lot. That is the decision, not an output - so quantity is not derived
+    # from the risk budget any more. Deriving it was wrong twice over: it could suggest
+    # two or three lots on a cheap name, which is a quarter of the account in a levered
+    # instrument, and when the arithmetic said "zero lots" it printed an unbuyable
+    # quantity instead of the trade he would actually place.
+    #
+    # The risk rule now does the job it is good at: not sizing the trade, but telling him
+    # whether the trade he is going to place anyway is inside his own limit.
     budget = capital * risk_pct
     units = int(budget / risk_per_unit) if risk_per_unit > 0 else 0
     # Real F&O lot size. Options/futures trade only in whole lots, so a wrong lot makes
@@ -250,7 +258,8 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     except Exception:
         master_lot = None
     lot = int(lot or master_lot or getattr(config, "DEFAULT_LOT", 1) or 1)
-    lots = max(0, units // max(lot, 1))
+    rule_lots = max(0, units // max(lot, 1))       # what the risk budget alone would allow
+    lots = int(getattr(config, "LOTS_PER_TRADE", 1) or 1)
     # Sanity-check the lot itself, two ways.
     # 1) Every NSE F&O contract is sized to roughly Rs 5-10 lakh of underlying. Far below
     #    that means the lot came from the wrong place and the quantity is fiction.
@@ -267,9 +276,9 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     card["size"] = {"risk_budget": round(budget), "lot": lot, "lots": lots,
                     "qty": lots * max(lot, 1),
                     "risk_per_unit": round(risk_per_unit, 2),
-                    # if one lot already risks more than the budget, say so instead of
-                    # quietly printing qty 0 or an un-tradeable number
-                    "too_big": lots < 1,
+                    # the fixed size vs what his own risk rule would have allowed
+                    "rule_lots": rule_lots,
+                    "too_big": rule_lots < lots,
                     "one_lot_risk": round(risk_per_unit * lot),
                     "contract_value": contract_value,
                     "lot_warning": lot_warning}
