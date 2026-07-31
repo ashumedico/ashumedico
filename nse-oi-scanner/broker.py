@@ -274,6 +274,14 @@ def order_interactive(underlying, strike, opt_type, month, lots, side, lot_overr
     cap = float(getattr(config, "CAPITAL", 0) or 0)
     if cap:
         print(f"  capital ka  {100 * cost / cap:.1f}%")
+    # The broker's own number, beside the one about to be spent. The exchange rejects on
+    # margin, not on what config.py believes the capital to be, and finding that out from
+    # a rejection wastes the entry.
+    bal = available_balance()
+    if bal is not None:
+        short = cost - bal
+        print(f"  account mein Rs {bal:,.0f}"
+              + (f"   {'-' * 3} Rs {short:,.0f} kam pad sakta hai" if short > 0 else "   (kaafi hai)"))
     try:
         import charges as CH
         d = CH.round_trip(c["premium"] or 0, qty)
@@ -336,6 +344,44 @@ def public_ip():
     return None
 
 
+def funds():
+    """What the account actually has. Read from the broker, not assumed.
+
+    Fyers returns a list of limits with numeric ids and titles; the titles are what the
+    broker itself calls them, so they are printed as given rather than renamed here.
+    Anything unrecognised is shown raw - a funds display that quietly drops a row is
+    worse than one that shows a row you have to read.
+    """
+    try:
+        r = _client().funds()
+    except Exception as e:      # noqa
+        return None, f"funds nahi mile: {e}"
+    if not isinstance(r, dict) or r.get("s") != "ok":
+        return None, explain_rejection(r if isinstance(r, dict) else {"message": str(r)})
+    rows = r.get("fund_limit") or []
+    out = []
+    for f in rows:
+        title = str(f.get("title") or f.get("id") or "?")
+        val = f.get("equityAmount", f.get("equity_amount", f.get("balance")))
+        if val is None:
+            val = f.get("commodityAmount", 0)
+        try:
+            out.append((title, float(val)))
+        except Exception:
+            out.append((title, 0.0))
+    return out, None
+
+
+def available_balance():
+    rows, err = funds()
+    if err or not rows:
+        return None
+    for title, val in rows:
+        if "available" in title.lower():
+            return val
+    return rows[0][1] if rows else None
+
+
 def status():
     ip = public_ip()
     print(f"\n  TERA IP      : {ip or 'pata nahi chala (internet?)'}"
@@ -387,6 +433,7 @@ def main():
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--arm", action="store_true")
     ap.add_argument("--disarm", action="store_true")
+    ap.add_argument("--funds", action="store_true", help="account mein kitna paisa hai")
     ap.add_argument("--buy", metavar="NAME", help='underlying, e.g. SONACOMS')
     ap.add_argument("--sell", metavar="NAME")
     ap.add_argument("--strike", type=float)
@@ -396,6 +443,19 @@ def main():
     ap.add_argument("--lot", type=int,
                     help="override the lot size for this order (see it on NSE/Zerodha)")
     a = ap.parse_args()
+
+    if a.funds:
+        rows, err = funds()
+        if err:
+            print(f"\n  {err}\n")
+            return
+        print("\n  FUNDS")
+        print("  " + "-" * 46)
+        for title, val in rows:
+            mark = "  <-- yahi trade ke liye hai" if "available" in title.lower() else ""
+            print(f"  {title:<30} Rs {val:>10,.2f}{mark}")
+        print("  " + "-" * 46 + "\n")
+        return
 
     if a.buy or a.sell:
         if a.strike is None:
