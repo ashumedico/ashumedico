@@ -12,7 +12,6 @@ signals and cross-check them against chart-action before recommending anything.
 Convergence -> a confidence score (0-100). We then emit exactly:
   • ONE CE option idea   (the strongest bullish confluence)
   • ONE PE option idea   (the strongest bearish confluence)
-  • ONE FUTURES idea     (the single highest-conviction directional name)
 
 Each idea carries entry / stop / target and the WHY (which layers agreed).
 NOT financial advice — signals are inputs; the decision is yours (@edge-seeker).
@@ -139,21 +138,10 @@ def build_ideas(verdicts):
                                  f"{'; '.join(v['reasons'])}. Enter {t['entry']}, "
                                  f"stop {t['stop']} (above R2), target {t['target']} (S2). "
                                  f"R:R {t['rr']}."}
-    # future = single highest-conviction directional name (either side)
-    ranked = sorted(verdicts, key=lambda v: v["confidence"], reverse=True)
-    directional = [v for v in ranked if v["direction"] != "NEUTRAL"]
-    if directional:
-        v = directional[0]; side = "CE" if v["direction"] == "BULLISH" else "PE"
-        t = _levels_trade(v, side)
-        ideas["FUT"] = {"kind": "FUTURES", "underlying": v["name"],
-                        "bias": v["direction"], "confidence": v["confidence"],
-                        "trade": t, "levels": v["levels"], "reasons": v["reasons"],
-                        "verdict": v,
-                        "thesis": f"{'Long' if v['direction']=='BULLISH' else 'Short'} "
-                                  f"{v['name']} FUT — highest-conviction directional name "
-                                  f"({v['confidence']}% confidence). "
-                                  f"Enter {t['entry']}, stop {t['stop']}, target {t['target']}. "
-                                  f"R:R {t['rr']}. Why: {'; '.join(v['reasons'])}"}
+    # Futures are deliberately not emitted. He trades options only, and a futures idea
+    # sitting beside the CE and PE is a suggestion he cannot act on - worse, its margin
+    # and its unlimited downside are nothing like the option leg it sits next to, so
+    # reading them as comparable is exactly the mistake the screen should not invite.
     return ideas
 
 
@@ -222,7 +210,7 @@ def render(ideas):
     print("  REVALIDATED TRADE SIGNALS  ·  3-layer confluence")
     print("  OI buildup  ×  option chain  ×  chart action")
     print("=" * 64)
-    for key in ("CE", "PE", "FUT"):
+    for key in ("CE", "PE"):
         idea = ideas.get(key)
         if not idea:
             print(f"\n  [{key}]  no qualifying confluence today.")
