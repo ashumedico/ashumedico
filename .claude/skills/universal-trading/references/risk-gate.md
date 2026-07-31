@@ -9,15 +9,30 @@ RISK CHECK  →  Position size · Exposure · Drawdown · Volatility · Max loss
               PASS → continue        FAIL → block
 ```
 
-## 1. Position size
-Size from **risk per trade**, never from conviction or "gut".
+## 1. Position size — **fixed, and the budget is a veto**
+
+Quantity is a **decision Aashish has already made: one lot.** It is never an output of the
+risk arithmetic.
+
 ```
-risk_amount   = capital * RISK_PCT           # default RISK_PCT = 1% (0.01)
-stop_distance = abs(entry - stop)            # in points
-qty           = floor(risk_amount / stop_distance)
-qty           = round down to lot size       # F&O trades in lots
+lots = LOTS_PER_TRADE                        # 1, by standing instruction
+qty  = lots * lot_size_from_the_option_chain # never a guessed lot
 ```
-If `qty < 1 lot`, the stop is too wide for the risk budget → **BLOCK** (or widen capital, not risk).
+
+The risk budget does not *set* the size — it **vetoes** it:
+
+```
+risk_amount = capital * RISK_PCT             # what this trade is allowed to lose
+outlay      = premium * qty                  # for a buyer, max loss IS the premium
+if outlay > risk_amount:  BLOCK              # answer is "no trade", never "more lots"
+```
+
+This is the direction the old code had backwards: sizing *from* the budget once proposed
+**nine lots — ₹2.46 lakh of premium on ₹2 lakh of capital.** A budget that can only shrink a
+position is safe; a budget that can grow one is a leak.
+
+Also **BLOCK** when the chain gives no lot size. A zero-quantity or guessed-lot ticket is worse
+than no ticket, because it looks like a decision.
 
 ## 2. Exposure limit
 - Total capital deployed across **all open positions** ≤ `MAX_EXPOSURE` (default 40% of capital).
@@ -51,13 +66,17 @@ else:              BLOCK, state which check failed and the one change that would
 ```
 Log every BLOCK with the reason — the blocks are data too. A gate that never says NO isn't a gate.
 
-## Suggested config keys (add to `config.py`)
+## Config keys (`config.py`, git-ignored — set them with `python configure.py`)
 ```python
-RISK_PCT      = 0.01     # risk per trade as fraction of capital
-MAX_EXPOSURE  = 0.40     # total deployed cap
-MAX_PER_NAME  = 0.15
-MAX_PER_SECTOR= 0.30
-DAY_DD        = 0.03     # daily drawdown stop
-WEEK_DD       = 0.06
-MAX_LOSS      = 15000    # hard rupee worst-case cap per trade (example)
+LOTS_PER_TRADE = 1        # THE size. Not a starting point.
+CAPITAL        = 200000
+RISK_PCT       = 0.005    # veto threshold, not a sizer
+MAX_EXPOSURE   = 0.40     # total deployed cap
+MAX_PER_NAME   = 0.15
+DAY_DD         = 0.02     # daily drawdown auto-halt
+WEEK_DD        = 0.06
+MAX_LOSS       = 5000     # hard worst-case rupee cap per trade
+MIN_EXPIRY_DAYS = 15      # roll to next series below this
 ```
+Change them through `configure.py` (it rewrites only the named keys and keeps a backup), not by
+hand-editing — a half-edited config is how the system silently reverted to SWING once.

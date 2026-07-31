@@ -26,6 +26,26 @@ python checkin.py --sold GNFC --half --price 58   # booked half; stop moves to b
 stop broken, or dead money. Silence is deliberate. Set it up once with
 **SETUP - Telegram Alerts**, which discovers your chat id itself and schedules the checks.
 
+## The website — `3 - DESK`
+```bash
+streamlit run desk.py          # or the icon: 3 - DESK (website)
+```
+One page, laid out the way you read a chart: a left rail to pick the name, a **status
+banner** that says in one line whether a trend is identified, a **ribbon** with spot ·
+trend · VWAP · RVOL · ATR · squeeze · expansion, the **ticket** (contract, qty, cost,
+stop, T1/T2), the **chart** with R2/R1/S1/S2 drawn, named, and labelled with how many bars
+actually traded against each level, a **scenario block** (Bullish / Sideways / Bearish)
+that states what would have to happen and what invalidates it, the **Mauke** table, and
+the **paper score** against what the backtest claimed.
+
+Nothing on it is illustrative. Every level and premium is computed from bars that were
+fetched; with no token it says **DEMO DATA** in three places and still renders end to end,
+because a demo that cannot show the page working cannot prove the page works.
+
+`python test_desk.py` runs the page through Streamlit's own AppTest and asserts on what
+reached it — banner, ribbon, levels, all three scenario branches, disclaimer. Icon:
+**Tools → Desk render test**.
+
 ## The engine underneath
 | File | Role |
 |---|---|

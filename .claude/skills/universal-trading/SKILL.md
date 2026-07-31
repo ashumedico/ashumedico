@@ -1,20 +1,38 @@
 ---
 name: universal-trading
-description: Aashish's universal trading operating system — the Fable-class 24/7 pipeline (Research → Scan → Signal → Trade Plan → Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and option-chain analytics into one doctrine. Use for ANY trading task — scanning for setups, generating a CE/PE/futures idea, building a trade plan (entry · target · stop · invalidation), sizing risk, running the RRG, reading OI buildup, or producing the one-page signal desk. Trigger on "scan the market", "any trade today?", "which option", "build a trade plan", "size this", "run the RRG", "fresh longs/shorts", "signal desk". NOT financial advice — signals are inputs, the decision is Aashish's.
+description: Aashish's universal trading operating system — the Fable-class 24/7 pipeline (Scan → Signal → Trade Plan → Risk → Monitor) wired to the NSE F&O options stack in nse-oi-scanner/. Use for ANY trading task — scanning for setups, picking an ATM CE/PE, building a trade plan (entry · target · stop · invalidation), sizing, reading OI buildup or the option chain, running the paper/live session, or opening the desk. Trigger on "scan the market", "any trade today?", "which option", "build a trade plan", "size this", "fresh longs", "check-in", "paper", "desk". NOT financial advice — signals are inputs, the decision is Aashish's.
 ---
 
 # Universal Trading — the Fable-class 24/7 Trader
 
-One doctrine for every trading task. Modelled on the six-stage autonomous architecture
-(**Research → Scan → Signal → Trade Plan → Risk → Monitor**) and wired to the real code in
-`nse-oi-scanner/`. Nothing ships as "activity" — every stage must move a decision.
+One doctrine for every trading task: **Scan → Signal → Trade Plan → Risk → Monitor**, running
+as a loop that never fully stops. Wired to the real code in `nse-oi-scanner/`.
 
-> **NOT financial advice.** Signals are inputs; the trade is Aashish's. Compliance never
-> overrides risk. When live data isn't reachable (no Fyers/TradingView feed on this machine),
-> say so and run `--dry-run` — never fabricate prices, OI, or levels (Directive 17).
+> **NOT financial advice.** Signals are inputs; the trade is Aashish's. When live data isn't
+> reachable, say so and run the demo path — never fabricate prices, OI, lots, or levels
+> (Directive 17).
 
-Partner agent: **`@edge-seeker`** (systematic trading, backtests, risk sizing). Convene it to
-stress-test any idea before it counts as done.
+Partner agent: **`@edge-seeker`**. Convene it to try to *disprove* an idea before it counts as done.
+
+---
+
+## THE STANDING FRAME (his rules, not defaults)
+
+These are decisions Aashish has already made. They are not tunable by inference.
+
+| | |
+|---|---|
+| **Instrument** | **Options only.** Stock CE/PE. No futures, no writing. |
+| **Style** | **Intraday**, 15-minute candles. Carry only when he says so. |
+| **Strike** | **ATM** (delta ≈ 0.50). Gamma is the point; deep ITM is a slower proxy for the stock. |
+| **Size** | **1 lot. Fixed.** Quantity is a decision, never an output of the risk budget. |
+| **Expiry** | Near month. Roll to the next series once the running one has **< 15 days** left. |
+| **Entry** | The **first expansion bar** — the bar a coil breaks. Not the fifth bar of a move. |
+| **Exit** | ATR stop, **trailing from the high-water mark, ratchet only**. Breakeven is a *floor*, never an overwrite of a stop that already trailed higher. |
+| **Mode** | **Paper and live at the same time**, always. Paper is the scorecard; live is armed separately. |
+| **Capital** | `config.CAPITAL`. One trade at a time unless told otherwise. |
+
+Changing any of these is a conversation, not a code change.
 
 ---
 
@@ -22,119 +40,146 @@ stress-test any idea before it counts as done.
 
 | # | Stage | What it does | Module (`nse-oi-scanner/`) | Output |
 |---|-------|--------------|----------------------------|--------|
-| 1 | **Research** | Universe + context: full F&O list, market regime, OI buildup, PCR/Max-Pain/walls | `fno_universe.py`, `scanner.py`, `option_chain.py` | who's in play + bias |
-| 2 | **Scan** | Buildup matrix from day-open OI; RRG rotation vs NIFTY × OI overlay | `scanner.py`, `rrg.py` | candidate names, leaders/laggards |
-| 3 | **Signal** | Score each candidate across 5 setup archetypes + 3-layer confluence | `signal_engine.py`, `chart_action.py` | scored setups (0–100) |
-| 4 | **Trade Plan** | Entry · Target · Stop · Invalidation + R:R + direction/TF/confidence | `signal_engine.py`, `charts.py` | 1 CE + 1 PE + 1 Future, annotated |
-| 5 | **Risk** | Hard gate: size · exposure · drawdown · volatility · max-loss → PASS/BLOCK | `risk_gate.py` (+ `references/risk-gate.md`) | approved size or BLOCK |
-| 6 | **Execute + Monitor** | Paper/live orders (Fyers), manage exits, one-page desk, auto-halt | `execution.py`, `auto_trader.py`, `report.py`, `alerts.py` | fills, blotter, live desk |
+| 1 | **Scan** | Universe + regime + what moved: F&O list, market state, day-open OI buildup | `fno_universe.py`, `market_regime.py`, `scanner.py` | tradeable? + candidate names |
+| 2 | **Signal** | Features per name per bar → the five setup archetypes | `features.py`, `indicators.py`, `chart_action.py`, `rrg_strategy.py` | scored, gated candidates |
+| 3 | **Trade Plan** | Contract, entry, stop, T1/T2, invalidation, R:R, cost | `trade_card.py`, `option_chain.py`, `charges.py`, `option_pnl.py` | one ticket, priced |
+| 4 | **Risk** | Five checks, any FAIL → BLOCK | `references/risk-gate.md`, `trade_card.py`, `broker.py` | approved or blocked |
+| 5 | **Monitor** | Paper + live, bar-by-bar trail, timeout, square-off, score | `paper.py`, `checkin.py`, `desk.py` | fills, blotter, P&L vs backtest |
 
-**One command runs the whole desk:** `python report.py --dry-run` (demo) or `python report.py`
-(live) → the one-page HTML with buildup, option chain, the 3 ideas + charts, and the RRG.
+**Daily commands** — the same four icons in `AASHISH TRADING OS`:
 
-**Automated execution** (`auto_trader.py`): the same pipeline, hands-free — **paper by default,
-live only when armed.** A real order fires *only* if `LIVE_TRADING=True` **and** no kill-switch file
-**and** a valid token **and** the risk gate passed. Kill switch = create `STOP_TRADING.txt`. Never
-flip to live without a paper track record (Directive 12: pause on anything that touches money).
+```bash
+python fyers_auth.py          # 1 - START DAY : token, lot check, check-in
+python checkin.py             # 2 - CHECK-IN  : kya hold, kya book, kya naya
+streamlit run desk.py         # 3 - DESK      : the website
+python paper.py --session     # 4 - PAPER LIVE: every candle, hands-free
+```
+
+Live orders fire **only** when `LIVE_TRADING=True` **and** `STOP_TRADING.txt` is absent
+**and** the token is valid **and** the risk gate passed. Kill switch: create `STOP_TRADING.txt`.
 
 ---
 
-## STAGE 1 · RESEARCH — what's in play
+## STAGE 1 · SCAN — is the tape worth trading, and who is in play
 
-- **Universe:** `fno_universe.fno_stocks()` — the full ~214 F&O list, self-updating from the
-  Fyers/NSE symbol master (fallback list offline). Never trade a name in the **F&O ban list**.
-- **Context bias:** option chain (`option_chain.analyse`) → **PCR** (>1.2 bullish, <0.7 bearish),
-  **Max Pain** (where writers pin expiry), **Support/Resistance walls** (highest Put/Call OI),
-  fresh **call/put writing**.
-- **News/regime:** flag events (results, RBI, expiry day). No fresh positions into a known binary.
+- **Universe:** `fno_universe.fno_stocks()` — the live F&O list with **lot sizes parsed from the
+  symbol master by data shape**, not a fixed column (that bug once produced a 13-lot COFORGE).
+  Never trade a name in the ban list.
+- **Regime:** `market_regime.Regime` — breadth · trend · vol · drawdown, answered from the last
+  **closed** session, and folded to daily when the feed is intraday. RISK-OFF is not a veto by
+  itself; it is a size-down.
+- **OI buildup** (from day-open, not last poll): `scanner.classify(price%, oi%)` →
+  Long Buildup ↑↑ · Short Buildup ↓↑ · Short Covering ↑↓ · Long Unwinding ↓↓.
+  **Displayed and journalled, never backtested** — there is no historical OI series in this
+  system, so anything claiming to have tested buildup is claiming the impossible.
+- **Option-chain context:** `option_chain.analyse` → PCR, Max Pain, the Call/Put walls.
 
-## STAGE 2 · SCAN — where the money is moving
+## STAGE 2 · SIGNAL — score the setup
 
-- **OI buildup (from day-open, not last poll):** `scanner.classify(price%, oi%)` →
-  **Long Buildup** (↑↑ bullish) · **Short Buildup** (↓↑ bearish) · **Short Covering** (↑↓ bullish) ·
-  **Long Unwinding** (↓↓ bearish). Confirm with **rising volume** (`VOL✓`).
-- **RRG rotation:** `rrg.py` plots all ~214 stocks vs NIFTY (Leading/Weakening/Lagging/Improving)
-  **with OI overlay** on every dot (▲ buying / ▼ selling, solid = fresh money). The edge is the
-  **confluence** (`rrg.confluence`): **Fresh Longs** = Leading/Improving + Long Buildup ·
-  **Fresh Shorts** = Lagging/Weakening + Short Buildup.
+`features.at()` produces one dict per name per bar, computed **strictly from bars before the
+decision bar**. A missing feature is a **fail**, never a pass (`features.passes`).
 
-## STAGE 3 · SIGNAL — score the setup
+The features that survived: **VWAP** (above/below, session-reset) · **RVOL** (own norm) ·
+**ATR** · **squeeze** (short TR ÷ long TR) · **expansion** (was coiled, this bar is wide) ·
+**R1/R2 · S1/S2** with room-to-resistance in ATRs · **continuation** (up-candles in a row, not
+"some continuation" — a run of down candles is continuation too, and it is the opposite trade) ·
+**breakout** (60%-body rule) · **trend structure** (HH-HL / LH-LL).
 
-Detect and **score** (rank by probability), don't just spot. The five archetypes
-(`references/setups.md` for detection logic):
+Deleted on purpose: **Supertrend** (agreed 91% with the EMA filter — a second vote from the
+same voter) and **CCI**. **RRG rotation** measured **-6.3% after costs** in walk-forward and is
+therefore **context on the desk, not a trigger**. Own-trend momentum is what the walk-forward kept.
+
+The five archetypes (detection logic in `references/setups.md`):
 
 | Setup | Trigger | Direction |
 |-------|---------|-----------|
-| **Breakout** | price breaks a key level with a 60%-body candle | with the break |
-| **Pullback** | temporary pullback into support/resistance inside a trend | with the trend |
-| **Momentum** | strong price acceleration (expanding bodies + volume) | with the thrust |
-| **Trend continuation** | trend holds structure (HH-HL / LH-LL) and resumes | with the trend |
-| **Reversal** | exhaustion + structure break at a wall | against the old trend |
+| **Breakout** | closes through a level with a 60%-body candle | with the break |
+| **Pullback** | pullback into S1 (long) / R1 (short) inside a trend | with the trend |
+| **Momentum** | the first expansion bar out of a coil, RVOL confirming | with the thrust |
+| **Trend continuation** | structure intact, resumes after a pause | with the trend |
+| **Reversal** | exhaustion at a wall + structure break | against the old trend |
 
-**Confluence score** = 3 independent lenses must agree (`signal_engine.evaluate`):
-OI buildup **×** option chain (PCR/Max-Pain/walls) **×** chart action
-(trend + R1/R2 · S1/S2 + 60%-body breakout). Confidence 0–100; only act on agreement.
+**Never enable an untested filter.** The RRG is the standing precedent. NOT TESTED and
+FAILED are different verdicts and must be reported differently.
 
-## STAGE 4 · TRADE PLAN — four numbers, always
+## STAGE 3 · TRADE PLAN — four numbers, and what it costs
 
-Every idea carries all four or it doesn't exist:
+Every idea carries all four or it does not exist:
 
-- **Entry zone** — optimal range (at support for longs, resistance for shorts)
-- **Target** — next structural level / wall (R:R must clear the risk)
-- **Stop** — beyond the invalidating structure
-- **Invalidation** — the price that says the thesis is wrong (flatten, no averaging)
+- **Entry zone** — the expansion bar's range, not a wish
+- **Target** — T1 / T2 at ATR multiples, T1 books half and raises the stop to breakeven *if that
+  is higher than the trail*
+- **Stop** — entry − mult × ATR, trailing from the high-water mark
+- **Invalidation** — the price that says the thesis is wrong. Flatten. No averaging.
 
-Plus **Direction · Timeframe · Confidence · R:R** (reject R:R < 1.5 unless momentum-scalp).
-`signal_engine.build_ideas` emits exactly **one CE, one PE, one Future**; `charts.py` renders each
-with levels marked and the "why" on the chart.
+Plus **Direction · Timeframe · Confidence · R:R** (reject R:R < 1.5 unless it is a momentum scalp).
 
-## STAGE 5 · RISK — the gate that can say NO
+**The contract is real or there is no ticket.** `option_chain.tradeable_chain()` supplies the
+`symbol`, the strike and the **lot size from the chain itself**. Cross-check before quoting a
+number: a lot that implies a contract value outside the SEBI band (**stock F&O ₹5–10 lakh**,
+index ₹15–20 lakh) is wrong — check it against NSE and the broker, do not defend it.
+Refuse to emit a zero-quantity ticket.
 
-The risk module **checks everything and can BLOCK any trade** — it is not advisory.
-Run all five; **any FAIL → BLOCK** (full logic + formulae in `references/risk-gate.md`):
+**Cost is part of the plan** (`charges.py`, verified rates in `references/nse-options-mechanics.md`):
+STT 0.15% sell-side, exchange ₹35.03/lakh, SEBI 0.0001%, stamp 0.003% buy-side, GST 18%,
+brokerage ₹20/order. `option_pnl.breakeven_move()` says how far the stock must move before the
+trade is even.
 
-1. **Position size** — sized from *risk per trade* (default ≤1% of capital ÷ stop distance)
-2. **Exposure limit** — total across open positions within cap; no over-concentration
-3. **Drawdown control** — within the day/week drawdown threshold, else stand down
-4. **Volatility check** — spread/VIX/ATR acceptable for the setup
-5. **Max loss** — worst-case (incl. gap) will not breach the hard loss limit
+## STAGE 4 · RISK — the gate that can say NO
 
-`PASS → continue · FAIL → block.` Protecting capital beats catching every move.
+Five checks. **Any FAIL → BLOCK** (full logic in `references/risk-gate.md`):
 
-## STAGE 6 · MONITOR — always on, honest
+```
+RISK CHECK  →  Position size · Exposure · Drawdown · Volatility · Max loss
+              PASS → continue        FAIL → block
+```
 
-- **The desk:** `report.py` → one webpage (also `app.py` dashboard, `run_signals.bat` icon).
-- **Cadence:** re-scan on `POLL_SECONDS`; alerts on strong buildups (`alerts.py`, config-gated).
-- **Invalidate ruthlessly:** when an invalidation level breaks, the plan is dead — record it and move on.
-- **Record:** log signals (`signals_YYYYMMDD.csv`) so the system learns; graduate repeat edges into this skill.
+1. **Position size** — **fixed at `LOTS_PER_TRADE` (1).** The risk budget is a **veto**, not a
+   sizer: if one lot costs more than the trade is allowed to lose, the answer is *no trade*, not
+   *nine lots*. (That bug once proposed ₹2.46L of premium on ₹2L of capital.)
+2. **Exposure** — total deployed within cap; one position at a time by default.
+3. **Drawdown** — inside the day/week limit, else stand down. No revenge trades.
+4. **Volatility** — spread not blown out, IV not spiking into a binary, expiry-day gamma respected.
+5. **Max loss** — for buying, max loss *is* the premium; the premium must fit the cap.
+
+Protecting capital beats catching every move. Log every BLOCK — the blocks are data too.
+
+## STAGE 5 · MONITOR — always on, honest
+
+- **The loop:** `paper.py --session` polls every `WATCH_SECONDS`, marks open trades, ratchets the
+  trail bar by bar, honours the **bar-based** timeout, and squares off at `SQUAREOFF`.
+- **Time is counted in market minutes**, not wall-clock: Fri 15:00 → Mon 09:45 is 60 minutes, not
+  four thousand. A timeout in calendar days fires every weekend.
+- **Live beside paper:** the same decision writes a paper record and, when armed, a real order.
+- **Score:** `desk.py` shows realised P&L against what the backtest claimed, with a binomial band —
+  a small sample inside the band is *neither proof nor problem*.
+- **Record:** every signal is journalled so the system can be graded later.
 
 ---
 
 ## OPERATING RULES (Fable-class)
 
-1. **Confluence or nothing.** No single-lens trades. Price *and* OI *and* structure must agree.
+1. **Confluence or nothing.** Trend *and* volume *and* structure. No single-lens trades.
 2. **Four numbers or no trade.** Entry, Target, Stop, Invalidation — every time.
-3. **Risk gate is a veto.** Stage 5 can kill a 95%-confidence idea. Let it.
-4. **Impact, not activity.** More scans ≠ more edge. One A+ setup > ten B setups (Directive 4).
-5. **Honesty on data (Directive 17).** No live feed → say it, run `--dry-run`, never invent numbers.
-6. **Verify to 92% (Directive 3).** Before calling a plan "ready", stress it via `@edge-seeker`
-   (Red-Team the thesis, the stop, the R:R). Ship only what survives.
-7. **Divergence first (Directive 8).** For a market call, give the Obvious, the Contrarian, the 10x,
-   then recommend one with reasoning.
-8. **One next action (Directive 14).** End every trade brief with a single **Next:** line.
+3. **The risk gate is a veto.** It can kill a 95%-confidence idea. Let it.
+4. **Never enable an untested filter.** RRG −6.3% is the precedent.
+5. **Say NOT TESTED when it is not tested.** It is not the same as passed, and not the same as failed.
+6. **Check the number, don't defend it.** If a lot, a premium or an expiry looks wrong to him, it
+   probably is — go to NSE and the broker before arguing.
+7. **Honesty on data (Directive 17).** No feed → say it, run demo, never invent.
+8. **Verify to 92% (Directive 3).** Stress via `@edge-seeker` before calling anything ready.
+9. **One next action (Directive 14).** End every trade brief with a single **Next:** line.
 
 ---
 
-## QUICK INVOCATIONS
+## REFERENCES
 
-```bash
-python report.py --dry-run                 # whole desk, one webpage (demo)
-python scanner.py --dry-run                # OI buildup matrix
-python signal_engine.py --dry-run          # 1 CE + 1 PE + 1 Future
-python rrg.py --dry-run                    # full-universe RRG + fresh longs/shorts
-python option_chain.py --dry-run           # PCR · Max Pain · walls
-```
-Live: drop `--dry-run` after a feed is connected (Fyers token, or TradingView-MCP on the PC).
+- `references/setups.md` — the five archetypes, condition by condition
+- `references/risk-gate.md` — the five checks, formulae, config keys
+- `references/nse-options-mechanics.md` — lot sizes, SEBI bands, verified charges, with sources
+- `references/rrg-profitable-setup.md` — what the walk-forward kept, and what it threw away
+- `tradingview/AashishMomentum.pine` — the same rules on a chart, bar by bar, arguable
 
-**Provenance:** architecture adapted from the public "24/7 AI Trader · Fable 5" concept
-(seb.ai) and fused with Aashish's own OI-buildup + option-chain + chart-action + RRG stack.
+**Provenance:** the five-stage architecture follows the public "24/7 AI Trader · Fable 5"
+concept, fused with Aashish's own OI-buildup + option-chain + chart-action stack and cut down
+to what survived his walk-forward.

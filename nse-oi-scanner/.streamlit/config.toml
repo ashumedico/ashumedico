@@ -1,0 +1,15 @@
+# Dark by default. The desk is read at 9:20am and again at 3:15pm; a white screen in a
+# dark room is the reason the last dashboard got closed instead of used.
+[theme]
+base                = "dark"
+primaryColor        = "#3fb950"
+backgroundColor     = "#0b0f14"
+secondaryBackgroundColor = "#121821"
+textColor           = "#e6edf3"
+font                = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = false

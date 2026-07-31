@@ -499,6 +499,30 @@ def demo_points(tail=6, n_bars=400, seed=7):
     buildup = {}
     for i, nm in enumerate(names):
         buildup[nm] = ["LONG BUILDUP", "SHORT COVERING", "SHORT BUILDUP", "LONG UNWINDING"][i % 4]
-    global LAST_DATES
+
+    # OHLCV around each synthetic close, so the demo exercises the same code the live path
+    # does. Without bars there are no features, so no VWAP, no levels and no scenarios -
+    # the demo would render a page that cannot show whether the page works.
+    bars = {}
+    for sym, series in prices.items():
+        rows, prev = [], series[0]
+        for t, c in enumerate(series):
+            span = abs(c) * (0.004 + rnd.random() * 0.010)
+            o = prev
+            hi = max(o, c) + span * rnd.random()
+            lo = min(o, c) - span * rnd.random()
+            vol = int(200000 * (0.5 + rnd.random() * 1.6))
+            rows.append([t, round(o, 2), round(hi, 2), round(lo, 2), round(c, 2), vol])
+            prev = c
+        bars[sym] = rows
+
+    global LAST_DATES, LAST_BARS
     LAST_DATES = dts
-    return build_points(prices, bench, buildup, tail=tail, dates=dts), prices, bench
+    LAST_BARS = bars
+    pts = build_points(prices, bench, buildup, tail=tail, dates=dts)
+    try:
+        import features as F
+        pts = F.attach(pts, F.for_universe(bars, dts))
+    except Exception as e:      # noqa
+        print(f"  [features] demo attach failed: {e}")
+    return pts, prices, bench

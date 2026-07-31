@@ -19,12 +19,21 @@ Score = how many conditions fire × confluence with OI + walls.
 - Momentum of the pullback is fading (shrinking counter-trend bodies).
 - **Trade:** enter at the level; stop beyond S2/R2; target prior swing / R2 / S2. Best R:R setup.
 
-## 3. Momentum
-**Idea:** ride strong acceleration, don't fade it.
-- Expanding candle bodies in one direction; `continuation` shows 3–5 candles same way.
-- Volume rising with price; OI **Long/Short Buildup** (fresh money, not covering).
-- **Trade:** enter on the thrust or first micro-pause; trail; tight time-stop. Scalp R:R ok < 1.5.
+## 3. Momentum  ← **the one this system actually trades**
+**Idea:** be in on the bar the move starts, not the bar everyone can see it.
+- **Squeeze then expansion** (`indicators.squeeze`, `indicators.expansion`): the name was coiled
+  on the *previous* bar (short-window TR ÷ long-window TR below the coil threshold) and *this*
+  bar is wider than the long-window norm. Using this bar for both would be asking the break to
+  have happened before it happened.
+- `continuation` counts **up-candles in a row** for a long — a run of down candles is
+  continuation too, and it is the opposite trade.
+- Volume rising with price (`rvol` above its minimum); price above session **VWAP**.
+- OI **Long/Short Buildup** if visible — context, not a gate (no historical OI series to test it).
+- **Trade:** enter on the **first expansion bar**. Stop at entry − mult × ATR, then **trail from
+  the high-water mark, ratchet only**. Tight bar-count timeout — dead money is a cost.
 - **Guard:** momentum into Max-Pain or a heavy wall exhausts — tighten.
+- **Not a thing:** "enter before momentum starts." Nobody does that. The first expansion bar is
+  the earliest honest entry, and that is what this marks.
 
 ## 4. Trend continuation
 **Idea:** the trend holds structure and resumes after a pause/consolidation.
