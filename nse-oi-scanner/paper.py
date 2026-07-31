@@ -167,7 +167,18 @@ def mark(bk, quotes, stale_days):
                                + (f"  ({locked:+.2f} locked in)" if locked > 0 else "")))
         hold_bars = float(getattr(config, "HOLD_BARS", 10))
         reason = None
-        if px <= t["stop"]:
+
+        # A plain rupee target: book this much NET and leave. Net is the point - spread
+        # and charges here are about twice a Rs 500 target, so an exit taken on the gross
+        # number books a loss while reporting a win.
+        rs_target = float(getattr(config, "TARGET_RUPEES", 0) or 0)
+        if rs_target > 0:
+            if net_pnl_now(t, px) >= rs_target:
+                reason = "RS TARGET"
+
+        if reason:
+            pass
+        elif px <= t["stop"]:
             reason = "STOP"
         elif px >= t["t2"]:
             reason = "T2"
@@ -189,6 +200,20 @@ def mark(bk, quotes, stale_days):
             close(bk, t, px, reason)
             events.append((t["name"], f"BAND - {reason}"))
     return events
+
+
+def net_pnl_now(t, spot_now):
+    """What this position would put in the account if closed at this mark - after the
+    spread and every statutory charge, not before them."""
+    prem = option_exit_premium(t, spot_now)
+    gross = (prem - t["premium_in"]) * t["qty"]
+    spread = float(getattr(config, "OPTION_SPREAD_PCT", 0.02)) * t["premium_in"] * t["qty"]
+    try:
+        import charges as CH
+        stat = CH.round_trip(t["premium_in"], t["qty"], prem)["total"]
+    except Exception:
+        stat = 0.0
+    return gross - spread - stat
 
 
 def option_exit_premium(t, spot_now, delta=0.60):
@@ -383,12 +408,35 @@ def session_loop(a):
             report(load())
             return
         wait = max(5, (nxt - now()).total_seconds())
-        print(f"  {DIM}agla candle close {nxt:%H:%M} - {int(wait/60)} min ruk raha hoon{X}\n")
+        # Entries wait for the candle to close, because that is what the signal is built
+        # on. EXITS cannot: a stop or a rupee target reached at 10:03 and acted on at
+        # 10:15 is not the trade that was planned. So while anything is open, watch it
+        # every WATCH_SECONDS instead of sleeping through the bar.
+        watch = int(getattr(config, "WATCH_SECONDS", 60) or 60)
+        print(f"  {DIM}agla candle close {nxt:%H:%M} - {int(wait/60)} min{X}"
+              + (f"{DIM}, position khuli hai toh har {watch}s dekh raha hoon{X}"
+                 if load()["open"] else ""))
         try:
-            _time.sleep(wait)
+            end = now() + timedelta(seconds=wait)
+            while now() < end:
+                bk = load()
+                if not bk["open"]:
+                    _time.sleep(min(watch, (end - now()).total_seconds()))
+                    continue
+                _time.sleep(min(watch, max(1, (end - now()).total_seconds())))
+                bk = load()
+                if not bk["open"]:
+                    continue
+                q = ({t["symbol"]: t.get("spot_now") for t in bk["open"]} if a.demo
+                     else __import__("rrg_engine").live_quote(
+                         [t["symbol"] for t in bk["open"] if t.get("symbol")]))
+                for nm, what in mark(bk, q, 99):
+                    print(f"  {Y}>> {nm}: {what}{X}")
+                save(bk)
         except KeyboardInterrupt:
             print(f"\n  {Y}Band kar diya. Book waise ka waisa hai.{X}")
             return
+        print()
 
 
 def main():

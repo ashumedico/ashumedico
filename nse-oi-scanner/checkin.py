@@ -326,6 +326,13 @@ def main():
     print(f"  {B}WAPAS AA GAYA, AASHISH{X}        {now():%a %d %b %Y · %H:%M IST}")
     print(f"  {DIM}{mode}  ·  {bm}-min candle  ·  plan {span} ka  ·  "
           f"expiry >= {TC.min_days_for_thesis()} din{X}")
+    # A missing setting silently becomes SWING, which is a different strategy on a
+    # different timeframe with a different expiry - and it looks like a normal run. If
+    # the mode was never chosen, say so instead of picking one.
+    if not hasattr(config, "RESOLUTION") or not hasattr(config, "BAR_MINUTES"):
+        print(f"  {R}!! RESOLUTION/BAR_MINUTES config mein set nahi hain.{X}")
+        print(f"  {R}   Ye SWING (daily) chala raha hai, INTRADAY nahi.{X}")
+        print(f"  {Y}   Theek kar:  python configure.py --mode intraday{X}")
     print("=" * 70 + "\n")
 
     bk = load()

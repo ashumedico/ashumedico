@@ -32,6 +32,8 @@ KEYS = {
     "BAR_MINUTES":   (lambda v: str(int(v)),      "minutes in one bar (375 = one session)"),
     "MIN_EXPIRY_DAYS": (lambda v: str(int(v)),    "expiry must have this many days left"),
     "LOT_SIZES":     (lambda v: str(v),           "pinned lot sizes that beat the parser"),
+    "TARGET_RUPEES": (lambda v: str(int(v)),      "book and exit at this NET profit (0 = off)"),
+    "WATCH_SECONDS": (lambda v: str(int(v)),      "how often to check stops while holding"),
 }
 
 # The bar size decides everything downstream - trend, volatility, stops, how long a
@@ -91,6 +93,10 @@ def main():
                     help="roll to next month when the running one has fewer days left")
     ap.add_argument("--set-lot", action="append", metavar="NAME=LOT",
                     help="pin a lot size permanently, e.g. --set-lot SONACOMS=1225")
+    ap.add_argument("--target-rupees", type=int,
+                    help="book and exit at this NET profit, e.g. 500 (0 = off)")
+    ap.add_argument("--watch-seconds", type=int,
+                    help="how often to check stops/targets while a position is open")
     ap.add_argument("--secret", action="store_true",
                     help="update SECRET_KEY (asks for it - never pass it on the command line)")
     a = ap.parse_args()
@@ -113,6 +119,10 @@ def main():
         updates["LOTS_PER_TRADE"] = KEYS["LOTS_PER_TRADE"][0](a.lots_per_trade)
     if a.min_expiry_days is not None:
         updates["MIN_EXPIRY_DAYS"] = KEYS["MIN_EXPIRY_DAYS"][0](a.min_expiry_days)
+    if a.target_rupees is not None:
+        updates["TARGET_RUPEES"] = KEYS["TARGET_RUPEES"][0](a.target_rupees)
+    if a.watch_seconds is not None:
+        updates["WATCH_SECONDS"] = KEYS["WATCH_SECONDS"][0](a.watch_seconds)
 
     # Secret is prompted, never taken as an argument: a command line ends up in shell
     # history, in scrollback, and in any screenshot of the window.
