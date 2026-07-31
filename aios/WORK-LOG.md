@@ -144,10 +144,56 @@ modelled on the **24/7 AI Trader · Fable 5** architecture (seb.ai) and fused wi
 
 ---
 
+## 2026-07-31 — Trading OS v6: the website, the doctrine, and the clear-out
+
+**The website (`desk.py`).** One page laid out the way a chart is read: rail to pick the
+name → status banner (*Trend Identified ✓* / partial / none) → ribbon (spot · trend · VWAP ·
+RVOL · ATR · squeeze · expansion) → the ticket → chart with **R2/R1/S1/S2 drawn, named, and
+labelled with how many bars actually traded against each level** → scenario block
+(Bullish / Sideways / Bearish, each with its threshold and its invalidation) → Mauke →
+paper score → pinned disclaimer. Dark by default.
+
+Scenarios are "if X then Y" over computed levels, not forecasts, and the page says so.
+Commodity/global buttons from the reference were **not** built — that feed isn't wired, and
+a button that does nothing is a lie.
+
+**Proof it renders.** `test_desk.py` runs the page through Streamlit's own AppTest and
+asserts on what reached it, all three scenario branches included — 16/16. Demo mode now
+generates OHLCV, not just closes; without bars there are no features, so the old demo
+rendered headings over an empty page and couldn't tell a working desk from a broken one.
+
+**The doctrine (`.claude/skills/universal-trading`).** Rewritten to describe the system that
+shipped. It had still been describing the previous one — three ideas *including a future*,
+RRG rotation as "the edge", size derived from the risk budget. All three contradict
+decisions since made. The five-stage spine stays; the standing frame (options only ·
+15-minute · ATM · **1 lot fixed** · near-month +15-day roll · first expansion bar ·
+ratchet-only trail) is now written down as *decisions*, and the risk gate states plainly
+that the budget is a **veto, not a sizer**.
+
+**The clear-out.** An audit of what each icon launches and what each live module imports
+found ten Python files reachable from nothing: `app.py`, `rrg_app.py`, `rrg_view.py`,
+`rrg.py`, `report.py`, `charts.py`, `signal_engine.py`, `auto_trader.py`, `execution.py`,
+`risk_gate.py` — deleted, with seven orphan launchers, two duplicate setup scripts, four
+committed demo PNGs, and matplotlib/pandas/numpy out of `requirements.txt`. The reverse
+problem too: **`hypothesis.py`** — the ablation that measured RRG at −6.3% and got it
+demoted — had no icon at all. It has one now. Every `.py` left is reachable from an icon or
+a test; all five suites pass.
+
+---
+
 ## 🎯 OPEN LOOPS (waiting on you)
-1. **Run the scanner** on your PC (5-min setup) → then tune universe/thresholds on live OI.
-2. **Send PF & NPS** balances + monthly contributions → completes the 20-yr wealth graph.
-3. **Print** the budget + daily tracker; tick nightly.
-4. Reconcile the rebuilt scanner with your original `C:\claude\` logic.
+1. **Run the ablation on 15-min data** — `Tools → Ablation test` (or `python hypothesis.py
+   --days 900`). Six feature arms currently report **NOT TESTED**, which is not the same as
+   passed and not the same as failed. Delete `cache` first.
+2. **`PRODUCT_TYPE` is `INTRADAY`** — Fyers auto-squares off at 3:20. You said carry
+   "depend karta hai". If you want to carry, it must be `MARGIN`:
+   `python configure.py` (or tell me and I'll switch it).
+3. **Phantom SONACOMS position** — that order was rejected for margin. If Fyers shows no
+   position: `python checkin.py --sold SONACOMS --price 770` to clear the book.
+4. **Rotate the Fyers secret** — it reached a screenshot. `Tools → Secret update`.
+5. **Telegram alerts** still unconfigured — `Tools → Telegram alerts` (2 minutes, needs
+   @BotFather).
+6. **Send PF & NPS** balances + monthly contributions → completes the 20-yr wealth graph.
+7. **Print** the budget + daily tracker; tick nightly.
 
 _Not financial/medical advice where applicable; decisions are yours. Compliance: UCPMP/OPPI, INN names._

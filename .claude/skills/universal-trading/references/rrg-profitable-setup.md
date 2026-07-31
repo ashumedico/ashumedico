@@ -57,5 +57,5 @@ and the app then trades whatever **his** data validated.
 ```bash
 python rrg_strategy.py --demo               # mechanics proof (synthetic)
 python rrg_strategy.py --sweep --days 400   # LIVE: find YOUR best setup -> rrg_best_setup.json
-streamlit run rrg_app.py                    # the cockpit (RRG main window + auto-trader)
+streamlit run desk.py                       # the desk (RRG is context here, not the headline)
 ```

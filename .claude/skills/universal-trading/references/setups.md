@@ -56,6 +56,10 @@ Score = how many conditions fire × confluence with OI + walls.
 
 ### Scoring
 For a candidate, count fired conditions per archetype and take the best-fitting setup.
-Then require **3-lens confluence** (OI × option chain × chart action) before it becomes a plan.
-Confidence 0–100 (`signal_engine.evaluate`): magnitude of agreement + number of lenses aligned.
-Below ~60 confidence, watchlist only — don't force it.
+Then require **3-lens confluence** (trend × volume × structure) before it becomes a plan —
+`features.passes` is the gate, and a **missing feature is a fail, never a pass**. Below
+rough agreement across the three, watchlist only — don't force it.
+
+An archetype that has never been walk-forward tested is **NOT TESTED**, which is neither a
+pass nor a fail, and must be reported as neither. OI buildup is permanently in that
+category here: there is no historical open-interest series in this system to test it with.
