@@ -71,6 +71,7 @@ if (-not (Test-Path $folder)) {
 # --- the launchers, NUMBERED in daily running order ---
 # shell32.dll icon indices: 44 key - 137 target - 13 chart - 25 gears - 21 search - 23 monitor - 131 stop
 Write-Host "Adding launchers..."
+New-Shortcut $folder "0 - UPDATE"           "UPDATE.bat"         "%SystemRoot%\System32\shell32.dll" 46  "Naya code laao - kabhi kabhi chala lena"
 New-Shortcut $folder "1 - Fyers Login"      "run_login.bat"      "%SystemRoot%\System32\shell32.dll" 44  "STEP 1: aaj ka Fyers token"
 New-Shortcut $folder "2 - CHECK-IN"         "CHECKIN.bat"        "%SystemRoot%\System32\shell32.dll" 138 "STEP 2: kya hold, kya book, kya naya - bas yahi chahiye"
 New-Shortcut $folder "3 - RRG Trader"       "run_rrg_app.bat"    "%SystemRoot%\System32\shell32.dll" 137 "Deep dive: RRG main window + auto-trader (localhost:8501)"
@@ -81,6 +82,7 @@ New-Shortcut $folder "7 - Robustness Test"  "run_robustness.bat" "%SystemRoot%\S
 New-Shortcut $folder "8 - Journal"          "run_journal.bat"    "%SystemRoot%\System32\shell32.dll" 47  "Grade past signals, learn what works, what to stop"
 New-Shortcut $folder "9 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\System32\shell32.dll" 23  "Console OI-change buildup scanner"
 New-Shortcut $folder "10 - Lot Audit"       "run_lot_audit.bat"  "%SystemRoot%\System32\shell32.dll" 77  "Check every F&O lot size against its live price - wrong lot = wrong quantity"
+New-Shortcut $folder "11 - Expiry Check"    "run_expiry_check.bat" "%SystemRoot%\System32\shell32.dll" 137 "Kaunsi expiry sasti padti hai tere hold ke hisaab se"
 New-Shortcut $folder "SETUP - Telegram Alerts" "TELEGRAM-SETUP.bat" "%SystemRoot%\System32\shell32.dll" 12 "Ek baar: phone pe alert lagao jab T1/stop hit ho"
 New-Shortcut $folder "STOP - Kill Switch"   "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC: halt all trading immediately"
 
