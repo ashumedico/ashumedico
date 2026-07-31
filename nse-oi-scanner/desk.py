@@ -365,7 +365,8 @@ try:
             else:
                 bg = "#161b22"; fg = "#8b949e"
             tagc = "#56d364" if r["tag"] == "LEADER" else "#e3b341"
-            cols[i % 2].markdown(
+            c = cols[i % 2]
+            c.markdown(
                 f'<div class="hm" style="background:{bg}">'
                 f'<div class="hm-r">#{r["rank"]}</div>'
                 f'<div class="hm-n">{r["name"]}</div>'
@@ -373,13 +374,88 @@ try:
                 + (f'<div class="hm-t" style="color:{tagc}">{r["tag"]}</div>'
                    if r["tag"] else "")
                 + '</div>', unsafe_allow_html=True)
+            if c.button(f"{r['name']} ke naam  →", key=f"sec_{r['name']}",
+                        use_container_width=True):
+                st.session_state.sector = r["name"]
         if SEC.unresolved():
             st.caption("Ye sector resolve nahi hue aur heatmap mein nahi hain: "
                        + ", ".join(SEC.unresolved()))
     st.caption("Sector strength context hai, signal nahi — iska koi backtest nahi hai. "
-               "Entry phir bhi tested gates se aati hai.")
+               "Entry phir bhi tested gates se aati hai. Kisi bhi tile pe click kar ke "
+               "us sector ke naam dekh.")
 except Exception as e:      # noqa
     st.caption(f"heatmap nahi bana: {e}")
+
+
+# ---- click a sector -> its names, best first -------------------------------
+@st.cache_data(ttl=1800, show_spinner="Sector ke naam nikal raha hoon...")
+def sector_map(_prices):
+    import sectors as _S
+    return _S.constituents(_prices)
+
+
+if st.session_state.get("sector"):
+    sec = st.session_state.sector
+    hl, hr = st.columns([4, 1])
+    hl.markdown(f'<div class="sec">{sec} — kaunsa naam pehle</div>',
+                unsafe_allow_html=True)
+    if hr.button("band karo", use_container_width=True):
+        st.session_state.sector = None
+        st.rerun()
+    try:
+        import scorecard as SC
+        cmap, unclear = sector_map(prices)
+        members = cmap.get(sec) or []
+        if not members:
+            st.caption(f"{sec} se koi naam strongly correlate nahi karta "
+                       f"(ya index history nahi aayi). Isliye khaali — galat naam "
+                       f"bhar dene se accha khaali hai.")
+        else:
+            by_name = {p["name"]: p for p in pts}
+            rows = []
+            for m in members:
+                p = by_name.get(m["name"])
+                if not p:
+                    continue
+                s = SC.score(p)
+                f = p.get("feat") or {}
+                # Which side this name suits, from the same tested conditions. Not a
+                # separate opinion - a reading of the score that already exists.
+                lean = ("BUY CE" if s["total"] >= 6 else
+                        "BUY PE" if (s["of"] - s["total"]) >= 6 else "—")
+                rows.append({
+                    "#": 0, "naam": m["name"],
+                    "LTP": round(p.get("close", 0), 2),
+                    "trend %": p.get("abs_pct"),
+                    "score": s["total"], "of": s["of"],
+                    "lean": lean,
+                    "VWAP": ("upar" if f.get("above_vwap") else "neeche") if f else "—",
+                    "RVOL": f.get("rvol", "—"),
+                    "expansion": ("HAAN" if f.get("expanding") else "nahi") if f else "—",
+                    "sector fit (r)": m["corr"],
+                })
+            # Rank by the score first, then by how hard the name is moving. The sector
+            # decides WHERE to look; the tested gates still decide WHICH name.
+            rows.sort(key=lambda r: (r["score"], abs(r["trend %"] or 0)), reverse=True)
+            for i, r_ in enumerate(rows):
+                r_["#"] = i + 1
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+            top = rows[0] if rows else None
+            if top:
+                st.success(
+                    f"**{sec} mein pehli pasand: {top['naam']}** — score "
+                    f"{top['score']}/{top['of']}, trend {top['trend %']}%, "
+                    f"{top['lean']}. Ye is sector ka sabse behtar SETUP hai, "
+                    f"sabse behtar company nahi — dono alag sawaal hain.")
+            st.caption(
+                "**Sector fit (r)** = us naam ka index ke saath correlation, pichle "
+                "~120 bars pe **naapa gaya** — yaad se nahi likha. r kam matlab wo naam "
+                "sector ke saath chalta hi nahi, toh sector ki chaal uspe lagana galat hai. "
+                "Ranking tested gates se aati hai; sector sirf ye batata hai **kahan dekhna hai**."
+                + (f"  {len(unclear)} naam kisi bhi sector se strongly nahi jude — "
+                   f"unhe kisi bucket mein zabardasti nahi daala." if unclear else ""))
+    except Exception as e:      # noqa
+        st.caption(f"sector list nahi bani: {e}")
 
 # ================================================================== maahol ==
 st.markdown('<div class="sec">Maahol — is the tape worth trading</div>', unsafe_allow_html=True)

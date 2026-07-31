@@ -189,6 +189,75 @@ def radar(points, bars_by_symbol, dates):
             "judged": sum(counts.values())}
 
 
+# ------------------------------------------------------------ constituents --
+def _returns(series):
+    return [(series[i] / series[i - 1] - 1) for i in range(1, len(series))
+            if series[i - 1]]
+
+
+def _corr(a, b):
+    n = min(len(a), len(b))
+    if n < 20:
+        return None
+    a, b = a[-n:], b[-n:]
+    ma, mb = sum(a) / n, sum(b) / n
+    va = sum((x - ma) ** 2 for x in a)
+    vb = sum((x - mb) ** 2 for x in b)
+    if va <= 0 or vb <= 0:
+        return None
+    cov = sum((a[i] - ma) * (b[i] - mb) for i in range(n))
+    return cov / ((va * vb) ** 0.5)
+
+
+def constituents(prices, min_corr=0.45, days=120):
+    """Which sector each F&O name actually belongs to, MEASURED - not remembered.
+
+    Writing out the constituents of fourteen sector indices from memory across two hundred
+    names is exactly the kind of confident list that is wrong in a dozen places and shows
+    it to nobody. So instead: pull each index's own history, correlate every stock's daily
+    returns against every index, and assign the name to whichever index it actually tracks.
+
+    Returns {sector: [{name, symbol, corr}]}, plus an "unclear" bucket for names that do
+    not track anything strongly enough. A weak best-match is not a sector, it is a
+    coincidence, and it is reported as unclear rather than filed under whatever number
+    happened to be highest.
+    """
+    r = resolve()
+    if not r or not prices:
+        return {}, {}
+    try:
+        import rrg_engine as E
+        idx_prices, _, _ = E.fetch_history(list(r.values()), days=days)
+    except Exception:
+        return {}, {}
+    idx_rets = {name: _returns(idx_prices[sym])
+                for name, sym in r.items()
+                if idx_prices.get(sym) and len(idx_prices[sym]) > 20}
+    if not idx_rets:
+        return {}, {}
+
+    out, unclear = {}, []
+    for sym, closes in prices.items():
+        if not closes or len(closes) < 25:
+            continue
+        nm = str(sym).split(":")[-1].replace("-EQ", "")
+        sr = _returns(closes)
+        best, best_c = None, 0.0
+        for sec, ir in idx_rets.items():
+            c = _corr(sr, ir)
+            if c is not None and c > best_c:
+                best, best_c = sec, c
+        if best and best_c >= min_corr:
+            out.setdefault(best, []).append({"name": nm, "symbol": sym,
+                                             "corr": round(best_c, 2)})
+        else:
+            unclear.append({"name": nm, "symbol": sym,
+                            "corr": round(best_c, 2) if best else None})
+    for sec in out:
+        out[sec].sort(key=lambda x: x["corr"], reverse=True)
+    return out, unclear
+
+
 def main():
     r = resolve()
     print(f"\n  SECTOR FEED PROBE")
