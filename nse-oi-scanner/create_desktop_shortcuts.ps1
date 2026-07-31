@@ -108,6 +108,7 @@ New-Shortcut $tools "Paper score"         "run_paper.bat"       "%SystemRoot%\Sy
 New-Shortcut $tools "Paper auto (setup)"  "SETUP-PAPER.bat"     "%SystemRoot%\System32\shell32.dll" 43  "Ek baar: roz apne aap"
 New-Shortcut $tools "Paper auto (stop)"   "STOP-PAPER.bat"      "%SystemRoot%\System32\shell32.dll" 109 "Roz-apne-aap band karo"
 New-Shortcut $tools "Find Best Setup"     "run_sweep.bat"       "%SystemRoot%\System32\shell32.dll" 21  "Walk-forward sweep"
+New-Shortcut $tools "Suggestions backtest" "run_backtest_cards.bat" "%SystemRoot%\System32\shell32.dll" 172 "Jo cards chhapte hain unka asli P&L"
 New-Shortcut $tools "Ablation test"       "run_hypothesis.bat"  "%SystemRoot%\System32\shell32.dll" 24  "Har filter ki asli keemat - isi ne RRG ko kaata"
 New-Shortcut $tools "Short book test"    "run_short_test.bat"  "%SystemRoot%\System32\shell32.dll" 168 "LONG vs SHORT vs BOTH - ek hi data pe"
 New-Shortcut $tools "Robustness Test"     "run_robustness.bat"  "%SystemRoot%\System32\shell32.dll" 166 "Edge ko DISPROVE karne ki koshish"

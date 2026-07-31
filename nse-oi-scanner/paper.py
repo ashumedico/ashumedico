@@ -176,6 +176,85 @@ def book_half(t, spot_now):
             f"{lots - half_lots} lot chal raha hai, stop {t['stop']} pe")
 
 
+def step(t, px, bars):
+    """One bar against one open trade: trail it, and decide whether it is finished.
+
+    Returns (reason_or_None, events). This is THE exit contract - trail, rupee target,
+    stop, T2, the T1 half-book, timeout - and it lives in one function so that the
+    backtest and the live loop cannot drift apart. They already did once, when the
+    backtest ranked candidates one way and the live selector another, and the system spent
+    weeks trading a strategy nobody had tested. A backtest that reimplements the exits is
+    measuring a different program from the one that runs at 9:20am.
+
+    The caller decides what a bar IS - wall-clock for the live loop, an index for the
+    backtest - and passes `bars` in. Nothing here reads the clock.
+    """
+    events = []
+    t["spot_now"] = px
+    t["bars_held"] = round(bars, 1)
+
+    # Trail, bar by bar. The stop only ever ratchets UP - a stop that can loosen is
+    # not a stop, it is a hope. High-water is the best mark seen since entry, not the
+    # true intraday high, and it is worth knowing which: between marks the price can
+    # go higher and come back, and this will not have seen it.
+    d = _dir(t)
+    if getattr(config, "TRAIL", True) and t.get("trail_dist"):
+        # "High water" is the best price seen IN THE TRADE'S DIRECTION - the lowest
+        # print for a put. The ratchet then tightens the stop downward for a long and
+        # upward for a short. Written as max()/minus, a put's stop would loosen every
+        # time the stock fell, which is the opposite of a trail.
+        best = max if d > 0 else min
+        t["high_water"] = best(t.get("high_water", t["spot_in"]), px)
+        trailed = round(t["high_water"] - d * t["trail_dist"], 2)
+        if (trailed > t["stop"]) if d > 0 else (trailed < t["stop"]):
+            old = t["stop"]
+            t["stop"] = trailed
+            locked = (t["stop"] - t["spot_in"]) * d
+            events.append((t["name"],
+                           f"stop {old} -> {trailed}"
+                           + (f"  ({locked:+.2f} locked in)" if locked > 0 else "")))
+
+    hold_bars = float(getattr(config, "HOLD_BARS", 10))
+    reason = None
+
+    # A plain rupee target: book this much NET and leave. Net is the point - spread
+    # and charges here are about twice a Rs 500 target, so an exit taken on the gross
+    # number books a loss while reporting a win.
+    rs_target = float(getattr(config, "TARGET_RUPEES", 0) or 0)
+    if rs_target > 0 and net_pnl_now(t, px) >= rs_target:
+        reason = "RS TARGET"
+
+    # Distances travelled in the trade's own direction, so one set of comparisons
+    # serves both books. A put's stop sits ABOVE entry and its targets BELOW; reading
+    # them with a long's "px <= stop" would stop out every put on the tick it opened.
+    hit_stop = (px <= t["stop"]) if d > 0 else (px >= t["stop"])
+    hit_t2 = (px >= t["t2"]) if d > 0 else (px <= t["t2"])
+    hit_t1 = (px >= t["t1"]) if d > 0 else (px <= t["t1"])
+    if reason:
+        pass
+    elif hit_stop:
+        reason = "STOP"
+    elif hit_t2:
+        reason = "T2"
+    elif hit_t1 and not t["half_booked"]:
+        t["half_booked"] = True
+        # Breakeven is a FLOOR, not an assignment. By the time T1 prints, the trail
+        # has usually ratcheted past entry already, and setting the stop to entry
+        # would hand back everything it locked in - which is the exact behaviour the
+        # trail exists to prevent. On a put the floor is a ceiling: tighter means
+        # LOWER for a long and HIGHER for a short.
+        t["stop"] = (max(t["stop"], t["spot_in"]) if d > 0
+                     else min(t["stop"], t["spot_in"]))
+        events.append((t["name"], book_half(t, px)))
+        return None, events
+    elif bars >= hold_bars * 2:
+        # Timeout in BARS, not days. On a 15-minute chart a "25 day" timeout never
+        # fires, so a 2.5-hour thesis would sit open for weeks and be scored as if
+        # that had been the plan.
+        reason = "TIMEOUT"
+    return reason, events
+
+
 def mark(bk, quotes, stale_days):
     """Move open paper trades forward against live spot. Exits follow the same contract
     the ticket printed: stop, T1 half, T2 rest, timeout. No discretion - the point is to
@@ -185,69 +264,8 @@ def mark(bk, quotes, stale_days):
         px = quotes.get(t["symbol"])
         if not px:
             continue
-        bars = bars_held(t)
-        t["spot_now"] = px
-        t["bars_held"] = round(bars, 1)
-
-        # Trail, bar by bar. The stop only ever ratchets UP - a stop that can loosen is
-        # not a stop, it is a hope. High-water is the best mark seen since entry, not the
-        # true intraday high, and it is worth knowing which: between marks the price can
-        # go higher and come back, and this will not have seen it.
-        d = _dir(t)
-        if getattr(config, "TRAIL", True) and t.get("trail_dist"):
-            # "High water" is the best price seen IN THE TRADE'S DIRECTION - the lowest
-            # print for a put. The ratchet then tightens the stop downward for a long and
-            # upward for a short. Written as max()/minus, a put's stop would loosen every
-            # time the stock fell, which is the opposite of a trail.
-            best = max if d > 0 else min
-            t["high_water"] = best(t.get("high_water", t["spot_in"]), px)
-            trailed = round(t["high_water"] - d * t["trail_dist"], 2)
-            if (trailed > t["stop"]) if d > 0 else (trailed < t["stop"]):
-                old = t["stop"]
-                t["stop"] = trailed
-                locked = (t["stop"] - t["spot_in"]) * d
-                events.append((t["name"],
-                               f"stop {old} -> {trailed}"
-                               + (f"  ({locked:+.2f} locked in)" if locked > 0 else "")))
-        hold_bars = float(getattr(config, "HOLD_BARS", 10))
-        reason = None
-
-        # A plain rupee target: book this much NET and leave. Net is the point - spread
-        # and charges here are about twice a Rs 500 target, so an exit taken on the gross
-        # number books a loss while reporting a win.
-        rs_target = float(getattr(config, "TARGET_RUPEES", 0) or 0)
-        if rs_target > 0:
-            if net_pnl_now(t, px) >= rs_target:
-                reason = "RS TARGET"
-
-        # Distances travelled in the trade's own direction, so one set of comparisons
-        # serves both books. A put's stop sits ABOVE entry and its targets BELOW; reading
-        # them with a long's "px <= stop" would stop out every put on the tick it opened.
-        hit_stop = (px <= t["stop"]) if d > 0 else (px >= t["stop"])
-        hit_t2 = (px >= t["t2"]) if d > 0 else (px <= t["t2"])
-        hit_t1 = (px >= t["t1"]) if d > 0 else (px <= t["t1"])
-        if reason:
-            pass
-        elif hit_stop:
-            reason = "STOP"
-        elif hit_t2:
-            reason = "T2"
-        elif hit_t1 and not t["half_booked"]:
-            t["half_booked"] = True
-            # Breakeven is a FLOOR, not an assignment. By the time T1 prints, the trail
-            # has usually ratcheted past entry already, and setting the stop to entry
-            # would hand back everything it locked in - which is the exact behaviour the
-            # trail exists to prevent. On a put the floor is a ceiling: tighter means
-            # LOWER for a long and HIGHER for a short.
-            t["stop"] = (max(t["stop"], t["spot_in"]) if d > 0
-                         else min(t["stop"], t["spot_in"]))
-            events.append((t["name"], book_half(t, px)))
-            continue
-        elif bars >= hold_bars * 2:
-            # Timeout in BARS, not days. On a 15-minute chart a "25 day" timeout never
-            # fires, so a 2.5-hour thesis would sit open for weeks and be scored as if
-            # that had been the plan.
-            reason = "TIMEOUT"
+        reason, evs = step(t, px, bars_held(t))
+        events.extend(evs)
         if reason:
             close(bk, t, px, reason)
             events.append((t["name"], f"BAND - {reason}"))
