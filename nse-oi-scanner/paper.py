@@ -136,12 +136,21 @@ def close(bk, t, spot_now, reason):
                 (prem_out - t["premium_in"]) * t["qty"] / 2
     else:
         gross = (prem_out - t["premium_in"]) * t["qty"]
-    # round-trip bid-ask on the premium, the cost a paper book most often forgets
+    # Real costs, both halves. Bid-ask is the big one; STT, exchange fees, stamp and GST
+    # are small but they are not zero, and a paper book that omits them slowly convinces
+    # you of an edge the ledger will not pay out.
     spread = float(getattr(config, "OPTION_SPREAD_PCT", 0.02))
-    cost = spread * t["premium_in"] * t["qty"]
+    spread_cost = spread * t["premium_in"] * t["qty"]
+    try:
+        import charges as CH
+        statutory = CH.round_trip(t["premium_in"], t["qty"], prem_out)["total"]
+    except Exception:
+        statutory = 0.0
+    cost = spread_cost + statutory
     t.update({"closed": now().isoformat(), "spot_out": spot_now,
               "premium_out": round(prem_out, 2), "reason": reason,
-              "pnl": round(gross - cost), "spread_cost": round(cost),
+              "pnl": round(gross - cost), "spread_cost": round(spread_cost),
+              "statutory_cost": round(statutory), "total_cost": round(cost),
               "pnl_pct_of_capital": round(100 * (gross - cost) /
                                           float(getattr(config, "CAPITAL", 200000)), 2)})
     bk["open"] = [p for p in bk["open"] if p is not t]

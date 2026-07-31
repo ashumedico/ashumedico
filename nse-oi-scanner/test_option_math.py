@@ -81,5 +81,16 @@ for spot, strike, prem, should_reject in [(2400, 2350, 4119, True),    # what it
     check(f"spot {spot} {strike}CE @ {prem:>6} -> {'rejected' if rejected else 'accepted'}",
           rejected == should_reject)
 
+print("\n6. STATUTORY CHARGES")
+import charges as CH
+c = CH.round_trip(73, 375)
+check(f"round trip on Rs {c['buy_turnover']:,.0f} premium = Rs {c['total']:.2f}"
+      f" ({c['pct_of_premium']*100:.2f}%)", 0.002 <= c["pct_of_premium"] <= 0.006,
+      "expected 0.2-0.6% of premium")
+check("STT is charged on the sell side only", CH.round_trip(73, 375)["stt"] > 0
+      and abs(CH.STT_SELL - 0.0015) < 1e-9, "0.15% from 1 Apr 2026")
+check("spread dwarfs statutory charges", 0.02 > c["pct_of_premium"] * 4,
+      f"spread 2.00% vs charges {c['pct_of_premium']*100:.2f}%")
+
 print("\n" + ("  ALL OPTION MATH CHECKS PASS" if not fail else f"  {fail} CHECK(S) FAILED"))
 sys.exit(1 if fail else 0)
