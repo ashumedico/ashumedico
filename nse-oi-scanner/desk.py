@@ -22,7 +22,7 @@ NOT financial advice.
 import os
 import streamlit as st
 
-st.set_page_config(page_title="Aashish Trading Desk", layout="wide",
+st.set_page_config(page_title="AASHISH · Trading Desk", layout="wide",
                    page_icon="📈", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -62,6 +62,14 @@ st.markdown("""
 
   .sec {font-size:.72rem; letter-spacing:1.4px; text-transform:uppercase; color:#6e7781;
         border-bottom:1px solid #21262d; padding-bottom:5px; margin:1.4rem 0 .7rem 0;}
+
+  /* the wordmark - his desk, with his name on it */
+  .mark {display:flex; align-items:baseline; gap:12px; margin-bottom:.1rem;}
+  .mark-name {font-size:2.05rem; font-weight:800; letter-spacing:5px;
+              background:linear-gradient(90deg,#3fb950 0%,#58a6ff 55%,#d29922 100%);
+              -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .mark-sub {font-size:.82rem; color:#6e7781; letter-spacing:2.6px;
+             text-transform:uppercase;}
 
   /* the disclaimer the reference keeps nailed to the bottom, and so does this */
   .disclaim {position:fixed; left:0; right:0; bottom:0; z-index:99;
@@ -106,7 +114,7 @@ def touches(bars, level, atr):
 
 # ================================================================== sidebar ==
 with st.sidebar:
-    st.markdown("### Trading Desk")
+    st.markdown("### AASHISH TRADING OS")
     if st.button("↻  Refresh data", use_container_width=True, type="primary"):
         st.cache_data.clear()
         st.rerun()
@@ -136,7 +144,9 @@ with st.sidebar:
                f"{int(getattr(config, 'LOTS_PER_TRADE', 1) or 1)} lot fixed · ATM only")
 
 # ------------------------------------------------------------------- header --
-st.markdown("## Chart Action Analyzer")
+st.markdown('<div class="mark"><span class="mark-name">AASHISH</span>'
+            '<span class="mark-sub">Trading Desk · Chart Action</span></div>',
+            unsafe_allow_html=True)
 st.caption("Support/resistance · price action · volume · buildup — one page, "
            "computed live, nothing illustrative.")
 

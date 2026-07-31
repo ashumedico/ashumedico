@@ -138,6 +138,40 @@ def bars_held(t, bar_minutes=None):
     return mins / max(bm, 1)
 
 
+def book_half(t, spot_now):
+    """Book half AT T1 - but only as many WHOLE LOTS as half actually is.
+
+    NSE F&O sells in lot multiples and nothing else. On one lot of 1225, "half" is 612.5,
+    which is not an order anybody can place. The paper book used to score half out at T1
+    regardless, while the live account went on holding the whole position - so every trade
+    that tagged T1 and came back made paper look better than the account, and the
+    scorecard he checks against the backtest was measuring a trade that cannot be taken.
+
+    With LOTS_PER_TRADE = 1 there is no half. T1 stops being a booking and becomes what it
+    can honestly be: the moment the stop is guaranteed to be at least breakeven, with the
+    trail carrying the rest. Nothing is scored that was not sellable.
+    """
+    lot = int(t.get("lot") or 0)
+    lots = int(t["qty"] // lot) if lot else 0
+    half_lots = lots // 2
+    if half_lots < 1:
+        return (f"T1 - {lots or 1} lot hai, aadha book nahi ho sakta (lot ke multiple mein "
+                f"hi bikta hai). Stop {t['stop']} pe - ab yahan se sirf trail.")
+
+    qty = half_lots * lot
+    prem = option_exit_premium(t, spot_now)
+    t["booked"] = {"qty": qty, "premium": round(prem, 2), "at": now().isoformat()}
+    t["qty"] = t["qty"] - qty            # the rest rides; close() prices only the rest
+    try:
+        import broker
+        ok, detail = broker.sell(t.get("tradingsymbol"), qty, tag=f"t1:{t['name']}")
+        t["booked"]["live"] = {"ok": ok, "detail": str(detail)[:200]}
+    except Exception as e:      # noqa
+        t["booked"]["live"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
+    return (f"T1 - {half_lots} lot ({qty}) book @ {prem:.2f}, "
+            f"{lots - half_lots} lot chal raha hai, stop {t['stop']} pe")
+
+
 def mark(bk, quotes, stale_days):
     """Move open paper trades forward against live spot. Exits follow the same contract
     the ticket printed: stop, T1 half, T2 rest, timeout. No discretion - the point is to
@@ -189,7 +223,7 @@ def mark(bk, quotes, stale_days):
             # would hand back everything it locked in - which is the exact behaviour the
             # trail exists to prevent.
             t["stop"] = max(t["stop"], t["spot_in"])
-            events.append((t["name"], f"T1 - aadha book, stop {t['stop']} pe"))
+            events.append((t["name"], book_half(t, px)))
             continue
         elif bars >= hold_bars * 2:
             # Timeout in BARS, not days. On a 15-minute chart a "25 day" timeout never
@@ -227,21 +261,35 @@ def option_exit_premium(t, spot_now, delta=0.60):
 
 def close(bk, t, spot_now, reason):
     prem_out = option_exit_premium(t, spot_now)
-    # half booked at T1 means half the quantity left at the T1 premium
-    if t.get("half_booked"):
+    # Whatever was actually sold at T1 is priced at the premium it was actually sold at -
+    # recorded then, not re-derived now. t["qty"] is what is still open, so the two legs
+    # never double-count. The old code assumed exactly half at the T1 *spot*, which was
+    # both a quantity that could not be traded and a price nobody got.
+    bk_leg = t.get("booked") or {}
+    b_qty = int(bk_leg.get("qty") or 0)
+    b_prem = float(bk_leg.get("premium") or t["premium_in"])
+    if not bk_leg and t.get("half_booked"):
+        # A trade opened before booking became real. Score it the way it was opened,
+        # rather than silently restating a position that is already on the books.
         prem_t1 = option_exit_premium(t, t["t1"])
         gross = (prem_t1 - t["premium_in"]) * t["qty"] / 2 + \
                 (prem_out - t["premium_in"]) * t["qty"] / 2
+        total_q = t["qty"]
+        blended = (prem_t1 + prem_out) / 2
     else:
-        gross = (prem_out - t["premium_in"]) * t["qty"]
-    # Real costs, both halves. Bid-ask is the big one; STT, exchange fees, stamp and GST
-    # are small but they are not zero, and a paper book that omits them slowly convinces
-    # you of an edge the ledger will not pay out.
+        gross = (b_prem - t["premium_in"]) * b_qty + \
+                (prem_out - t["premium_in"]) * t["qty"]
+        total_q = b_qty + t["qty"]
+        blended = ((b_prem * b_qty + prem_out * t["qty"]) / total_q) if total_q else prem_out
+    # Real costs, on every share that moved - both legs pay the spread and both pay STT.
+    # Bid-ask is the big one; STT, exchange fees, stamp and GST are small but they are not
+    # zero, and a paper book that omits them slowly convinces you of an edge the ledger
+    # will not pay out.
     spread = float(getattr(config, "OPTION_SPREAD_PCT", 0.02))
-    spread_cost = spread * t["premium_in"] * t["qty"]
+    spread_cost = spread * t["premium_in"] * total_q
     try:
         import charges as CH
-        statutory = CH.round_trip(t["premium_in"], t["qty"], prem_out)["total"]
+        statutory = CH.round_trip(t["premium_in"], total_q, blended)["total"]
     except Exception:
         statutory = 0.0
     cost = spread_cost + statutory
@@ -359,6 +407,22 @@ def square_off_all(bk, quotes, why="EOD"):
     return done
 
 
+def _squareoff_time():
+    """SQUAREOFF from config, as a datetime today. Falls back to ten minutes before the
+    bell if it is missing or unparseable - never later, because later is the broker's
+    turn."""
+    raw = str(getattr(config, "SQUAREOFF", "") or "").strip()
+    n = now()
+    default = n.replace(hour=SESSION_CLOSE[0], minute=SESSION_CLOSE[1] - 10,
+                        second=0, microsecond=0)
+    try:
+        hh, mm = (int(x) for x in raw.split(":")[:2])
+        t = n.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        return min(t, default)
+    except Exception:
+        return default
+
+
 def next_bar_time(bar_minutes):
     """The next candle close, on the grid the exchange actually uses (from 09:15)."""
     n = now()
@@ -376,8 +440,11 @@ def session_loop(a):
     2.5-hour thesis on time; this can."""
     import time as _time
     bm = int(getattr(config, "BAR_MINUTES", 15))
-    close_t = now().replace(hour=SESSION_CLOSE[0], minute=SESSION_CLOSE[1] - 10,
-                            second=0, microsecond=0)
+    # Square off when HIS config says to, not ten minutes before the bell. PRODUCT_TYPE is
+    # INTRADAY, so if we do not close the position the broker will - at market, at a time
+    # of its choosing, and the trailing stop computed in this loop never gets to fire.
+    # Leaving before that is the whole point of naming a time.
+    close_t = _squareoff_time()
     print(f"  {B}SESSION MODE{X}  {DIM}har {bm} min pe candle close - "
           f"{close_t:%H:%M} pe square off. Ctrl+C se band.{X}")
     try:

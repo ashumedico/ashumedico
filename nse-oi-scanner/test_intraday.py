@@ -86,5 +86,63 @@ if "sessions" in TC._timeout_rule():
 else:
     print("   ok - timeout stated in bars and hours")
 
+# ---------- 4. T1 cannot book a quantity that is not sellable ----------
+print("\n4. T1 PARTIAL BOOK  (NSE sells in lot multiples, nothing else)")
+import paper as P
+
+sold = []
+
+
+class _FakeBroker:
+    """Records what would have gone to the exchange, and places nothing."""
+    @staticmethod
+    def sell(sym, qty, tag=""):
+        sold.append(qty)
+        return True, "ok"
+
+    @staticmethod
+    def buy(sym, qty, tag=""):
+        return True, "ok"
+
+
+sys.modules["broker"] = _FakeBroker
+
+LOT = 1225
+base = dict(name="X", symbol="NSE:X-EQ", tradingsymbol="X25AUG750CE", lot=LOT,
+            spot_in=100.0, premium_in=10.0, strike=100, type="CE",
+            stop=95.0, t1=110.0, t2=120.0, high_water=100.0, trail_dist=5.0,
+            half_booked=False, opened="2026-07-31T09:30:00")
+
+# one lot: half of 1225 is 612.5, which is not an order. Nothing may be sold.
+one = dict(base, qty=LOT)
+msg = P.book_half(one, 110.0)
+print(f"   1 lot  -> {msg[:72]}")
+if sold or one.get("booked") or one["qty"] != LOT:
+    print("   *** booked a fraction of a lot ***"); fail += 1
+else:
+    print("   ok - nothing sold, position intact, trail carries it")
+
+# three lots: half is one whole lot, and it must actually reach the broker
+sold.clear()
+three = dict(base, qty=LOT * 3)
+msg = P.book_half(three, 110.0)
+print(f"   3 lots -> {msg[:72]}")
+if sold != [LOT] or three["qty"] != LOT * 2:
+    print(f"   *** sold {sold}, left {three['qty']} - expected [{LOT}] and {LOT*2} ***")
+    fail += 1
+else:
+    print("   ok - 1 lot sold live, 2 lots still open")
+
+# and the P&L must price the two legs separately, not assume 'half at the T1 spot'
+bk = {"open": [three], "closed": []}
+P.close(bk, three, 118.0, "T2")
+t = bk["closed"][0]
+b = t["booked"]
+if t.get("pnl") is None or b["qty"] != LOT:
+    print("   *** booked leg not priced separately ***"); fail += 1
+else:
+    print(f"   ok - booked {b['qty']} @ {b['premium']} + rest @ {t['premium_out']}, "
+          f"net Rs {t['pnl']:+,}")
+
 print("\n" + ("  ALL INTRADAY CHECKS PASS" if not fail else f"  {fail} CHECK(S) FAILED"))
 sys.exit(1 if fail else 0)
