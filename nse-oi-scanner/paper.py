@@ -80,6 +80,11 @@ def take(bk, card, point):
         # the stock-level plan the option inherits
         "stop": card["stock"]["stop"], "t1": card["stock"]["t1"], "t2": card["stock"]["t2"],
         "opt_stop": o.get("stop"), "opt_t1": o.get("t1"), "opt_t2": o.get("t2"),
+        # The trail rides at the same distance as the original stop: the risk that was
+        # acceptable at entry is the risk that stays acceptable, and a distance derived
+        # from the name's own volatility travels with it.
+        "high_water": card["spot"],
+        "trail_dist": round(card["spot"] - card["stock"]["stop"], 2),
         "signal_date": (point or {}).get("signal_date"),
         "freshness": (point or {}).get("freshness"),
         "oi": (point or {}).get("signal"),
@@ -145,6 +150,21 @@ def mark(bk, quotes, stale_days):
         bars = bars_held(t)
         t["spot_now"] = px
         t["bars_held"] = round(bars, 1)
+
+        # Trail, bar by bar. The stop only ever ratchets UP - a stop that can loosen is
+        # not a stop, it is a hope. High-water is the best mark seen since entry, not the
+        # true intraday high, and it is worth knowing which: between marks the price can
+        # go higher and come back, and this will not have seen it.
+        if getattr(config, "TRAIL", True) and t.get("trail_dist"):
+            t["high_water"] = max(t.get("high_water", t["spot_in"]), px)
+            trailed = round(t["high_water"] - t["trail_dist"], 2)
+            if trailed > t["stop"]:
+                old = t["stop"]
+                t["stop"] = trailed
+                locked = t["stop"] - t["spot_in"]
+                events.append((t["name"],
+                               f"stop {old} -> {trailed}"
+                               + (f"  ({locked:+.2f} locked in)" if locked > 0 else "")))
         hold_bars = float(getattr(config, "HOLD_BARS", 10))
         reason = None
         if px <= t["stop"]:
@@ -153,8 +173,12 @@ def mark(bk, quotes, stale_days):
             reason = "T2"
         elif px >= t["t1"] and not t["half_booked"]:
             t["half_booked"] = True
-            t["stop"] = t["spot_in"]                      # rest rides at breakeven
-            events.append((t["name"], "T1 - aadha book, stop breakeven pe"))
+            # Breakeven is a FLOOR, not an assignment. By the time T1 prints, the trail
+            # has usually ratcheted past entry already, and setting the stop to entry
+            # would hand back everything it locked in - which is the exact behaviour the
+            # trail exists to prevent.
+            t["stop"] = max(t["stop"], t["spot_in"])
+            events.append((t["name"], f"T1 - aadha book, stop {t['stop']} pe"))
             continue
         elif bars >= hold_bars * 2:
             # Timeout in BARS, not days. On a 15-minute chart a "25 day" timeout never
@@ -330,7 +354,19 @@ def session_loop(a):
     close_t = now().replace(hour=SESSION_CLOSE[0], minute=SESSION_CLOSE[1] - 10,
                             second=0, microsecond=0)
     print(f"  {B}SESSION MODE{X}  {DIM}har {bm} min pe candle close - "
-          f"{close_t:%H:%M} pe square off. Ctrl+C se band.{X}\n")
+          f"{close_t:%H:%M} pe square off. Ctrl+C se band.{X}")
+    try:
+        import broker
+        if broker.armed() and not broker.killed():
+            print(f"  {R}LIVE - asli order jayenge.{X}")
+    except Exception:
+        pass
+    # The most important sentence in this program. The trailing stop is computed here,
+    # in this loop, and fired as a market order when it breaks. It is NOT resting at the
+    # exchange. Close this window, sleep the machine, drop the connection - and nothing
+    # is watching the position at all.
+    print(f"  {Y}Stop is window ke andar chalta hai, exchange pe nahi.{X}")
+    print(f"  {Y}Window band = koi stop nahi. Isko khula chhod.{X}\n")
     while True:
         run_once(a)
         nxt = next_bar_time(bm)
