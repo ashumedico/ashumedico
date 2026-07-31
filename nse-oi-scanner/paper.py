@@ -84,11 +84,15 @@ def take(bk, card, point):
         # acceptable at entry is the risk that stays acceptable, and a distance derived
         # from the name's own volatility travels with it.
         "high_water": card["spot"],
-        "trail_dist": round(card["spot"] - card["stock"]["stop"], 2),
+        "trail_dist": round(abs(card["spot"] - card["stock"]["stop"]), 2),
         "signal_date": (point or {}).get("signal_date"),
         "freshness": (point or {}).get("freshness"),
         "oi": (point or {}).get("signal"),
         "half_booked": False,
+        # +1 = CE, bought on a rise. -1 = PE, bought on a fall. BOTH ARE BUYS: max loss is
+        # the premium either way. Nothing here writes an option - that would be a margin
+        # position with open-ended risk, and it is not what this system does.
+        "dir": -1 if o.get("type") == "PE" else 1,
     }
     # The live order goes out BESIDE the paper record, never instead of it. Paper is the
     # measurement and has to stay complete whether or not the live leg fills - and if the
@@ -189,13 +193,19 @@ def mark(bk, quotes, stale_days):
         # not a stop, it is a hope. High-water is the best mark seen since entry, not the
         # true intraday high, and it is worth knowing which: between marks the price can
         # go higher and come back, and this will not have seen it.
+        d = _dir(t)
         if getattr(config, "TRAIL", True) and t.get("trail_dist"):
-            t["high_water"] = max(t.get("high_water", t["spot_in"]), px)
-            trailed = round(t["high_water"] - t["trail_dist"], 2)
-            if trailed > t["stop"]:
+            # "High water" is the best price seen IN THE TRADE'S DIRECTION - the lowest
+            # print for a put. The ratchet then tightens the stop downward for a long and
+            # upward for a short. Written as max()/minus, a put's stop would loosen every
+            # time the stock fell, which is the opposite of a trail.
+            best = max if d > 0 else min
+            t["high_water"] = best(t.get("high_water", t["spot_in"]), px)
+            trailed = round(t["high_water"] - d * t["trail_dist"], 2)
+            if (trailed > t["stop"]) if d > 0 else (trailed < t["stop"]):
                 old = t["stop"]
                 t["stop"] = trailed
-                locked = t["stop"] - t["spot_in"]
+                locked = (t["stop"] - t["spot_in"]) * d
                 events.append((t["name"],
                                f"stop {old} -> {trailed}"
                                + (f"  ({locked:+.2f} locked in)" if locked > 0 else "")))
@@ -210,19 +220,27 @@ def mark(bk, quotes, stale_days):
             if net_pnl_now(t, px) >= rs_target:
                 reason = "RS TARGET"
 
+        # Distances travelled in the trade's own direction, so one set of comparisons
+        # serves both books. A put's stop sits ABOVE entry and its targets BELOW; reading
+        # them with a long's "px <= stop" would stop out every put on the tick it opened.
+        hit_stop = (px <= t["stop"]) if d > 0 else (px >= t["stop"])
+        hit_t2 = (px >= t["t2"]) if d > 0 else (px <= t["t2"])
+        hit_t1 = (px >= t["t1"]) if d > 0 else (px <= t["t1"])
         if reason:
             pass
-        elif px <= t["stop"]:
+        elif hit_stop:
             reason = "STOP"
-        elif px >= t["t2"]:
+        elif hit_t2:
             reason = "T2"
-        elif px >= t["t1"] and not t["half_booked"]:
+        elif hit_t1 and not t["half_booked"]:
             t["half_booked"] = True
             # Breakeven is a FLOOR, not an assignment. By the time T1 prints, the trail
             # has usually ratcheted past entry already, and setting the stop to entry
             # would hand back everything it locked in - which is the exact behaviour the
-            # trail exists to prevent.
-            t["stop"] = max(t["stop"], t["spot_in"])
+            # trail exists to prevent. On a put the floor is a ceiling: tighter means
+            # LOWER for a long and HIGHER for a short.
+            t["stop"] = (max(t["stop"], t["spot_in"]) if d > 0
+                         else min(t["stop"], t["spot_in"]))
             events.append((t["name"], book_half(t, px)))
             continue
         elif bars >= hold_bars * 2:
@@ -250,13 +268,28 @@ def net_pnl_now(t, spot_now):
     return gross - spread - stat
 
 
+def _dir(t):
+    """+1 for a CE, -1 for a PE. Read from the contract type when an older record has no
+    dir field, so a book written before shorts existed still marks correctly."""
+    d = t.get("dir")
+    if d in (1, -1):
+        return d
+    return -1 if t.get("type") == "PE" else 1
+
+
 def option_exit_premium(t, spot_now, delta=0.60):
     """What the option is worth when the stock is at spot_now.
 
     Delta-approximated, because a paper book cannot re-query a chain for every historical
     mark. It is stated rather than hidden: this is the same 0.6 the ticket sized with, so
-    the paper P&L is consistent with the plan the ticket printed."""
-    return max(0.5, t["premium_in"] + delta * (spot_now - t["spot_in"]))
+    the paper P&L is consistent with the plan the ticket printed.
+
+    A PUT GAINS WHEN THE STOCK FALLS. Without the direction term this returned a loss on
+    every winning put and a gain on every losing one - stops would have fired on the
+    winners and targets on the losers, and the paper book would have reported the mirror
+    image of what the account did.
+    """
+    return max(0.5, t["premium_in"] + delta * (spot_now - t["spot_in"]) * _dir(t))
 
 
 def close(bk, t, spot_now, reason):

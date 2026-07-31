@@ -128,5 +128,75 @@ if sel.get("shorts"):
        "live short book is ranked weakest-first",
        f"live short book led with {sel['shorts'][0]['name']}")
 
+# ---------- 5. the paper book marks a PUT the right way round ----------
+print("\n5. PAPER BOOK  (a put gains when the stock FALLS)")
+import paper as P
+
+# Opened at the start of today's session, in the same timezone the book uses - a naive
+# timestamp cannot be compared with an aware one, and the book is always aware.
+P_OPENED = P.now().replace(hour=9, minute=30, second=0, microsecond=0).isoformat()
+
+
+class _NoBroker:
+    @staticmethod
+    def buy(sym, qty, tag=""):
+        return True, "ok"
+
+    @staticmethod
+    def sell(sym, qty, tag=""):
+        return True, "ok"
+
+
+sys.modules["broker"] = _NoBroker
+
+pe = {"name": "DN", "symbol": "NSE:DN-EQ", "spot_in": 1000.0, "premium_in": 30.0,
+      "type": "PE", "dir": -1, "qty": 1000, "lot": 1000,
+      "stop": 1020.0, "t1": 970.0, "t2": 940.0,
+      "high_water": 1000.0, "trail_dist": 20.0, "half_booked": False,
+      "opened": P_OPENED}
+ce = dict(pe, name="UP", type="CE", dir=1, stop=980.0, t1=1030.0, t2=1060.0)
+
+ok(P.option_exit_premium(pe, 970.0) > pe["premium_in"],
+   "put gains as the stock falls 1000 -> 970",
+   f"put marked at {P.option_exit_premium(pe, 970.0)} on a 30-point fall - inverted")
+ok(P.option_exit_premium(pe, 1030.0) < pe["premium_in"],
+   "put loses as the stock rises", "put gained on a rise")
+ok(P.option_exit_premium(ce, 1030.0) > ce["premium_in"],
+   "call still gains as the stock rises", "call marking broke")
+
+# a fresh put must not be stopped out on the tick it opens
+bk = {"open": [dict(pe)], "closed": []}
+P.mark(bk, {"NSE:DN-EQ": 1000.0}, 5)
+ok(len(bk["open"]) == 1 and not bk["closed"],
+   "put is not stopped out at its own entry price",
+   "put stopped instantly - stop read with the long comparison")
+
+# it stops when the stock RISES through the stop
+bk = {"open": [dict(pe)], "closed": []}
+P.mark(bk, {"NSE:DN-EQ": 1025.0}, 5)
+ok(bk["closed"] and bk["closed"][0]["reason"] == "STOP",
+   "put stops when the stock rises through 1020",
+   f"expected STOP, got {[c.get('reason') for c in bk['closed']] or 'nothing'}")
+
+# and targets when it falls
+bk = {"open": [dict(pe)], "closed": []}
+P.mark(bk, {"NSE:DN-EQ": 935.0}, 5)
+ok(bk["closed"] and bk["closed"][0]["reason"] == "T2",
+   "put hits T2 when the stock falls through 940",
+   f"expected T2, got {[c.get('reason') for c in bk['closed']] or 'nothing'}")
+
+# the trail must TIGHTEN (stop comes down) as the stock falls, never loosen
+tr = dict(pe)
+bk = {"open": [tr], "closed": []}
+P.mark(bk, {"NSE:DN-EQ": 985.0}, 5)
+ok(tr["stop"] < 1020.0,
+   f"trail tightened the put's stop 1020 -> {tr['stop']}",
+   f"put stop did not tighten on a favourable move: {tr['stop']}")
+before = tr["stop"]
+P.mark(bk, {"NSE:DN-EQ": 1005.0}, 5)
+ok(tr["stop"] <= before,
+   "and it never loosens when the stock comes back",
+   f"put stop loosened {before} -> {tr['stop']}")
+
 print("\n  " + ("ALL SHORT CHECKS PASS" if not fail else f"{fail} CHECK(S) FAILED") + "\n")
 sys.exit(1 if fail else 0)

@@ -22,10 +22,11 @@ These are decisions Aashish has already made. They are not tunable by inference.
 
 | | |
 |---|---|
-| **Instrument** | **Options only.** Stock CE/PE. No futures, no writing. |
+| **Instrument** | **Options only, BOUGHT only.** LONG = **buy CE**. SHORT = **buy PE**. Never *sell* an option — writing is a margin position with open-ended risk and it is not what this system does. Max loss is always the premium. |
 | **Style** | **Intraday**, 15-minute candles. Carry only when he says so. |
 | **Strike** | **ATM** (delta ≈ 0.50). Gamma is the point; deep ITM is a slower proxy for the stock. |
 | **Size** | **1 lot. Fixed.** Quantity is a decision, never an output of the risk budget. |
+| **Short book** | Built and mirrored; **display only** until `TRADE_SHORTS=True`. The edge is unmeasured on his data. |
 | **Expiry** | Near month. Roll to the next series once the running one has **< 15 days** left. |
 | **Entry** | The **first expansion bar** — the bar a coil breaks. Not the fifth bar of a move. |
 | **Exit** | ATR stop, **trailing from the high-water mark, ratchet only**. Breakeven is a *floor*, never an overwrite of a stop that already trailed higher. |

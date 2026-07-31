@@ -463,7 +463,7 @@ if longs:
             g = grade(total)
             gcol = {"A+": "#3fb950", "A": "#56d364", "B": "#d29922"}.get(g, "#8b949e")
             pcol = "#56d364" if pts_now >= 0 else "#ff7b72"
-            side_txt = "SHORT · PE" if is_short else "LONG · CE"
+            side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
             side_bg = ("background:#3d1519;color:#ff7b72" if is_short
                        else "background:#0d2b18;color:#56d364")
             st.markdown(
@@ -484,11 +484,11 @@ if longs:
 
         cl, cr = st.columns(2)
         with cl:
-            st.markdown("**LONG · CE**")
+            st.markdown("**LONG — BUY CE**")
             for p in longs[:6]:
                 render(p, False)
         with cr:
-            st.markdown("**SHORT · PE**")
+            st.markdown("**SHORT — BUY PE**")
             shorts = sel.get("shorts") or []
             if not shorts:
                 st.caption("Aaj koi naam short rule pass nahi kar raha.")
