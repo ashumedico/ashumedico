@@ -51,10 +51,14 @@ def now():
 
 
 def _cache_ready():
-    """Is today's universe already on disk? Decides whether to warn about a slow pull."""
+    """Is today's universe already on disk? Decides whether to warn about a slow pull.
+
+    Resolution-aware: a daily cache does not answer a 15-minute request, and reporting
+    it as warm would hide a multi-minute pull behind a promise of "instant"."""
     import glob
     day = datetime.now(IST).strftime("%Y%m%d")
-    return bool(glob.glob(os.path.join("cache", f"hist2_D_*_{day}.json")))
+    res = str(getattr(config, "RESOLUTION", "D"))
+    return bool(glob.glob(os.path.join("cache", f"hist2_{res}_*_{day}.json")))
 
 
 def _progress(i, n):
@@ -294,8 +298,16 @@ def main():
 
     import rrg_engine as E, rrg_strategy as S, trade_card as TC
 
+    res = str(getattr(config, "RESOLUTION", "D"))
+    bm = int(getattr(config, "BAR_MINUTES", 375))
+    hd = TC.hold_days()
+    span = f"{hd*375/60:.1f} ghante" if hd < 1 else f"{hd:.0f} din"
+    mode = "INTRADAY" if bm < 375 else "SWING"
+
     print("\n" + "=" * 70)
     print(f"  {B}WAPAS AA GAYA, AASHISH{X}        {now():%a %d %b %Y · %H:%M IST}")
+    print(f"  {DIM}{mode}  ·  {bm}-min candle  ·  plan {span} ka  ·  "
+          f"expiry >= {TC.min_days_for_thesis()} din{X}")
     print("=" * 70 + "\n")
 
     bk = load()

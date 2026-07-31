@@ -25,8 +25,18 @@ CFG = "config.py"
 KEYS = {
     "CAPITAL":       (lambda v: str(int(v)),      "money in the account (Rs)"),
     "RISK_PCT":      (lambda v: str(round(v, 4)), "fraction of capital risked per trade"),
-    "HOLD_BARS":     (lambda v: str(int(v)),      "sessions a trade is meant to run"),
+    "HOLD_BARS":     (lambda v: str(int(v)),      "BARS a trade runs (bar size below)"),
     "MAX_POSITIONS": (lambda v: str(int(v)),      "how many trades may be open at once"),
+    "RESOLUTION":    (lambda v: repr(str(v)),     "candle the signal runs on ('D' or '15')"),
+    "BAR_MINUTES":   (lambda v: str(int(v)),      "minutes in one bar (375 = one session)"),
+}
+
+# The bar size decides everything downstream - trend, volatility, stops, how long a
+# "10 bar hold" actually is, and therefore which expiry is correct. Setting it in one
+# place stops the two halves from disagreeing.
+MODES = {
+    "intraday": {"RESOLUTION": "15", "BAR_MINUTES": 15,  "HOLD_BARS": 10},
+    "swing":    {"RESOLUTION": "D",  "BAR_MINUTES": 375, "HOLD_BARS": 10},
 }
 
 
@@ -68,9 +78,17 @@ def main():
     ap.add_argument("--hold-days", type=int, help="sessions a trade is meant to run")
     ap.add_argument("--max-positions", type=int,
                     help="how many trades may be open at once (1 = one at a time)")
+    ap.add_argument("--mode", choices=sorted(MODES),
+                    help="intraday (15-min bars) or swing (daily bars)")
+    ap.add_argument("--bar-minutes", type=int, help="minutes per bar, if not using --mode")
     a = ap.parse_args()
 
     updates = {}
+    if a.mode:
+        for k, v in MODES[a.mode].items():
+            updates[k] = KEYS[k][0](v)
+    if a.bar_minutes is not None:
+        updates["BAR_MINUTES"] = KEYS["BAR_MINUTES"][0](a.bar_minutes)
     if a.capital is not None:
         updates["CAPITAL"] = KEYS["CAPITAL"][0](a.capital)
     if a.risk_pct is not None:
@@ -89,10 +107,21 @@ def main():
     for k, (_fmt, desc) in KEYS.items():
         val = cur.get(k, "(not set - using the built-in default)")
         print(f"  {k:<14} {val:<14} {desc}")
+    # What these settings mean together, so a mismatched pair is visible immediately
+    try:
+        import trade_card as TC
+        hb = float(cur.get("HOLD_BARS", 10))
+        bm = float(cur.get("BAR_MINUTES", 375))
+        hd = TC.hold_days(hb, bm)
+        span = (f"{hd*375/60:.1f} ghante" if hd < 1 else f"{hd:.0f} trading din")
+        print(f"\n  -> ek trade ka intended hold: {span}"
+              f"   (expiry kam se kam {TC.min_days_for_thesis(hb, bm)} din door)")
+    except Exception:
+        pass
     cap = float(cur.get("CAPITAL", 0) or 0)
     risk = float(cur.get("RISK_PCT", 0) or 0)
     if cap and risk:
-        print(f"\n  -> risk budget per trade: Rs {cap * risk:,.0f}")
+        print(f"  -> risk budget per trade: Rs {cap * risk:,.0f}")
         if cap * risk < 3000:
             print("     Note: most F&O option lots risk far more than this per lot, so"
                   "\n     nearly every card will come back as 'one lot is too big'."

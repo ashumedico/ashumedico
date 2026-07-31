@@ -23,6 +23,7 @@ from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
 CACHE_DIR = "cache"
+SESSION_MINUTES = 375           # 09:15 to 15:30 - one NSE session
 
 try:
     import config
@@ -233,13 +234,20 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
 
     fy = _fy()
     to = datetime.now(IST)
-    # `days` is in BARS; ~250 trading days per calendar year -> pad to calendar days
-    span_days = int(days * 1.45) + 15
+    # `days` is in BARS; convert to calendar days using how many bars a session holds.
+    # A 15-minute chart puts 25 bars in a session, so 400 bars is about 16 trading days -
+    # asking for 400 calendar days of 15-minute data instead would be ~10,000 bars and a
+    # multi-minute pull per symbol.
+    bars_per_session = 1 if str(resolution).upper() in ("D", "1D") else max(
+        1, SESSION_MINUTES // max(int(str(resolution)) if str(resolution).isdigit() else 375, 1))
+    span_days = int(days / bars_per_session * 1.45) + 15
     frm = to - timedelta(days=span_days)
 
-    # Fyers rejects any single 1D/1W/1M request spanning more than 366 days,
-    # so walk the range in sub-year chunks and stitch the candles together.
-    CHUNK = 360
+    # Fyers rejects any single 1D/1W/1M request spanning more than 366 days, and caps
+    # INTRADAY resolutions far tighter (100 days). Using the daily chunk for a 15-minute
+    # pull returns an error for every symbol, which reads as "no data" rather than "wrong
+    # chunk" - so the chunk follows the resolution.
+    CHUNK = 360 if str(resolution).upper() in ("D", "1D", "W", "M") else 90
 
     def one(sym):
         candles = {}
@@ -384,11 +392,17 @@ def fetch_buildup(fut_symbols, baseline=None):
     return out
 
 
-def live_points(tail=6, days=200, progress=None, with_oi=True):
-    """One call: full F&O universe -> RRG points with live metrics + OI overlay."""
+def live_points(tail=6, days=200, progress=None, with_oi=True, resolution=None):
+    """One call: full F&O universe -> RRG points with live metrics + OI overlay.
+
+    resolution: None takes config.RESOLUTION ("D" for daily, "15" for 15-minute bars).
+    Everything downstream - trend, volatility, stops - is computed on whatever bar this
+    returns, so this single argument is what makes the system swing or intraday."""
     from fno_universe import fno_stocks, fno_futures
+    resolution = resolution or str(getattr(config, "RESOLUTION", "D"))
     syms = fno_stocks()
-    prices, bench, dates = fetch_history(syms, progress=progress, days=days)
+    prices, bench, dates = fetch_history(syms, progress=progress, days=days,
+                                         resolution=resolution)
     buildup = {}
     if with_oi:
         try:

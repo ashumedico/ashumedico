@@ -88,17 +88,35 @@ def option_from_chain(chain, strike, direction):
 
 
 # ---------------- the card ----------------
-def min_days_for_thesis(hold_bars=None):
+SESSION_MINUTES = 375           # 09:15 to 15:30
+
+
+def hold_days(hold_bars=None, bar_minutes=None):
+    """The intended hold, in trading days - whatever bar size the signal runs on.
+
+    A hold of "10 bars" means ten months on a monthly chart and two and a half hours on a
+    15-minute one. Every downstream rule that talks about time has to go through here,
+    or the expiry rule silently assumes the bar size it was written for."""
+    hb = float(hold_bars if hold_bars is not None else getattr(config, "HOLD_BARS", 10))
+    bm = float(bar_minutes if bar_minutes is not None
+               else getattr(config, "BAR_MINUTES", SESSION_MINUTES))
+    return hb * bm / SESSION_MINUTES
+
+
+def min_days_for_thesis(hold_bars=None, bar_minutes=None):
     """How much life the expiry must have left - and no more.
 
     Two failures, opposite directions. Too little time and the option dies before the
-    target prints. Too much and you pay for months of time value you will never use:
+    target prints. Too much and you pay for months of time value you will never use;
     jumping a series out costs real premium, and on a small account that cost is the
-    whole edge. So the rule is "the NEAREST series that outlasts the intended hold",
-    which in practice means the next month, not the one after it.
+    whole edge. So: the NEAREST series that outlasts the intended hold.
+
+    On an intraday hold that resolves to a very small number, which is correct - the
+    near series is the cheapest and the most responsive. The floor of 3 days is not
+    about the thesis; it is that the last sessions before expiry are a different
+    instrument, where theta and gamma dominate whatever the chart said.
     """
-    hold = int(hold_bars if hold_bars is not None else getattr(config, "HOLD_BARS", 10))
-    return int(hold * 1.4) + 5
+    return max(3, int(hold_days(hold_bars, bar_minutes) * 1.4) + 2)
 
 
 def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
