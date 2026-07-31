@@ -44,7 +44,11 @@ def expiries(min_days=0):
             continue
         days = (d - today).days
         if days >= min_days:
-            out.append((e.get("date") or d.strftime("%d%b").upper(), days, str(ep)))
+            # Label is BUILT from the parsed date, not taken from Fyers' "date" field.
+            # That field arrives as 25-08-2026, so anything matching on a month name -
+            # "AUG" - silently found nothing. Deriving it gives one shape everywhere:
+            # NSE's own 25AUG, which reads on a ticket and matches when spoken.
+            out.append((d.strftime("%d%b").upper(), days, str(ep)))
     return sorted(out, key=lambda t: t[1])
 
 

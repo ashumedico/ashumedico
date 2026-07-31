@@ -136,7 +136,14 @@ def find_contract(underlying, strike, opt_type="CE", month=None):
         return None, "koi expiry nahi mili - naam sahi hai?"
     pick = exps[0]
     if month:
-        m = month[:3].upper()
+        # Accept how a person actually says it: AUG, August, aug, or 8.
+        m = str(month).strip().upper()
+        MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+        if m.isdigit() and 1 <= int(m) <= 12:
+            m = MONTHS[int(m) - 1]
+        else:
+            m = m[:3]
         match = [e for e in exps if m in e[0].upper()]
         if not match:
             have = ", ".join(f"{e[0]} ({e[1]}d)" for e in exps)
