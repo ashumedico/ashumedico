@@ -264,10 +264,8 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
         usable = lambda p: p["name"] not in held and p["name"] in by_name and len(by_name[p["name"]]) > t
         if params.get("rank") == "rfactor":
             rank = lambda p: r_factor(by_name[p["name"]], t, k=mom_win * 2)
-        elif rule == "momentum_only":
-            rank = lambda p: p.get("abs_pct", 0)
         else:
-            rank = lambda p: p["distance"] * (1 + p["velocity"])
+            rank = rank_key(rule, params)      # same definition the live selector uses
 
         if len(held) < max_pos:
             slots = max_pos - len(held)
@@ -452,13 +450,34 @@ def load_best(path="rrg_best_setup.json"):
 
 
 # ---------------- live signal selection ----------------
-def select(points, rule=None, params=None, max_pos=10):
-    """Rank today's RRG candidates under the chosen setup -> the names to trade."""
+def rank_key(rule, params, prices=None, t=None):
+    """The ranking the CHOSEN rule uses - one definition, shared by live and backtest.
+
+    These had drifted apart. The backtest ranked momentum_only by the name's own trailing
+    return, which is what produced the validated result; the live selector always ranked
+    by RRG distance x velocity. So the system traded a different stock than the one it had
+    been tested on - and by the one measure the ablation had already shown to be
+    decoration. A ranking that differs between test and live invalidates the test.
+    """
+    params = params or {}
+    if params.get("rank") == "rfactor" and prices:
+        by_name = {s.split(":")[-1].replace("-EQ", ""): c for s, c in prices.items()}
+        end = t if t is not None else None
+        return lambda p: r_factor(by_name.get(p["name"], []),
+                                  end if end is not None else len(by_name.get(p["name"], [])),
+                                  k=10)
+    if rule == "momentum_only":
+        return lambda p: p.get("abs_pct", 0)
+    return lambda p: p["distance"] * (1 + p["velocity"])
+
+
+def select(points, rule=None, params=None, max_pos=10, prices=None):
+    """Rank today's candidates under the chosen setup -> the names to trade."""
     if rule is None:
         rule, params, _ = load_best()
     params = params or {}
     longs = [p for p in points if _entry_ok(p, rule, params)]
-    longs.sort(key=lambda p: (p["distance"] * (1 + p["velocity"])), reverse=True)
+    longs.sort(key=rank_key(rule, params, prices), reverse=True)
     exits = [p for p in points if _exit_ok(p, params)]
     return {"longs": longs[:max_pos], "exits": exits, "rule": rule, "params": params}
 
