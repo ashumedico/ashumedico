@@ -120,6 +120,87 @@ def sell(symbol, qty, tag=""):
     return place(symbol, qty, "SELL", "MARKET", tag=tag)
 
 
+def find_contract(underlying, strike, opt_type="CE", month=None):
+    """Resolve a spoken instruction - "SONACOMS 750 CE August" - to the exchange's own
+    symbol, plus its live premium and lot.
+
+    Nothing here is constructed. The symbol, the premium and the lot all come from the
+    chain, because a hand-built symbol that is one character wrong is either a rejected
+    order or a different contract, and both are discovered after the money moves.
+    """
+    import option_chain as oc
+    sym = underlying if ":" in underlying else f"NSE:{underlying.upper()}-EQ"
+    oc.fetch_live(sym)                                  # populates the expiry list
+    exps = oc.expiries(0)
+    if not exps:
+        return None, "koi expiry nahi mili - naam sahi hai?"
+    pick = exps[0]
+    if month:
+        m = month[:3].upper()
+        match = [e for e in exps if m in e[0].upper()]
+        if not match:
+            have = ", ".join(f"{e[0]} ({e[1]}d)" for e in exps)
+            return None, f"'{month}' expiry nahi mili. Available: {have}"
+        pick = match[0]
+    chain, _spot = oc.fetch_live(sym, timestamp=pick[2])
+    want = [c for c in chain if c["type"] == opt_type.upper()]
+    if not want:
+        return None, f"chain mein koi {opt_type} nahi mila"
+    hit = min(want, key=lambda c: abs((c["strike"] or 0) - float(strike)))
+    if abs((hit["strike"] or 0) - float(strike)) > 0.01:
+        near = ", ".join(str(c["strike"]) for c in sorted(
+            want, key=lambda c: abs((c["strike"] or 0) - float(strike)))[:5])
+        return None, f"strike {strike} chain mein nahi hai. Paas ke: {near}"
+    return {"symbol": hit["symbol"], "strike": hit["strike"], "type": opt_type.upper(),
+            "premium": hit["ltp"], "lot": oc.LAST_LOT,
+            "expiry": pick[0], "days": pick[1]}, None
+
+
+def order_interactive(underlying, strike, opt_type, month, lots, side):
+    """Place one named order after showing exactly what it costs. The confirmation is not
+    ceremony: the premium and the lot are the two numbers that have been wrong before, and
+    this is the last point at which a wrong one is free to catch."""
+    c, err = find_contract(underlying, strike, opt_type, month)
+    if err:
+        print(f"\n  {err}\n")
+        return
+    lot = int(c["lot"] or 0)
+    qty = lot * int(lots)
+    cost = (c["premium"] or 0) * qty
+    print(f"\n  {'=' * 60}")
+    print(f"  {side}  {c['symbol']}")
+    print(f"  {'=' * 60}")
+    print(f"  strike      {c['strike']:g} {c['type']}      expiry {c['expiry']} "
+          f"({c['days']} din baaki)")
+    print(f"  premium     {c['premium']}")
+    print(f"  quantity    {qty}   ({lots} lot x {lot})")
+    print(f"  LAGEGA      Rs {cost:,.0f}")
+    cap = float(getattr(config, "CAPITAL", 0) or 0)
+    if cap:
+        print(f"  capital ka  {100 * cost / cap:.1f}%")
+    try:
+        import charges as CH
+        d = CH.round_trip(c["premium"] or 0, qty)
+        print(f"  charges     Rs {d['total']:,.0f} round trip ({d['pct_of_premium']*100:.2f}%)")
+    except Exception:
+        pass
+    print(f"  {'=' * 60}")
+    if not armed():
+        print("  LIVE_TRADING off hai - ye order jayega nahi.")
+        print("  Chalu karna ho:  python broker.py --arm\n")
+        return
+    if killed():
+        print(f"  {KILL_FILE} mojood hai - sab kuch ruka hua hai.\n")
+        return
+    if input(f"  Bhej doon? 'HAAN' likh: ").strip() != "HAAN":
+        print("  Nahi bheja.\n")
+        return
+    ok, detail = (buy(c["symbol"], qty, tag="manual") if side == "BUY"
+                  else sell(c["symbol"], qty, tag="manual"))
+    print(f"\n  {'[OK] order id ' + str(detail) if ok else '[X] ' + str(detail)}")
+    print(f"  {ORDER_LOG} mein likh diya.\n")
+
+
 def status():
     print(f"\n  LIVE TRADING : {'ARMED - real orders' if armed() else 'off (safe)'}")
     print(f"  KILL SWITCH  : {'ON - everything halted' if killed() else 'off'}")
@@ -151,7 +232,21 @@ def main():
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--arm", action="store_true")
     ap.add_argument("--disarm", action="store_true")
+    ap.add_argument("--buy", metavar="NAME", help='underlying, e.g. SONACOMS')
+    ap.add_argument("--sell", metavar="NAME")
+    ap.add_argument("--strike", type=float)
+    ap.add_argument("--type", default="CE", choices=["CE", "PE", "ce", "pe"])
+    ap.add_argument("--month", help="expiry month, e.g. AUG (default: nearest)")
+    ap.add_argument("--lots", type=int, default=1)
     a = ap.parse_args()
+
+    if a.buy or a.sell:
+        if a.strike is None:
+            print("  --strike chahiye. Jaise:  --buy SONACOMS --strike 750 --month AUG")
+            return
+        order_interactive(a.buy or a.sell, a.strike, a.type, a.month, a.lots,
+                          "BUY" if a.buy else "SELL")
+        return
     if a.arm:
         print("\n  LIVE_TRADING on karne ja raha hoon. Iske baad system tere Fyers")
         print("  account mein ASLI order lagayega, apne aap, bina pooche.")
