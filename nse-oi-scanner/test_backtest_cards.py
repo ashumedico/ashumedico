@@ -55,7 +55,14 @@ def synth(n=180, names=14, seed=5):
         sym = f"NSE:S{i}-EQ"
         prices[sym] = ser
         bars[sym] = rows
-    dates = [f"2026-01-{(d % 28) + 1:02d}" for d in range(n)]
+    # One session per bar, moving forward. A cycling date list is not a calendar: it
+    # repeats, which reads as "many bars in one day" and squares off every bar.
+    from datetime import date, timedelta
+    d0, dates = date(2026, 1, 1), []
+    while len(dates) < n:
+        if d0.weekday() < 5:
+            dates.append(d0.isoformat())
+        d0 += timedelta(days=1)
     return prices, bench, dates, bars
 
 
@@ -119,7 +126,8 @@ def main():
     check("and it does not reimplement the stop", 'reason = "STOP"' not in src)
 
     # every exit reason must be one the live engine can actually produce
-    known = {"STOP", "T2", "TIMEOUT", "RS TARGET", "END"}
+    # EOD is a real live reason - square_off_all() emits it every session close.
+    known = {"STOP", "T2", "TIMEOUT", "RS TARGET", "EOD", "END"}
     unknown = set(base["reasons"]) - known
     check("no invented exit reasons", not unknown, f"unknown: {unknown or 'none'}")
 
@@ -129,6 +137,52 @@ def main():
     # nothing to trade -> zero, not a blank that reads as success
     none = BC.run({}, bench, dates, {}, rule, params, max_pos=1, warmup=60)
     check("no data -> zero trades, reported as zero", none["trades"] == 0)
+
+    # ---- INTRADAY: nothing may be carried overnight ----
+    # PRODUCT_TYPE is INTRADAY, so the live engine flattens at SQUAREOFF every day. A
+    # backtest that holds through the night scores a strategy the account cannot run, and
+    # flatters every trade that was under water at 15:15 and recovered next morning.
+    print()
+    PER_DAY = 25
+    idates = [f"2026-02-{(i // PER_DAY) + 1:02d}" for i in range(len(bench))]
+    # BAR_MINUTES is what the backtest asks, because it is what the live engine asks.
+    # Repeated dates alone must NOT be enough - that was the bug this test found.
+    import types
+    saved = sys.modules.get("config")
+    fake = types.ModuleType("config")
+    fake.CAPITAL, fake.LOTS_PER_TRADE = 200000, 1
+    fake.MAX_POSITIONS, fake.DEFAULT_LOT, fake.LOT_SIZES = 1, 50, {}
+    fake.BAR_MINUTES, fake.RESOLUTION = 15, "15"
+    sys.modules["config"] = fake
+    try:
+        intra = BC.run(prices, bench, idates, bars, rule, params, max_pos=1, warmup=60)
+        # same repeated dates, but a daily bar size: EOD must NOT fire
+        fake.BAR_MINUTES, fake.RESOLUTION = 375, "D"
+        daily_bm = BC.run(prices, bench, idates, bars, rule, params, max_pos=1, warmup=60)
+    finally:
+        if saved is not None:
+            sys.modules["config"] = saved
+        else:
+            sys.modules.pop("config", None)
+    check("intraday run squares off at the session end",
+          intra["reasons"].get("EOD", 0) > 0,
+          f"exits: {intra['reasons']}")
+    check("daily data does NOT get a spurious EOD exit",
+          "EOD" not in base["reasons"],
+          f"daily exits: {base['reasons']}")
+    check("repeated dates alone do NOT trigger EOD - BAR_MINUTES decides",
+          "EOD" not in daily_bm["reasons"],
+          f"with BAR_MINUTES=375: {daily_bm['reasons']}")
+    check("the overnight-carry result differs from the flat-by-close one",
+          intra["pnl"] != base["pnl"] or intra["trades"] != base["trades"],
+          f"intraday {intra['trades']}/{intra['pnl']} vs daily {base['trades']}/{base['pnl']}")
+
+    # ---- the slot count passed in must be the one enforced ----
+    one = BC.run(prices, bench, dates, bars, rule, params, max_pos=1, warmup=60)
+    many = BC.run(prices, bench, dates, bars, rule, params, max_pos=6, warmup=60)
+    check("max_pos actually changes how much is held",
+          many["trades"] > one["trades"],
+          f"1 slot -> {one['trades']} trades, 6 slots -> {many['trades']}")
 
     print("  " + "-" * 62)
     print(f"  base: {base['trades']} trades, {base['win_rate']}% win, "

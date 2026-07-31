@@ -57,10 +57,16 @@ def save(bk):
 
 
 # ---------------- taking a trade ----------------
-def take(bk, card, point):
+def take(bk, card, point, max_pos=None):
     """Record the ticket exactly as the check-in printed it - same size, same stop, same
-    targets. A paper book that improves on the ticket is measuring a different strategy."""
-    cap = int(getattr(config, "MAX_POSITIONS", 1) or 1)
+    targets. A paper book that improves on the ticket is measuring a different strategy.
+
+    max_pos overrides the config cap. The backtest needs that: it was passing its own
+    slot count and being silently held to config.MAX_POSITIONS instead, so a run asked to
+    hold eight positions quietly held one and reported the result as if it had held eight.
+    """
+    cap = int(max_pos if max_pos is not None
+              else getattr(config, "MAX_POSITIONS", 1) or 1)
     if len(bk["open"]) >= cap:
         return None, f"{len(bk['open'])}/{cap} slot bhare hain"
     if any(p["name"] == card["name"] for p in bk["open"]):

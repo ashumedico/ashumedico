@@ -21,6 +21,10 @@ WHAT IS REAL HERE AND WHAT IS MODELLED  (read this before believing a number)
             system, so entry premium is estimated from realised vol and the exit premium
             moves with delta. That ignores gamma, theta and any change in implied vol.
   MODELLED  the spread, as a flat OPTION_SPREAD_PCT of premium on both legs.
+  OPTIMISTIC the fill. The decision is made on bars strictly before the entry bar, and the
+            fill is taken at that same bar's close - the "process orders on close"
+            convention the Pine script also uses. In life the close prints and then you
+            act, so a real fill is a tick or two worse. Nobody gets the print.
 
 Theta is the one that matters most and it is NOT here: a real intraday option bleeds time
 value all day, and this does not charge for that. So treat the result as an UPPER BOUND on
@@ -63,6 +67,7 @@ def _cfg():
             MAX_POSITIONS = 1
             DEFAULT_LOT = 50
             LOT_SIZES = {}
+            BAR_MINUTES = 375
         return _C()
 
 
@@ -86,7 +91,41 @@ def run(prices, bench, dates, bars_by_symbol, rule, params, side="long",
     equity, peak, maxdd = capital, capital, 0.0
     curve = []
 
+    # Is this an intraday series? More than one bar sharing a date says yes. It matters
+    # because PRODUCT_TYPE is INTRADAY: the live engine flattens everything at SQUAREOFF
+    # and never carries a position overnight. A backtest that holds through the night is
+    # scoring a strategy the account is not allowed to run, and it flatters every trade
+    # that was under water at 15:15 and recovered the next morning.
+    # BAR_MINUTES is the authority, because it is what the live engine itself uses to
+    # decide. The first version guessed from "does any date repeat", which a test caught
+    # immediately: a date series that merely cycles looks intraday, and every trade got
+    # squared off after one bar while the report called them completed trades. Repeats
+    # only corroborate, and only CONSECUTIVE ones - two bars on the same day are adjacent.
+    bm = float(getattr(config, "BAR_MINUTES", 375) or 375)
+    consecutive_repeat = bool(dates) and any(
+        dates[i] == dates[i - 1] for i in range(1, len(dates)))
+    intraday = bm < 375 and consecutive_repeat
+    if dates and not intraday:
+        why = ("BAR_MINUTES=%g - har bar ek poora session hai" % bm if bm >= 375
+               else "dates mein consecutive repeat nahi hai")
+        print(f"  {D}(EOD square-off nahi lag raha: {why}){X}")
+
+    def _bar_price(sym, i):
+        c = by_sym.get(sym) or []
+        return c[i] if 0 <= i < len(c) else None
+
     for t in range(warmup, n):
+        # ---- new session? flatten first, before anything else is decided ----
+        if intraday and t > 0 and dates[t] != dates[t - 1]:
+            for tr in list(book["open"]):
+                px = _bar_price(tr["symbol"], t - 1)
+                if px is None:
+                    continue
+                P.close(book, tr, px, "EOD")
+                equity += book["closed"][-1].get("pnl", 0)
+                peak = max(peak, equity)
+                maxdd = max(maxdd, (peak - equity) / peak if peak else 0)
+
         # ---- mark what is open, using the live exit function ----
         for tr in list(book["open"]):
             closes = by_sym.get(tr["symbol"])
@@ -127,7 +166,10 @@ def run(prices, bench, dates, bars_by_symbol, rule, params, side="long",
         if not pts:
             continue
 
-        sel = S.select(pts, rule, params, max_pos=max_pos, prices=None)
+        # prices matter: when the chosen setup ranks by r-factor, rank_key needs the
+        # close series. Passing None here made the backtest fall back to a different
+        # ranking than the live selector uses - the same drift, one layer down.
+        sel = S.select(pts, rule, params, max_pos=max_pos, prices=hist)
         picks = []
         if side in ("long", "both"):
             picks += [(p, "LONG") for p in sel.get("longs") or []]
@@ -157,7 +199,7 @@ def run(prices, bench, dates, bars_by_symbol, rule, params, side="long",
                         "lots": int(getattr(config, "LOTS_PER_TRADE", 1) or 1),
                         "cost_per_lot": o["premium"] * lot}
         card["symbol"] = p["symbol"]
-        tr, why = P.take(book, card, p)
+        tr, why = P.take(book, card, p, max_pos=max_pos)
         if tr is None:
             continue
         tr["lot_source"] = "pinned" if p["name"] in lot_cfg else "default"
