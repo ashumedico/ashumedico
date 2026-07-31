@@ -285,8 +285,27 @@ def order_interactive(underlying, strike, opt_type, month, lots, side, lot_overr
     print(f"  {ORDER_LOG} mein likh diya.\n")
 
 
+def public_ip():
+    """The IP Fyers will see. Shown before an order is ever tried, because the whitelist
+    has to contain this exact address and hunting for it belongs to the tool, not the
+    trader. Home connections change it, so it is read fresh every time."""
+    import urllib.request
+    for url in ("https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"):
+        try:
+            with urllib.request.urlopen(url, timeout=6) as r:
+                ip = r.read().decode().strip()
+                if ip and len(ip) < 40:
+                    return ip
+        except Exception:
+            continue
+    return None
+
+
 def status():
-    print(f"\n  LIVE TRADING : {'ARMED - real orders' if armed() else 'off (safe)'}")
+    ip = public_ip()
+    print(f"\n  TERA IP      : {ip or 'pata nahi chala (internet?)'}"
+          f"{'   <- yahi Fyers whitelist mein daalna hai' if ip else ''}")
+    print(f"  LIVE TRADING : {'ARMED - real orders' if armed() else 'off (safe)'}")
     print(f"  KILL SWITCH  : {'ON - everything halted' if killed() else 'off'}")
     print(f"  PRODUCT      : {getattr(config, 'PRODUCT_TYPE', 'MARGIN')}"
           f"   {'(carries overnight)' if getattr(config, 'PRODUCT_TYPE', 'MARGIN') == 'MARGIN' else '(auto square-off 3:20)'}")
