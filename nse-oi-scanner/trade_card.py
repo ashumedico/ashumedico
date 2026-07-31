@@ -133,6 +133,14 @@ def min_days_for_thesis(hold_bars=None, bar_minutes=None, daily_vol_pct=None,
     degrades the answer rather than breaking the ticket.
     """
     hd = hold_days(hold_bars, bar_minutes)
+    # An explicit floor set by the trader wins over the optimiser. His rule is 15 days:
+    # if the running month has less than that left, roll to the next series. The sweep
+    # puts the cheapest break-even at 10 days and 15 days at 0.16% against 0.15%, so the
+    # rule costs essentially nothing - and a rule he can apply from the expiry date alone,
+    # without re-running anything, is worth more than a hundredth of a percent.
+    floor = getattr(config, "MIN_EXPIRY_DAYS", None)
+    if floor:
+        return int(floor)
     try:
         import option_pnl as OP
         rows = OP.dte_sweep(

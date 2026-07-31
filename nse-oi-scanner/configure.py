@@ -30,14 +30,17 @@ KEYS = {
     "LOTS_PER_TRADE": (lambda v: str(int(v)),     "lots bought per trade (you buy 1)"),
     "RESOLUTION":    (lambda v: repr(str(v)),     "candle the signal runs on ('D' or '15')"),
     "BAR_MINUTES":   (lambda v: str(int(v)),      "minutes in one bar (375 = one session)"),
+    "MIN_EXPIRY_DAYS": (lambda v: str(int(v)),    "expiry must have this many days left"),
 }
 
 # The bar size decides everything downstream - trend, volatility, stops, how long a
 # "10 bar hold" actually is, and therefore which expiry is correct. Setting it in one
 # place stops the two halves from disagreeing.
 MODES = {
-    "intraday": {"RESOLUTION": "15", "BAR_MINUTES": 15,  "HOLD_BARS": 10},
-    "swing":    {"RESOLUTION": "D",  "BAR_MINUTES": 375, "HOLD_BARS": 10},
+    "intraday": {"RESOLUTION": "15", "BAR_MINUTES": 15,  "HOLD_BARS": 10,
+                 "MIN_EXPIRY_DAYS": 15},
+    "swing":    {"RESOLUTION": "D",  "BAR_MINUTES": 375, "HOLD_BARS": 10,
+                 "MIN_EXPIRY_DAYS": 30},
 }
 
 
@@ -83,6 +86,8 @@ def main():
     ap.add_argument("--mode", choices=sorted(MODES),
                     help="intraday (15-min bars) or swing (daily bars)")
     ap.add_argument("--bar-minutes", type=int, help="minutes per bar, if not using --mode")
+    ap.add_argument("--min-expiry-days", type=int,
+                    help="roll to next month when the running one has fewer days left")
     a = ap.parse_args()
 
     updates = {}
@@ -101,6 +106,8 @@ def main():
         updates["MAX_POSITIONS"] = KEYS["MAX_POSITIONS"][0](a.max_positions)
     if a.lots_per_trade is not None:
         updates["LOTS_PER_TRADE"] = KEYS["LOTS_PER_TRADE"][0](a.lots_per_trade)
+    if a.min_expiry_days is not None:
+        updates["MIN_EXPIRY_DAYS"] = KEYS["MIN_EXPIRY_DAYS"][0](a.min_expiry_days)
 
     if updates and not write(updates):
         return
