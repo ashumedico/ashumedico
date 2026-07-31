@@ -106,7 +106,32 @@ def place(symbol, qty, side, kind="MARKET", limit_price=0.0, tag="", product=Non
         return False, f"order gaya hi nahi: {e}"
     _log({"event": "reply", "req": req, "reply": r, "tag": tag})
     ok = isinstance(r, dict) and r.get("s") == "ok"
-    return ok, (r.get("id") if ok else str(r)[:300])
+    return ok, (r.get("id") if ok else explain_rejection(r))
+
+
+# Broker rejections arrive as a code and a sentence of API English. The ones that recur
+# have a specific fix, and pairing them saves rediscovering it under time pressure.
+REJECTIONS = {
+    -50: ("IP whitelist",
+          "Fyers app mein IP whitelisting on hai. myapi.fyers.in -> apni app edit kar ->\n"
+          "     jo IP error mein likha hai wo whitelist mein daal. Ghar ka IP badalta\n"
+          "     rehta hai, toh router restart ke baad dobara daalna pad sakta hai."),
+    -99: ("token", "Token expire ho gaya - '1 - Fyers Login' chala."),
+    -392: ("market band", "Market band hai ya us contract mein trading nahi ho rahi."),
+    -201: ("margin", "Broker ne margin ki wajah se roka - funds check kar."),
+}
+
+
+def explain_rejection(r):
+    """Turn the broker's reply into something actionable."""
+    if not isinstance(r, dict):
+        return str(r)[:300]
+    code = r.get("code")
+    msg = str(r.get("message") or r)[:250]
+    hint = REJECTIONS.get(code)
+    if hint:
+        return f"{msg}\n  -> [{hint[0]}] {hint[1]}"
+    return f"{msg}  (code {code})"
 
 
 def buy(symbol, qty, limit_price=None, tag=""):
