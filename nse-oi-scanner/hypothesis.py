@@ -125,6 +125,26 @@ ABLATIONS = {
     "R-factor + regime gate":     ("momentum_only",        {"need_trend": True,
                                                             "rank": "rfactor",
                                                             "regime": "gate"}),
+    # --- H4: does entering on the EXPANSION BAR beat entering on trend alone? ---
+    # This is the "get in as the move starts" idea, made testable. It should produce far
+    # fewer trades; the question is whether the ones it keeps are better enough to pay
+    # for the ones it skips. Fewer trades is not by itself an improvement.
+    "expansion bar":              ("momentum_only",        {"need_trend": True,
+                                                            "need_expansion": True}),
+    "expansion + VWAP":           ("momentum_only",        {"need_trend": True,
+                                                            "need_expansion": True,
+                                                            "need_vwap": True}),
+    # --- H5: the two features that carry their own information ---
+    "own-trend + VWAP":           ("momentum_only",        {"need_trend": True,
+                                                            "need_vwap": True}),
+    "own-trend + RVOL>1.2":       ("momentum_only",        {"need_trend": True,
+                                                            "min_rvol": 1.2}),
+    "own-trend + room to R1":     ("momentum_only",        {"need_trend": True,
+                                                            "need_room": True}),
+    "VWAP + RVOL + room":         ("momentum_only",        {"need_trend": True,
+                                                            "need_vwap": True,
+                                                            "min_rvol": 1.2,
+                                                            "need_room": True}),
 }
 
 
@@ -234,7 +254,23 @@ def main():
           f"{'SHARPE':>8}{'MAXDD':>9}{'TRADES':>8}")
     print("  " + "-" * 74)
     scored = []
+    # Feature-based arms need the raw bars at every snapshot. Without them their filters
+    # reject everything and the arm reports zero trades - which reads exactly like "tested
+    # and failed" while nothing was tested at all.
+    bars = getattr(E, "LAST_BARS", {}) or {}
+    dates = getattr(E, "LAST_DATES", []) or []
+    if not bars:
+        print("  [!] No OHLCV bars loaded - VWAP/RVOL/expansion arms cannot be tested.")
+        print("      Delete the cache and re-run so the v3 (full candle) fetch happens.")
+    FEATURE_KEYS = ("need_vwap", "min_rvol", "need_room", "need_breakout",
+                    "min_cont", "need_expansion", "max_squeeze")
     for label, (rule, params) in ABLATIONS.items():
+        # An arm that needs features but has no bars is UNTESTED, not failed. Printing it
+        # as 0.0% alongside real results is how an untried idea gets quietly discarded.
+        if not bars and any(k in params for k in FEATURE_KEYS):
+            print(f"  {label:<30}{'(NOT TESTED - no OHLCV bars)':>44}")
+            continue
+        params = dict(params, _bars=bars, _dates=dates)
         w = walk_folds(prices, bench, rule, params, step, max_pos, a.folds, cost_bps=15)
         w35 = walk_folds(prices, bench, rule, params, step, max_pos, a.folds, cost_bps=35)
         if not w:

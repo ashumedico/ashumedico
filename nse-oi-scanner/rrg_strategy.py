@@ -30,11 +30,24 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 
 # ---------------- point-in-time snapshot (no lookahead) ----------------
-def snapshot(prices, bench, t, tail=3, win=10, mom_win=5):
-    """RRG points computed ONLY from data up to index t (exclusive)."""
+def snapshot(prices, bench, t, tail=3, win=10, mom_win=5, bars=None, dates=None):
+    """RRG points computed ONLY from data up to index t (exclusive).
+
+    When bars are supplied the features are attached at the same cut-off. Without this the
+    feature-based arms would run against points that carry no features, every such filter
+    would reject everything, and the arm would report zero trades as though the idea had
+    been tested and failed. It would not have been tested at all.
+    """
     sl_prices = {s: c[:t] for s, c in prices.items() if len(c) >= t}
     sl_bench = bench[:t]
-    return E.build_points(sl_prices, sl_bench, tail=tail, win=win, mom_win=mom_win)
+    pts = E.build_points(sl_prices, sl_bench, tail=tail, win=win, mom_win=mom_win)
+    if bars:
+        try:
+            import features as F
+            pts = F.attach(pts, F.for_universe(bars, dates, t))
+        except Exception:
+            pass
+    return pts
 
 
 # ---------------- the rule-sets ----------------
@@ -246,7 +259,8 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
 
     t = start
     while t + step < n:
-        pts = snapshot(prices, bench, t, tail=tail, win=win, mom_win=mom_win)
+        pts = snapshot(prices, bench, t, tail=tail, win=win, mom_win=mom_win,
+                       bars=params.get("_bars"), dates=params.get("_dates"))
         if not pts:
             t += step; continue
         pmap = {p["name"]: p for p in pts}
