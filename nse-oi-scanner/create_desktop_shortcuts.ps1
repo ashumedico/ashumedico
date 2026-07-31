@@ -87,6 +87,7 @@ Write-Host "Adding launchers..."
 # --- DAILY. Eight icons, because the folder has to be readable at 9:20am. ---
 # Everything else still exists and still works - it moved to Tools, one folder in.
 # Deleting a working tool to tidy a screen is how you lose it the week you need it.
+New-Shortcut $folder "0 - LAUNCHER"        "run_launcher.bat"    (Join-Path $here "tbone.ico") 0 "Ek window - credentials, engine, log"
 New-Shortcut $folder "0 - UPDATE"          "UPDATE.bat"          "%SystemRoot%\System32\shell32.dll" 46  "Naya code + icons"
 New-Shortcut $folder "1 - START DAY"       "START-DAY.bat"       "%SystemRoot%\System32\shell32.dll" 44  "Login + lot check + paper trader + check-in"
 New-Shortcut $folder "2 - CHECK-IN"        "CHECKIN.bat"         "%SystemRoot%\System32\shell32.dll" 138 "Kya hold, kya book, kya naya"
@@ -118,6 +119,8 @@ New-Shortcut $tools "Telegram alerts"     "TELEGRAM-SETUP.bat"  "%SystemRoot%\Sy
 New-Shortcut $tools "Secret update"       "SET-SECRET.bat"      "%SystemRoot%\System32\shell32.dll" 48  "Fyers secret badla toh"
 New-Shortcut $tools "MCP token"           "SET-FIA-TOKEN.bat"   "%SystemRoot%\System32\shell32.dll" 48  "Fyers MCP token"
 New-Shortcut $tools "First-time setup"    "FIRST-TIME-SETUP.bat" "%SystemRoot%\System32\shell32.dll" 45 "Naye computer pe zero se - clone + keys"
+New-Shortcut $tools "Build the .exe"      "BUILD-EXE.bat"        "%SystemRoot%\System32\shell32.dll" 130 "Desktop pe .exe banao (ek baar)"
+New-Shortcut $tools "Launcher test"       "run_launcher_test.bat" "%SystemRoot%\System32\shell32.dll" 23 "Window sach mein banti hai ya nahi"
 
 # a shortcut straight to the code folder, handy for config.py edits
 $lnk = $sh.CreateShortcut((Join-Path $folder "Open code folder.lnk"))

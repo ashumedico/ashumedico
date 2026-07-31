@@ -34,7 +34,33 @@ KEYS = {
     "LOT_SIZES":     (lambda v: str(v),           "pinned lot sizes that beat the parser"),
     "TARGET_RUPEES": (lambda v: str(int(v)),      "book and exit at this NET profit (0 = off)"),
     "WATCH_SECONDS": (lambda v: str(int(v)),      "how often to check stops while holding"),
+    "PRICE_MIN":     (lambda v: str(int(v)),      "ignore names cheaper than this (0 = off)"),
+    "PRICE_MAX":     (lambda v: str(int(v)),      "ignore names dearer than this (0 = off)"),
 }
+
+# Credentials. Same safe writer, different door: these are strings, they are never
+# accepted as command-line arguments, and they never reach a log line.
+CRED_KEYS = ("CLIENT_ID", "SECRET_KEY", "REDIRECT_URI", "TELEGRAM_TOKEN", "TELEGRAM_CHAT")
+
+
+def write_credentials(values):
+    """values: {KEY: 'string'}. Only CRED_KEYS are honoured; anything else is ignored."""
+    updates = {k: repr(str(v)) for k, v in (values or {}).items()
+               if k in CRED_KEYS and str(v).strip() != ""}
+    return write(updates) if updates else True
+
+
+def read_credentials():
+    """What is set now, for pre-filling a form. Returns raw strings."""
+    if not os.path.exists(CFG):
+        return {}
+    text = open(CFG).read()
+    out = {}
+    for k in CRED_KEYS:
+        m = re.search(rf"^{k}\s*=\s*[\"']([^\"']*)[\"']", text, re.M)
+        if m:
+            out[k] = m.group(1)
+    return out
 
 # The bar size decides everything downstream - trend, volatility, stops, how long a
 # "10 bar hold" actually is, and therefore which expiry is correct. Setting it in one
@@ -65,7 +91,15 @@ def write(updates):
         print(f"  {CFG} not found. Run this from the scanner folder.")
         return False
     text = open(CFG).read()
-    backup = f"{CFG}.bak-{datetime.now():%Y%m%d-%H%M%S}"
+    # Second-resolution names collide: the launcher writes credentials and settings back
+    # to back, both land in the same second, and the second copy silently overwrites the
+    # only record of what the file looked like before either. A backup that can be
+    # overwritten by the very next write is not a backup.
+    stamp = f"{CFG}.bak-{datetime.now():%Y%m%d-%H%M%S}"
+    backup, n = stamp, 1
+    while os.path.exists(backup):
+        backup = f"{stamp}-{n}"
+        n += 1
     shutil.copy(CFG, backup)
     for k, val in updates.items():
         line = f"{k} = {val}"

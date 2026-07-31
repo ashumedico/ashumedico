@@ -163,6 +163,21 @@ st.markdown('<div class="mark"><span class="mark-name">AASHISH</span>'
 st.caption("Support/resistance · price action · volume · buildup — one page, "
            "computed live, nothing illustrative.")
 
+# --- scanner strip: clock, status, universe, and the button that refetches ----------
+from datetime import datetime, timedelta, timezone
+
+IST = timezone(timedelta(hours=5, minutes=30))
+if "last_scan" not in st.session_state:
+    st.session_state.last_scan = None
+sc = st.columns([1, 1, 1, 1, 1.4])
+sc[0].metric("IST", f"{datetime.now(IST):%H:%M:%S}")
+sc[1].metric("Status", "idle")
+sc[2].metric("Last scan", st.session_state.last_scan or "—")
+if sc[4].button("⟳  RUN SCAN NOW", use_container_width=True, type="primary"):
+    st.cache_data.clear()
+    st.session_state.last_scan = f"{datetime.now(IST):%H:%M:%S}"
+    st.rerun()
+
 if not hasattr(config, "RESOLUTION") or not hasattr(config, "BAR_MINUTES"):
     st.error("RESOLUTION / BAR_MINUTES config mein set nahi hain — ye SWING chala raha hai, "
              "INTRADAY nahi.  Theek karo:  python configure.py --mode intraday")
@@ -192,6 +207,12 @@ import rrg_strategy as S, trade_card as TC
 rule, params, _ = S.load_best()
 sel = S.select(pts, rule, params, max_pos=8, prices=prices)
 longs = sel["longs"]
+sc[3].metric("Universe", len(pts), "F&O naam")
+if sel.get("band"):
+    b = sel["band"]
+    st.info(f"Price band ON: Rs {b['min']:.0f}–{b['max']:.0f} — {b['dropped']} naam "
+            f"is se bahar the aur scan se hat gaye. Ye universe filter hai, signal nahi, "
+            f"aur iska backtest nahi hua.")
 
 with st.sidebar:
     st.markdown('<div class="sec">Naam</div>', unsafe_allow_html=True)
@@ -398,6 +419,39 @@ if rows:
     st.dataframe(rows, use_container_width=True, hide_index=True)
 else:
     st.caption("koi naam nahi")
+
+# =============================================================== scorecard ==
+st.markdown('<div class="sec">Scorecard — 10-point conviction, har point ka naam</div>',
+            unsafe_allow_html=True)
+try:
+    import scorecard as SC
+    ranked = sorted(pts, key=lambda p: SC.score(p)["total"], reverse=True)[:15]
+    st.dataframe(
+        [{"naam": p["name"], "LTP": round(p.get("close", 0), 2),
+          "score": f"{SC.score(p)['total']}/{SC.MAX}",
+          "verdict": SC.label(SC.score(p)["total"]),
+          "kya-kya laga": ", ".join(h["label"] for h in SC.score(p)["hits"] if h["got"])
+                          or "kuch nahi"}
+         for p in ranked],
+        use_container_width=True, hide_index=True)
+    st.caption("Har point ek gate hai jo walk-forward mein test hua. **Weighting test nahi "
+               "hui** — 10/10 probability nahi hai, aur quantity phir bhi 1 lot rahegi. "
+               "Feature na mile toh point nahi milta: unknown ko 'haan' nahi maana jaata.")
+
+    shock = SC.volume_shock(pts, mult=float(getattr(config, "SHOCK_RVOL", 2.5)))
+    st.markdown('<div class="sec">Volume shock — apne hi norm se kai guna</div>',
+                unsafe_allow_html=True)
+    if shock:
+        st.dataframe([{"naam": r["name"], "RVOL": f"{r['rvol']:.2f}x",
+                       "LTP": round(r["close"] or 0, 2), "trend %": r["pct"],
+                       "VWAP": r["vwap"],
+                       "expansion": "HAAN" if r["expanding"] else "nahi"}
+                      for r in shock], use_container_width=True, hide_index=True)
+    else:
+        st.caption("Aaj koi naam apne norm se itna upar nahi hai. Chup rehna bhi ek "
+                   "jawab hai.")
+except Exception as e:      # noqa
+    st.caption(f"scorecard nahi bana: {e}")
 
 # =================================================================== score ==
 st.markdown('<div class="sec">Score — paper vs what the backtest claimed</div>',

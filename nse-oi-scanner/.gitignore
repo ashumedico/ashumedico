@@ -32,3 +32,8 @@ scanner.log
 
 __pycache__/
 *.pyc
+
+# --- PyInstaller build output ---
+build/
+dist/
+*.spec

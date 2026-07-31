@@ -493,15 +493,40 @@ def rank_key(rule, params, prices=None, t=None):
     return lambda p: p["distance"] * (1 + p["velocity"])
 
 
+def price_band(points):
+    """Drop names outside PRICE_MIN..PRICE_MAX. Off unless both are set.
+
+    This is a UNIVERSE filter, not a signal: it changes which names are eligible, and it
+    has not been walk-forward tested, so it stays off by default and is stated wherever it
+    is on. The honest case for it is practical rather than statistical - a Rs 60 stock and
+    a Rs 6,000 stock need very different lot sizes to make one lot affordable, and one of
+    them will not fit the account.
+    """
+    try:
+        import config
+        lo = float(getattr(config, "PRICE_MIN", 0) or 0)
+        hi = float(getattr(config, "PRICE_MAX", 0) or 0)
+    except Exception:
+        return points, None
+    if lo <= 0 and hi <= 0:
+        return points, None
+    kept = [p for p in points
+            if (lo <= 0 or (p.get("close") or 0) >= lo)
+            and (hi <= 0 or (p.get("close") or 0) <= hi)]
+    return kept, {"min": lo, "max": hi, "dropped": len(points) - len(kept)}
+
+
 def select(points, rule=None, params=None, max_pos=10, prices=None):
     """Rank today's candidates under the chosen setup -> the names to trade."""
     if rule is None:
         rule, params, _ = load_best()
     params = params or {}
+    points, band = price_band(points)
     longs = [p for p in points if _entry_ok(p, rule, params)]
     longs.sort(key=rank_key(rule, params, prices), reverse=True)
     exits = [p for p in points if _exit_ok(p, params)]
-    return {"longs": longs[:max_pos], "exits": exits, "rule": rule, "params": params}
+    return {"longs": longs[:max_pos], "exits": exits, "rule": rule, "params": params,
+            "band": band}
 
 
 def main():
