@@ -103,6 +103,19 @@ def load(demo):
     return pts, prices, bench, E.LAST_BARS, E.LAST_DATES
 
 
+@st.cache_data(ttl=3600)
+def watch_map():
+    """{SYMBOL: (trigger, guidance)} for the F&O-tradeable watchlist names. Display only -
+    a fundamental trigger is a reason a name is interesting, never a reason this candle
+    is the one."""
+    try:
+        import watchlist as W
+        return {r["symbol"]: (r["trigger"], r["guidance"])
+                for r in W.resolve() if r["fno"]}
+    except Exception:
+        return {}
+
+
 def touches(bars, level, atr):
     """How many bars came within a quarter-ATR of a level. A line nobody has traded
     against is a line drawn on a chart, not a level."""
@@ -359,12 +372,16 @@ if P:
 
 # =================================================================== mauke ==
 st.markdown('<div class="sec">Mauke — jo rule pass karte hain</div>', unsafe_allow_html=True)
-st.caption("Feature khaali = us naam ki history kam hai, aur khaali ko 'haan' nahi mana jaata.")
+st.caption("Feature khaali = us naam ki history kam hai, aur khaali ko 'haan' nahi mana jaata. "
+           "**thesis** = Q1 watchlist ka fundamental trigger, agar wo naam us list pe hai — "
+           "ye ek bias hai, signal nahi, aur iska koi backtest nahi hai.")
+WM = watch_map()
 rows = []
 for p in longs:
     f = p.get("feat") or {}
     rows.append({
         "naam": p["name"],
+        "thesis": (WM.get(p["name"]) or ("", ""))[0] or "—",
         "close": round(p.get("close", 0), 2),
         "trend %": p.get("abs_pct"),
         "VWAP": ("upar" if f.get("above_vwap") else "neeche") if f else "—",

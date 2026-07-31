@@ -74,6 +74,27 @@ Live orders fire **only** when `LIVE_TRADING=True` **and** `STOP_TRADING.txt` is
   system, so anything claiming to have tested buildup is claiming the impossible.
 - **Option-chain context:** `option_chain.analyse` → PCR, Max Pain, the Call/Put walls.
 
+### Fundamental watchlists (`watchlist.py`)
+
+When a fundamental idea sheet arrives — Q1 results, sector triggers, guidance — run it
+through `python watchlist.py` **before discussing any of it as a trade**:
+
+1. **Options exist only on F&O names.** Most small caps are not in F&O at all. Of the Q1
+   FY27 sheet, **4 of 39** were tradeable as options. A thesis on a name with no option
+   chain is a cash trade or nothing, and saying so first saves the whole conversation.
+2. **Membership comes from the live symbol master, never from memory.** The F&O list is
+   revised twice a year. If the master could not be fetched, say the answer is off a stale
+   snapshot rather than delivering it confidently.
+3. **Never guess a ticker.** Fuzzy matching once paired "ICICI Pru AMC" with **ICICIPRULI**
+   — a different company — and missed **AUBANK** entirely. A near-miss is not a bad row on
+   a screen; it is an order in the wrong stock. Unknown ticker → say unknown, ask.
+4. **A fundamental trigger does not time a 15-minute expansion bar.** It is a **bias** that
+   can narrow the universe. It is displayed, tagged, and never sized on.
+5. **NOT TESTED, permanently.** There is no point-in-time fundamentals data here, so
+   "trade only watchlist names" cannot be walk-forward tested — the same category as OI
+   buildup. Not passed, not failed.
+6. **Guidance and results are binary events.** No fresh positions into one.
+
 ## STAGE 2 · SIGNAL — score the setup
 
 `features.at()` produces one dict per name per bar, computed **strictly from bars before the
