@@ -35,6 +35,7 @@ except ImportError:
 
 LAST_SKIPPED = []          # symbols the last live fetch could not load
 LAST_DATES = []            # candle dates of the last load (for charting x-axes)
+LAST_BARS = {}             # {symbol: [[epoch, o, h, l, c, v], ...]} from the last load
 
 QUADRANTS = ("LEADING", "WEAKENING", "LAGGING", "IMPROVING")
 QUAD_COLOR = {"LEADING": "#1f9d63", "WEAKENING": "#e0a11b",
@@ -229,8 +230,8 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
     """Daily closes for every symbol + the benchmark. Cached per day so the
     full-universe pull happens once, then loads instantly."""
     benchmark = benchmark or getattr(config, "RRG_BENCHMARK", "NSE:NIFTY50-INDEX")
-    global LAST_SKIPPED, LAST_DATES
-    key = f"hist2_{resolution}_{days}"      # v2 = includes candle dates
+    global LAST_SKIPPED, LAST_DATES, LAST_BARS
+    key = f"hist3_{resolution}_{days}"      # v3 = full OHLCV, not just closes
     cp = _cache_path(key)
     if use_cache and not os.path.exists(cp):
         # A same-day pull with MORE history already answers this request. Without this,
@@ -239,8 +240,8 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
         import glob as _glob, re as _re
         day = datetime.now(IST).strftime("%Y%m%d")
         best, best_days = None, 0
-        for f in _glob.glob(os.path.join(CACHE_DIR, f"hist2_{resolution}_*_{day}.json")):
-            m = _re.search(rf"hist2_{resolution}_(\d+)_{day}\.json$", f.replace("\\", "/"))
+        for f in _glob.glob(os.path.join(CACHE_DIR, f"hist3_{resolution}_*_{day}.json")):
+            m = _re.search(rf"hist3_{resolution}_(\d+)_{day}\.json$", f.replace("\\", "/"))
             if m and int(m.group(1)) >= days and int(m.group(1)) > best_days:
                 best, best_days = f, int(m.group(1))
         if best:
@@ -251,6 +252,7 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
         # a cache without dates cannot date signals -> treat it as a miss and refetch
         if d.get("bench") and d.get("dates") and len(d.get("prices", {})) > 5:
             LAST_DATES = d["dates"]
+            LAST_BARS = d.get("bars", {}) or {}
             return d["prices"], d["bench"], d["dates"]
 
     fy = _fy()
@@ -284,20 +286,27 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
                 candles[c[0]] = c          # keyed by epoch -> de-dupes chunk overlaps
             cur = chunk_end + timedelta(days=1)
         keys = sorted(candles)
-        closes = [candles[k][4] for k in keys]
+        # Keep the WHOLE candle, not just the close. Volume, high and low were being
+        # discarded here, which quietly made VWAP, RVOL, ATR, CCI and Supertrend
+        # impossible to compute anywhere downstream - not hard, impossible. Callers still
+        # receive closes, so nothing that worked before changes.
+        bars = [candles[k] for k in keys]
+        closes = [c[4] for c in bars]
         dts = [datetime.fromtimestamp(k, IST).strftime("%Y-%m-%d") for k in keys]
-        return closes, dts
+        return closes, dts, bars
 
-    bench, bench_dates = one(benchmark)
+    bench, bench_dates, bench_bars = one(benchmark)
+    all_bars = {benchmark: bench_bars}
     prices, total = {}, len(symbols)
     skipped = []
     for i, s in enumerate(symbols):
         got = None
         for attempt in range(3):
             try:
-                c, _d = one(s)
+                c, _d, b = one(s)
                 if len(c) > 40:
                     got = c
+                    all_bars[s] = b
                 break
             except Exception as err:      # noqa
                 msg = str(err)
@@ -319,11 +328,13 @@ def fetch_history(symbols, benchmark=None, resolution="D", days=200,
     # partial data is a fact the caller must be able to see, not swallow
     LAST_SKIPPED = skipped
     LAST_DATES = bench_dates
+    LAST_BARS = all_bars
     if skipped:
         print(f"  [fetch] {len(prices)}/{total} loaded, {len(skipped)} skipped "
               f"(first: {skipped[0][0]} -> {skipped[0][1]})")
     with open(cp, "w") as f:
         json.dump({"prices": prices, "bench": bench, "dates": bench_dates,
+                   "bars": all_bars,
                    "skipped": [x[0] for x in skipped],
                    "at": datetime.now(IST).isoformat()}, f)
     return prices, bench, bench_dates
