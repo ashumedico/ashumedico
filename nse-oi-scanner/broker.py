@@ -158,8 +158,27 @@ def find_contract(underlying, strike, opt_type="CE", month=None):
         near = ", ".join(str(c["strike"]) for c in sorted(
             want, key=lambda c: abs((c["strike"] or 0) - float(strike)))[:5])
         return None, f"strike {strike} chain mein nahi hai. Paas ke: {near}"
+    # Lot, from the chain if it gave one, else the symbol master. Never zero: a ticket
+    # showing quantity 0 reads as an answer and is not, and the next step after reading it
+    # is arming live trading.
+    lot, lot_src = oc.LAST_LOT, "chain"
+    if not lot:
+        lot = (getattr(config, "LOT_SIZES", {}) or {}).get(underlying.upper())
+        lot_src = "config"
+    if not lot:
+        try:
+            from fno_universe import lot_sizes
+            lot = lot_sizes().get(underlying.upper())
+            lot_src = "symbol master"
+        except Exception:
+            lot = None
+    if not lot:
+        return None, (f"{underlying} ka lot size kahin nahi mila - na chain mein, na "
+                      f"master mein. Chain ke fields the: {', '.join(oc.LAST_FIELDS[:12])}."
+                      f"\n  Bina lot ke quantity nikal hi nahi sakti. "
+                      f"'10 - Lot Audit' chala ke master theek kar.")
     return {"symbol": hit["symbol"], "strike": hit["strike"], "type": opt_type.upper(),
-            "premium": hit["ltp"], "lot": oc.LAST_LOT,
+            "premium": hit["ltp"], "lot": int(lot), "lot_source": lot_src,
             "expiry": pick[0], "days": pick[1]}, None
 
 
@@ -174,13 +193,18 @@ def order_interactive(underlying, strike, opt_type, month, lots, side):
     lot = int(c["lot"] or 0)
     qty = lot * int(lots)
     cost = (c["premium"] or 0) * qty
+    if qty <= 0 or not c.get("premium"):
+        print(f"\n  Quantity {qty}, premium {c.get('premium')} - ye ticket nahi hai.")
+        print("  Kuch bhejne se pehle lot aur premium dono chahiye.\n")
+        return
     print(f"\n  {'=' * 60}")
     print(f"  {side}  {c['symbol']}")
     print(f"  {'=' * 60}")
     print(f"  strike      {c['strike']:g} {c['type']}      expiry {c['expiry']} "
           f"({c['days']} din baaki)")
     print(f"  premium     {c['premium']}")
-    print(f"  quantity    {qty}   ({lots} lot x {lot})")
+    print(f"  quantity    {qty}   ({lots} lot x {lot})"
+          f"   [lot {c.get('lot_source', '?')} se]")
     print(f"  LAGEGA      Rs {cost:,.0f}")
     cap = float(getattr(config, "CAPITAL", 0) or 0)
     if cap:

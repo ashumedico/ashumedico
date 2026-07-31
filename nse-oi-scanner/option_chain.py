@@ -30,6 +30,7 @@ except ImportError:
 LAST_EXPIRIES = []      # tradeable expiries from the most recent live chain
 LAST_LOT = None         # real lot size from the most recent live chain
 LAST_EPOCH = None       # expiry epoch the most recent chain actually belongs to
+LAST_FIELDS = []        # field names the last chain actually carried (for diagnosis)
 
 
 def expiries(min_days=0):
@@ -123,7 +124,7 @@ def fetch_live(symbol, timestamp=""):
     """timestamp: expiry epoch (from expiries()). Empty string = the nearest expiry,
     which is Fyers' default and is exactly the one you must NOT trade near expiry."""
     from fyers_apiv3 import fyersModel
-    global LAST_EXPIRIES, LAST_LOT, LAST_EPOCH
+    global LAST_EXPIRIES, LAST_LOT, LAST_EPOCH, LAST_FIELDS
     if not os.path.exists(config.TOKEN_FILE):
         raise RuntimeError("No token. Run: python fyers_auth.py")
     token = open(config.TOKEN_FILE).read().strip()
@@ -143,9 +144,25 @@ def fetch_live(symbol, timestamp=""):
     LAST_EXPIRIES = d.get("expiryData", []) or []
     LAST_EPOCH = str(timestamp) if timestamp else (
         str(LAST_EXPIRIES[0].get("expiry")) if LAST_EXPIRIES else None)
+    # Lot size, whatever Fyers decides to call it today. A live SONACOMS chain came back
+    # with no "lot_size" at all, which turned into quantity 0 on a ticket - a number that
+    # looks like an answer and is not. Try the known spellings, and record which fields
+    # the response really had so a future absence can be diagnosed instead of guessed.
+    LAST_LOT = None
+    LAST_FIELDS = sorted({k for o in d.get("optionsChain", [])[:3] for k in o})
     for o in d.get("optionsChain", []):
-        if o.get("option_type") in ("CE", "PE") and o.get("lot_size"):
-            LAST_LOT = int(o["lot_size"]); break
+        if o.get("option_type") not in ("CE", "PE"):
+            continue
+        for key in ("lot_size", "lotSize", "lot", "minimum_lot", "min_lot", "marketLot"):
+            v = o.get(key)
+            if v:
+                try:
+                    LAST_LOT = int(float(v))
+                except Exception:
+                    continue
+                break
+        if LAST_LOT:
+            break
     chain = []
     for o in d.get("optionsChain", []):
         ot = o.get("option_type")
