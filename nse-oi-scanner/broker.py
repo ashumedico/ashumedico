@@ -116,6 +116,9 @@ REJECTIONS = {
           "Fyers app mein IP whitelisting on hai. myapi.fyers.in -> apni app edit kar ->\n"
           "     jo IP error mein likha hai wo whitelist mein daal. Ghar ka IP badalta\n"
           "     rehta hai, toh router restart ke baad dobara daalna pad sakta hai."),
+    -15: ("token", "Token invalid ho gaya. Fyers app ki settings badalne se - jaise IP\n"
+                   "     whitelist add karne se - purane token revoke ho jaate hain.\n"
+                   "     '1 - Fyers Login' chala ke naya le le."),
     -99: ("token", "Token expire ho gaya - '1 - Fyers Login' chala."),
     -392: ("market band", "Market band hai ya us contract mein trading nahi ho rahi."),
     -201: ("margin", "Broker ne margin ki wajah se roka - funds check kar."),
@@ -155,7 +158,17 @@ def find_contract(underlying, strike, opt_type="CE", month=None):
     """
     import option_chain as oc
     sym = underlying if ":" in underlying else f"NSE:{underlying.upper()}-EQ"
-    oc.fetch_live(sym)                                  # populates the expiry list
+    # A dead token, a wrong name, a closed market - the chain call fails in several
+    # ordinary ways, and a Python traceback tells the trader none of them. Catch it and
+    # say what happened.
+    try:
+        oc.fetch_live(sym)                              # populates the expiry list
+    except Exception as e:      # noqa
+        msg = str(e)
+        for code, (label, hint) in REJECTIONS.items():
+            if f"'code': {code}" in msg or f'"code": {code}' in msg:
+                return None, f"[{label}] {hint}"
+        return None, f"chain nahi mila: {msg[:200]}"
     exps = oc.expiries(0)
     if not exps:
         return None, "koi expiry nahi mili - naam sahi hai?"
