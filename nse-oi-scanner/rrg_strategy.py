@@ -71,6 +71,14 @@ def _entry_ok(p, rule, params):
             return False
     if params.get("need_buildup") and p.get("signal") not in ("LONG BUILDUP", "SHORT COVERING"):
         return False
+    # VWAP / RVOL / squeeze / expansion / levels. Absent features fail a filter that
+    # needs them - an unknown is not a yes.
+    try:
+        import features as F
+        if not F.passes(p, params):
+            return False
+    except Exception:
+        pass
     return True
 
 

@@ -443,7 +443,16 @@ def live_points(tail=6, days=200, progress=None, with_oi=True, resolution=None):
                 buildup = fetch_buildup(fno_futures(exp))
         except Exception:
             buildup = {}
-    return build_points(prices, bench, buildup, tail=tail, dates=dates), prices, bench
+    pts = build_points(prices, bench, buildup, tail=tail, dates=dates)
+    # Attach the features to the points. Without this the whole feature layer computes
+    # correctly and reaches nothing - VWAP, RVOL and the expansion signal would exist
+    # only in their own test file while the live path carried on without them.
+    try:
+        import features as F
+        pts = F.attach(pts, F.for_universe(LAST_BARS, dates))
+    except Exception as e:      # noqa
+        print(f"  [features] attach failed: {e}")
+    return pts, prices, bench
 
 
 # ---------------- synthetic (no feed) ----------------
