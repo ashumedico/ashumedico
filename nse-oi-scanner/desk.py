@@ -63,6 +63,35 @@ st.markdown("""
   .sec {font-size:.72rem; letter-spacing:1.4px; text-transform:uppercase; color:#6e7781;
         border-bottom:1px solid #21262d; padding-bottom:5px; margin:1.4rem 0 .7rem 0;}
 
+  /* --- command deck: heatmap tiles, radar badges, trade cards --- */
+  .hm {border-radius:8px; padding:10px 13px; margin-bottom:8px; position:relative;
+       border:1px solid #21262d;}
+  .hm-n {font-size:.68rem; letter-spacing:1.1px; color:#c9d1d9; text-transform:uppercase;
+         font-weight:700;}
+  .hm-p {font-size:1.5rem; font-weight:800; font-family:ui-monospace,Consolas,monospace;}
+  .hm-r {position:absolute; top:8px; right:11px; font-size:.62rem; color:#6e7781;}
+  .hm-t {font-size:.6rem; letter-spacing:1.4px; font-weight:800;}
+
+  .badge {display:inline-block; padding:5px 12px; border-radius:6px; margin:0 7px 7px 0;
+          font-size:.7rem; font-weight:800; letter-spacing:.7px;}
+  .b-up   {background:#0d2b18; color:#56d364; border:1px solid #1c5c31;}
+  .b-dn   {background:#3d1519; color:#ff7b72; border:1px solid #7a2429;}
+  .b-turn {background:#33280f; color:#e3b341; border:1px solid #6b5316;}
+  .b-bnc  {background:#0c2b3a; color:#56c8d3; border:1px solid #1b5566;}
+  .b-none {background:#161b22; color:#8b949e; border:1px solid #21262d;}
+
+  .card {background:#121821; border:1px solid #21262d; border-left:4px solid #3fb950;
+         border-radius:8px; padding:11px 15px; margin-bottom:9px;}
+  .card-h {display:flex; align-items:center; gap:10px; margin-bottom:6px;}
+  .side {font-size:.64rem; font-weight:800; letter-spacing:1px; padding:3px 9px;
+         border-radius:4px; background:#0d2b18; color:#56d364;}
+  .grade {font-size:.72rem; font-weight:800; color:#e3b341;}
+  .card-n {font-size:1.02rem; font-weight:800; color:#e6edf3; letter-spacing:.5px;}
+  .lv {display:flex; flex-wrap:wrap; gap:20px; font-family:ui-monospace,Consolas,monospace;
+       font-size:.82rem;}
+  .lv b {color:#6e7781; font-weight:600; font-size:.66rem; letter-spacing:.6px;
+         text-transform:uppercase; display:block;}
+
   /* the wordmark - his desk, with his name on it */
   .mark {display:flex; align-items:baseline; gap:12px; margin-bottom:.1rem;}
   .mark-name {font-size:2.05rem; font-weight:800; letter-spacing:5px;
@@ -263,6 +292,95 @@ if P:
         f'<div><div class="rb-k">{k}</div><div class="rb-v">{v}</div></div>'
         for k, v in cells) + '</div>', unsafe_allow_html=True)
 
+# =========================================================== command deck ==
+# The reference calls this the Intraday Command Deck. Everything in it is context - where
+# the money is today and which names just turned. None of it is a trigger, and none of it
+# has been walk-forward tested (there is no sector-index history here to test against).
+st.markdown('<div class="sec">Command deck — aaj paisa kidhar hai</div>',
+            unsafe_allow_html=True)
+
+engine_bits = []
+try:
+    import paper as _P
+    _bk = _P.load()
+    engine_bits.append(f"{len(_bk.get('open', []))} khuli")
+    engine_bits.append(f"{len(_bk.get('closed', []))} band")
+except Exception:
+    pass
+mkt = "market khula" if 915 <= int(f"{datetime.now(IST):%H%M}") <= 1530 else "market band"
+try:
+    import broker as _B
+    live_txt = ("HALTED - kill switch" if _B.killed()
+                else "LIVE ARMED" if _B.armed() else "paper only")
+except Exception:
+    live_txt = "paper only"
+st.markdown(
+    f'<div class="scen">ENGINE — {mkt} · monitoring · '
+    f'{" · ".join(engine_bits) or "paper book khaali"} · {live_txt}</div>',
+    unsafe_allow_html=True)
+
+# ---- momentum radar -------------------------------------------------------
+try:
+    import sectors as SEC
+    rad = SEC.radar(pts, bars, dates)
+    cls = {"UPTREND": "b-up", "DOWNTREND": "b-dn", "DAY-HIGH REVERSAL": "b-turn",
+           "BOUNCING OFF LOW": "b-bnc", "FLAT": "b-none"}
+    chips = []
+    for state in ("DAY-HIGH REVERSAL", "BOUNCING OFF LOW", "UPTREND", "DOWNTREND", "FLAT"):
+        n = rad["counts"].get(state, 0)
+        if not n:
+            continue
+        ex = rad["examples"].get(state)
+        who = f' &nbsp;<span style="opacity:.75">{ex[0]}</span>' if ex else ""
+        chips.append(f'<span class="badge {cls[state]}">{state} {n}{who}</span>')
+    st.markdown("**Momentum radar**")
+    if chips:
+        st.markdown(" ".join(chips), unsafe_allow_html=True)
+    if rad["unjudged"]:
+        st.caption(f"{rad['unjudged']} naam judge nahi ho paye — day-high reversal aur "
+                   f"bounce ke liye intraday bars chahiye. Daily candle par is sawal ka "
+                   f"jawab hota hi nahi, isliye khaali chhoda hai, zero nahi bhara.")
+except Exception as e:      # noqa
+    st.caption(f"radar nahi bana: {e}")
+
+# ---- sector heatmap -------------------------------------------------------
+st.markdown("**Sector heatmap — blended strength**")
+try:
+    hm = SEC.heatmap()
+    if not hm:
+        miss = SEC.unresolved()
+        st.caption("Sector feed se kuch nahi aaya (token nahi / market band). "
+                   "Khaali dikha raha hoon — zero se bhar dena jhooth hota, kyunki "
+                   "0.00% ka matlab 'nahi badla' hai, 'pata nahi' nahi."
+                   + (f"  Resolve nahi hue: {', '.join(miss)}." if miss else ""))
+    else:
+        span = max(abs(r["pct"]) for r in hm) or 1.0
+        cols = st.columns(2)
+        for i, r in enumerate(hm):
+            f = min(1.0, abs(r["pct"]) / span)
+            if r["pct"] > 0:
+                bg = f"rgba(63,185,80,{0.10 + 0.30*f})"; fg = "#56d364"
+            elif r["pct"] < 0:
+                bg = f"rgba(248,81,73,{0.10 + 0.30*f})"; fg = "#ff7b72"
+            else:
+                bg = "#161b22"; fg = "#8b949e"
+            tagc = "#56d364" if r["tag"] == "LEADER" else "#e3b341"
+            cols[i % 2].markdown(
+                f'<div class="hm" style="background:{bg}">'
+                f'<div class="hm-r">#{r["rank"]}</div>'
+                f'<div class="hm-n">{r["name"]}</div>'
+                f'<div class="hm-p" style="color:{fg}">{r["pct"]:+.2f}%</div>'
+                + (f'<div class="hm-t" style="color:{tagc}">{r["tag"]}</div>'
+                   if r["tag"] else "")
+                + '</div>', unsafe_allow_html=True)
+        if SEC.unresolved():
+            st.caption("Ye sector resolve nahi hue aur heatmap mein nahi hain: "
+                       + ", ".join(SEC.unresolved()))
+    st.caption("Sector strength context hai, signal nahi — iska koi backtest nahi hai. "
+               "Entry phir bhi tested gates se aati hai.")
+except Exception as e:      # noqa
+    st.caption(f"heatmap nahi bana: {e}")
+
 # ================================================================== maahol ==
 st.markdown('<div class="sec">Maahol — is the tape worth trading</div>', unsafe_allow_html=True)
 if reg:
@@ -306,6 +424,59 @@ else:
         if w:
             st.warning(w)
     st.caption(card["entry_note"])
+
+# ------------------------------------------------------------- trade cards --
+# The reference lists every candidate as a card: side, grade, E / SL / T1 / T2 / T3, and
+# the running points. Two deliberate differences.
+#   SIDE   is LONG only. This system buys CE on tested long momentum. A SHORT card would
+#          mean buying PE on a rule that was never walk-forward tested, and a card is an
+#          instruction - printing one for an untested side is how it gets taken.
+#   T3     is 2R, computed from THIS card's own risk (entry - stop), not a fixed number.
+if longs:
+    st.markdown('<div class="sec">Trade cards — har candidate, poora plan</div>',
+                unsafe_allow_html=True)
+    try:
+        import scorecard as SC
+
+        def grade(total):
+            return ("A+" if total >= 9 else "A" if total >= 7
+                    else "B" if total >= 5 else "C")
+
+        for p in longs[:8]:
+            c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
+                              expiry_label="—",
+                              days_to_expiry=TC.min_days_for_thesis(),
+                              capital=float(getattr(config, "CAPITAL", 200000)))
+            stk = c["stock"]
+            e, sl = stk.get("entry") or c["spot"], stk["stop"]
+            r = max(0.01, e - sl)
+            t3 = round(e + 2 * r, 2)
+            now_px = p.get("close") or e
+            pts_now = now_px - e
+            s = SC.score(p)
+            g = grade(s["total"])
+            gcol = {"A+": "#3fb950", "A": "#56d364", "B": "#d29922"}.get(g, "#8b949e")
+            pcol = "#56d364" if pts_now >= 0 else "#ff7b72"
+            st.markdown(
+                f'<div class="card" style="border-left-color:{gcol}">'
+                f'<div class="card-h"><span class="side">LONG · CE</span>'
+                f'<span class="card-n">{c["name"]}</span>'
+                f'<span class="grade" style="color:{gcol}">★ {g} &nbsp;'
+                f'{s["total"]}/{s["of"]}</span></div>'
+                f'<div class="lv">'
+                f'<div><b>E</b>{e}</div>'
+                f'<div><b>SL</b><span style="color:#ff7b72">{sl}</span></div>'
+                f'<div><b>T1</b><span style="color:#56d364">{stk["t1"]}</span></div>'
+                f'<div><b>T2</b><span style="color:#56d364">{stk["t2"]}</span></div>'
+                f'<div><b>T3 · 2R</b><span style="color:#56d364">{t3}</span></div>'
+                f'<div><b>R</b>{r:.2f}</div>'
+                f'<div><b>Pts ab</b><span style="color:{pcol}">{pts_now:+.2f}</span></div>'
+                f'</div></div>', unsafe_allow_html=True)
+        st.caption("Sirf LONG · CE. SHORT card banane ka matlab hota PE ka rule jo kabhi "
+                   "test hi nahi hua — aur card ek instruction hai, wo le liya jaata hai. "
+                   "**Pts ab** = abhi ka spot minus entry, premium nahi.")
+    except Exception as e:      # noqa
+        st.caption(f"cards nahi bane: {e}")
 
 # =================================================================== chart ==
 st.markdown('<div class="sec">Chart — levels, and how often they held</div>',

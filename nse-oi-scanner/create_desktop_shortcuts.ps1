@@ -111,6 +111,7 @@ New-Shortcut $tools "Find Best Setup"     "run_sweep.bat"       "%SystemRoot%\Sy
 New-Shortcut $tools "Ablation test"       "run_hypothesis.bat"  "%SystemRoot%\System32\shell32.dll" 24  "Har filter ki asli keemat - isi ne RRG ko kaata"
 New-Shortcut $tools "Robustness Test"     "run_robustness.bat"  "%SystemRoot%\System32\shell32.dll" 166 "Edge ko DISPROVE karne ki koshish"
 New-Shortcut $tools "Journal"             "run_journal.bat"     "%SystemRoot%\System32\shell32.dll" 47  "Purane signals grade karo"
+New-Shortcut $tools "Sector feed probe" "run_sectors.bat"     "%SystemRoot%\System32\shell32.dll" 18  "Kaunse index symbols resolve hote hain"
 New-Shortcut $tools "Watchlist (Q1)"      "run_watchlist.bat"   "%SystemRoot%\System32\shell32.dll" 70  "Q1 list mein se kaunse F&O mein hain"
 New-Shortcut $tools "Lot Audit"           "run_lot_audit.bat"   "%SystemRoot%\System32\shell32.dll" 77  "Har naam ka lot check"
 New-Shortcut $tools "Expiry Check"        "run_expiry_check.bat" "%SystemRoot%\System32\shell32.dll" 137 "Kaunsi expiry sasti"

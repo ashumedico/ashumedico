@@ -144,5 +144,65 @@ else:
     print(f"   ok - booked {b['qty']} @ {b['premium']} + rest @ {t['premium_out']}, "
           f"net Rs {t['pnl']:+,}")
 
+# ---------- 5. momentum radar only answers what the bars can answer ----------
+print("\n5. MOMENTUM RADAR  (day-high / day-low turns need intraday bars)")
+import sectors as SEC
+
+
+def _bars(seq):
+    """seq of (o,h,l,c) -> the [epoch,o,h,l,c,v] rows the rest of the system uses."""
+    return [[i, o, h, l, c, 1000] for i, (o, h, l, c) in enumerate(seq)]
+
+
+TODAY, YEST = "2026-07-31", "2026-07-30"
+
+# rose to 110, then came off to 106 - a day-high reversal
+rev = _bars([(100, 101, 99, 100), (100, 104, 100, 103), (103, 110, 102, 109),
+             (109, 110, 106, 106), (106, 107, 105, 106)])
+d_rev = [YEST] + [TODAY] * 4
+got = SEC.classify(rev, d_rev, {"trend_struct": "HH-HL"})
+print(f"   high 110 -> 106      : {got}")
+if got != "DAY-HIGH REVERSAL":
+    print("   *** turn off the day high not detected ***"); fail += 1
+else:
+    print("   ok - reversal seen, and it outranks the plain uptrend read")
+
+# fell to 90, then bounced to 95
+bnc = _bars([(100, 101, 99, 100), (100, 100, 95, 96), (96, 96, 90, 91),
+             (91, 95, 90, 95), (95, 96, 94, 95)])
+got = SEC.classify(bnc, d_rev, {"trend_struct": "LH-LL"})
+print(f"   low 90 -> 95         : {got}")
+if got != "BOUNCING OFF LOW":
+    print("   *** bounce off the day low not detected ***"); fail += 1
+else:
+    print("   ok - bounce seen")
+
+# no dates: the session cannot be located, so neither turn can be claimed
+got = SEC.classify(rev, [], {"trend_struct": "HH-HL"})
+print(f"   bina dates           : {got}")
+if got != "UPTREND":
+    print("   *** claimed a turn it could not measure ***"); fail += 1
+else:
+    print("   ok - falls back to the trend read, does not invent a turn")
+
+# nothing at all to judge on
+got = SEC.classify([], [], {})
+if got is not None:
+    print(f"   *** judged an empty name as {got} ***"); fail += 1
+else:
+    print("   ok - no bars, no verdict (None, not FLAT)")
+
+# and the radar must COUNT what it could not judge, never hide it
+pts = [{"name": "A", "symbol": "NSE:A-EQ", "abs_pct": 2.0,
+        "feat": {"trend_struct": "HH-HL"}},
+       {"name": "B", "symbol": "NSE:B-EQ", "abs_pct": -1.0, "feat": {}}]
+r = SEC.radar(pts, {"NSE:A-EQ": rev}, d_rev)
+print(f"   radar                : judged={r['judged']} unjudged={r['unjudged']} "
+      f"{r['counts']}")
+if r["unjudged"] != 1 or r["judged"] != 1:
+    print("   *** unjudged names not reported ***"); fail += 1
+else:
+    print("   ok - the name with no bars is counted as unjudged, not as calm")
+
 print("\n" + ("  ALL INTRADAY CHECKS PASS" if not fail else f"  {fail} CHECK(S) FAILED"))
 sys.exit(1 if fail else 0)
