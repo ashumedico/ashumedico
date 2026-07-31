@@ -43,9 +43,9 @@ def at(bars, dates, t=None, rvol_win=20, sr_lookback=60):
 
     vw = I.vwap_session(hist, d)
     rv = I.rvol(hist, rvol_win)
-    cc = I.cci(hist)
-    st = I.supertrend(hist)
     a = I.atr(hist)
+    sq = I.squeeze(hist)
+    ex = I.expansion(hist)
 
     f = {
         "close": px,
@@ -57,9 +57,12 @@ def at(bars, dates, t=None, rvol_win=20, sr_lookback=60):
         # Volume, relative to the name's own norm - absolute volume says more about the
         # stock's size than about today.
         "rvol": round(rv[-1], 2),
-        "cci": round(cc[-1], 1),
-        "supertrend": st[-1],
         "atr": round(a[-1], 2),
+        # Compression, and the bar it releases. The closest measurable thing to entering
+        # before a move rather than five bars into one.
+        "squeeze": round(sq[-1], 2),
+        "coiled": sq[-1] < 0.7,
+        "expanding": bool(ex[-1]),
     }
 
     # --- support / resistance and price action, from the module that already had them ---
@@ -141,8 +144,12 @@ def passes(p, params):
         # continuation too, and it is the opposite trade
         if not f or (f.get("cont_up") or 0) < int(params["min_cont"]):
             return False
-    if params.get("need_supertrend"):
-        if not f or (f.get("supertrend") or 0) <= 0:
+    if params.get("need_expansion"):
+        # the bar a coil breaks - the entry bar, not the fifth bar of a move
+        if not f or not f.get("expanding"):
+            return False
+    if params.get("max_squeeze"):
+        if not f or (f.get("squeeze") or 99) > float(params["max_squeeze"]):
             return False
     return True
 
@@ -152,8 +159,9 @@ if __name__ == "__main__":
     f = at(bars, dates)
     print("\n  FEATURES (synthetic bars - mechanics only)")
     print("  " + "-" * 54)
-    for k in ("close", "vwap", "above_vwap", "vwap_dist_pct", "rvol", "cci",
-              "supertrend", "atr", "r1", "s1", "to_resistance_atr", "to_support_atr",
+    for k in ("close", "vwap", "above_vwap", "vwap_dist_pct", "rvol", "atr",
+              "squeeze", "coiled", "expanding",
+              "r1", "s1", "to_resistance_atr", "to_support_atr",
               "room_up", "cont_dir", "cont_up", "breakout", "trend_struct",
               "feature_error"):
         if k in f:
@@ -161,6 +169,7 @@ if __name__ == "__main__":
     print("  " + "-" * 54)
     for params in ({"need_vwap": True}, {"min_rvol": 1.5}, {"need_room": True},
                    {"need_breakout": True}, {"min_cont": 3},
+                   {"need_expansion": True}, {"max_squeeze": 0.7},
                    {"need_vwap": True, "min_rvol": 1.2}):
         print(f"  {str(params):<38} -> {passes({'feat': f}, params)}")
     print(f"  {'features missing entirely':<38} -> {passes({}, {'need_vwap': True})}"

@@ -67,9 +67,17 @@ def strike_step(price):
     return 2.5
 
 
-def pick_strike(spot, direction, moneyness="ITM1"):
-    """Slightly IN-the-money is the sweet spot for a swing: delta ~0.6 so it tracks the
-    stock, and far less of the premium is pure time-decay than an OTM lottery ticket."""
+def pick_strike(spot, direction, moneyness=None):
+    """ATM by default, because the goal is catching momentum, not tracking a stock.
+
+    Slightly in-the-money has a higher delta and is the right choice for a position you
+    intend to hold. For a burst you want GAMMA - how fast delta grows as the move runs -
+    and that peaks at the money. ATM also costs less, so the same rupees buy more
+    contract, and it is where the volume is, which is where the spread is tightest.
+
+    Set MONEYNESS in config to override.
+    """
+    moneyness = moneyness or getattr(config, "MONEYNESS", "ATM")
     step = strike_step(spot)
     atm = round(spot / step) * step
     if moneyness == "ATM":
@@ -211,7 +219,7 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
 
     # ---- the option leg ----
     if instrument == "OPTION":
-        strike = pick_strike(spot, direction, "ITM1")
+        strike = pick_strike(spot, direction)
         ch_strike, ch_prem, ch_sym = option_from_chain(chain, strike, direction)
         # Sanity-gate the chain before trusting it. A slightly-in-the-money call is worth
         # its intrinsic plus a few percent of spot; a quote approaching the share price
@@ -242,7 +250,8 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         if days_to_expiry < need_days:
             expiry_warning = (f"expiry only {days_to_expiry}d away but this thesis needs "
                               f"~{need_days}d - roll to the next series")
-        delta = 0.60                            # slightly-ITM working assumption
+        # Delta follows the strike actually chosen: ~0.5 at the money, ~0.6 one strike in.
+        delta = 0.50 if getattr(config, "MONEYNESS", "ATM") == "ATM" else 0.60
         opt_stop = round(max(premium - delta * (spot - stop_px), premium * 0.55), 1)
         opt_t1   = round(premium + delta * (t1_px - spot), 1)
         opt_t2   = round(premium + delta * (t2_px - spot), 1)
