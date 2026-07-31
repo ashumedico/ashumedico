@@ -119,10 +119,27 @@ REJECTIONS = {
     -15: ("token", "Token invalid ho gaya. Fyers app ki settings badalne se - jaise IP\n"
                    "     whitelist add karne se - purane token revoke ho jaate hain.\n"
                    "     '1 - Fyers Login' chala ke naya le le."),
-    -99: ("token", "Token expire ho gaya - '1 - Fyers Login' chala."),
     -392: ("market band", "Market band hai ya us contract mein trading nahi ho rahi."),
     -201: ("margin", "Broker ne margin ki wajah se roka - funds check kar."),
 }
+
+# Fyers reuses -99 for almost any order rejection, so the code alone is not the diagnosis.
+# Mapping it to "token expired" told him to log in again when the account simply had no
+# funds - a wrong explanation is worse than none, because it sends him somewhere useless.
+# The message text is what actually distinguishes these.
+BY_MESSAGE = [
+    ("margin shortfall", "margin",
+     "Account mein paisa nahi hai. Message mein likha hai kitna chahiye aur kitna hai.\n"
+     "     Funds daal ke dobara chala."),
+    ("insufficient", "margin", "Funds kam hain - message mein amount likha hai."),
+    ("valid token", "token",
+     "Token invalid. Fyers app ki settings badalne se purane token revoke ho jaate hain.\n"
+     "     '1 - Fyers Login' chala."),
+    ("whitelisted ip", "IP whitelist",
+     "myapi.fyers.in -> app edit -> jo IP message mein hai wo whitelist mein daal."),
+    ("market is closed", "market band", "Market band hai."),
+    ("rms", "risk", "Broker ke RMS ne roka - message padh, wahi wajah likhi hai."),
+]
 
 
 def explain_rejection(r):
@@ -131,6 +148,11 @@ def explain_rejection(r):
         return str(r)[:300]
     code = r.get("code")
     msg = str(r.get("message") or r)[:250]
+    low = msg.lower()
+    # message first - it is specific where the code is not
+    for needle, label, hint in BY_MESSAGE:
+        if needle in low:
+            return f"{msg}\n  -> [{label}] {hint}"
     hint = REJECTIONS.get(code)
     if hint:
         return f"{msg}\n  -> [{hint[0]}] {hint[1]}"
