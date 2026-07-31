@@ -33,13 +33,27 @@ except ImportError:
 
 # ---------------- volatility ----------------
 def realised_vol(closes, n=20):
-    """Daily volatility in PRICE terms (a practical ATR proxy from closes)."""
+    """Volatility in PRICE terms, per BAR of whatever series is passed in.
+
+    On daily closes this is daily vol. On 15-minute closes it is 15-minute vol - roughly
+    a fifth of the daily number. Stops and targets want this bar-level figure, because
+    they live on the same chart as the signal. Anything that reasons in CALENDAR time -
+    option premium, time decay - must convert first via bar_to_daily_vol below, or it
+    will price a month of time using five hours of movement."""
     if len(closes) < n + 2:
         return closes[-1] * 0.02 if closes else 0.0
     rets = [closes[i] / closes[i - 1] - 1 for i in range(len(closes) - n, len(closes))]
     m = sum(rets) / len(rets)
     sd = (sum((r - m) ** 2 for r in rets) / len(rets)) ** 0.5
     return closes[-1] * sd
+
+
+def bar_to_daily_vol(vol_bar, bar_minutes=None):
+    """Scale per-bar volatility up to per-day. Vol grows with the square root of time."""
+    bm = float(bar_minutes if bar_minutes is not None
+               else getattr(config, "BAR_MINUTES", SESSION_MINUTES))
+    bars_per_day = max(SESSION_MINUTES / bm, 1.0)
+    return vol_bar * (bars_per_day ** 0.5)
 
 
 # ---------------- option selection ----------------
@@ -177,7 +191,11 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             strike, premium = ch_strike, ch_prem
             prem_src = "live chain"
         else:
-            premium = premium_estimate(spot, strike, direction, vol, days_to_expiry)
+            # premium_estimate reasons in CALENDAR days, so it needs daily vol - handing
+            # it the 15-minute figure would price a month of time value off five hours
+            # of movement and understate the premium several-fold
+            premium = premium_estimate(spot, strike, direction,
+                                       bar_to_daily_vol(vol), days_to_expiry)
             prem_src = "estimated"
         # refuse an expiry too close to carry the trade
         need_days = min_days_for_thesis()
@@ -280,14 +298,25 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
          f"stock {t2_px}" + (f"  |  premium {o['t2']}" if o else "") + f"   (R:R {rr2})"),
         ("INVALIDATE (rotation)",
          "exit next open if RRG crosses into Weakening/Lagging or the own-trend flips down"),
-        ("TIME OUT",
-         "if it hasn't cleared T1 in 10 sessions, close it — dead money is a cost"),
+        ("TIME OUT", _timeout_rule()),
     ]
     if o:
         card["rules"].append(("EXPIRY RULE",
                              "square off 3 sessions before expiry, or roll to next series — "
                              "never hold a long option into the theta cliff"))
     return card
+
+
+def _timeout_rule(hold_bars=None, bar_minutes=None):
+    """Dead money is a cost - but "10 sessions" is meaningless on a 15-minute chart.
+    State the timeout in the unit the trade is actually measured in."""
+    hb = int(hold_bars if hold_bars is not None else getattr(config, "HOLD_BARS", 10))
+    d = hold_days(hb, bar_minutes)
+    if d < 1:
+        return (f"if T1 hasn't printed in {hb} bars (~{d*375/60:.1f} hrs), close it — "
+                f"an intraday thesis that needs a second day was wrong about the day")
+    return (f"if T1 hasn't printed in {hb} bars (~{d:.0f} sessions), close it — "
+            f"dead money is a cost")
 
 
 def render(card):

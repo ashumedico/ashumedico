@@ -86,6 +86,17 @@ def _pct(a, b):
     return (a / b - 1) * 100 if b else 0.0
 
 
+def _stale_after():
+    """When a held position counts as dead money, in DAYS.
+
+    A flat 25 days was a swing number. An intraday trade that is still open days later is
+    not patient, it is a trade that stopped being the trade that was taken - and he does
+    carry sometimes, so the answer is a small number of days, not zero."""
+    import trade_card as TC
+    d = TC.hold_days()
+    return max(2, int(d * 2.5)) if d < 1 else max(5, int(d * 2.5))
+
+
 # ---------------- the three questions ----------------
 def review_open(bk, quotes):
     """Question 1: what to do with what he already holds."""
@@ -123,8 +134,9 @@ def review_open(bk, quotes):
         elif p.get("stop") and ltp <= p["stop"]:
             verdict, why = f"{R}>> NIKAL JA{X}", f"stop {p['stop']} toot gaya - thesis galat, average mat kar"
             actions.append(("SELL ALL", p, ltp))
-        elif held_days >= 25:
-            verdict, why = f"{Y}>> BAND KAR{X}", f"{held_days} din ho gaye, kuch nahi hua - dead money"
+        elif held_days >= _stale_after():
+            verdict, why = (f"{Y}>> BAND KAR{X}",
+                            f"{held_days} din ho gaye, kuch nahi hua - dead money")
             actions.append(("SELL ALL", p, ltp))
         else:
             nxt = p.get("t1") if not p.get("half_booked") else p.get("t2")
@@ -348,7 +360,20 @@ def main():
     # is exactly the mistake RRG was.
     try:
         import market_regime as MR
-        reg = MR.Regime(prices, bench).at(len(bench))
+        if bm < 375 and not a.demo:
+            # An intraday pull of 400 bars is about 16 sessions - nowhere near the ~120
+            # a volatility norm or a 50-period trend needs, so folding it to sessions
+            # correctly returns UNKNOWN. One extra DAILY call for the index alone fixes
+            # three of the four channels for the cost of a single request. Breadth needs
+            # the whole universe daily, which is a multi-minute pull, so it is left out
+            # rather than paid for on every check-in.
+            _p, dbench, _dd = E.fetch_history([], days=250, resolution="D")
+            reg = MR.Regime({}, dbench).at(len(dbench))
+        else:
+            # dates lets Regime fold intraday bars into sessions - a 50-BAR index trend
+            # on a 15-minute chart is two days, which is not a regime
+            reg = MR.Regime(prices, bench,
+                            dates=getattr(E, "LAST_DATES", None)).at(len(bench))
         rcol = {"RISK-ON": G, "NEUTRAL": Y, "RISK-OFF": R}.get(reg["state"], DIM)
         bits = []
         if reg.get("breadth") is not None:

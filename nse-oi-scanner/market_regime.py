@@ -81,11 +81,54 @@ def breadth_series(prices, fast=20, slow=50):
     return [(up[t] / tot[t]) if tot[t] else None for t in range(T)]
 
 
+def to_daily(series, dates):
+    """Collapse intraday bars to one close per session (the last bar of each date)."""
+    if not dates or len(dates) != len(series):
+        return series
+    out, cur = [], None
+    for v, d in zip(series, dates):
+        if d != cur:
+            out.append(v)
+            cur = d
+        else:
+            out[-1] = v
+    return out
+
+
 class Regime:
-    """Precomputed regime context. Build once, query at any bar."""
+    """Precomputed regime context. Build once, query at any bar.
+
+    REGIME IS ALWAYS MEASURED ON DAILY BARS, whatever the signal runs on. This is not a
+    convenience: the windows here mean things - a 50-period trend, a 60-period drawdown,
+    a 120-period volatility norm. On a 15-minute chart those are two days, two days and a
+    week, which is not a regime, it is noise wearing a regime's name. Pass `dates` (one
+    per bar, as fetch_history returns) and intraday input is folded to sessions first.
+
+    When folding, a query at intraday bar t is answered from the last COMPLETED session.
+    Today's daily close is not knowable while today is still trading, and using it would
+    put tomorrow's information into today's decision.
+    """
 
     def __init__(self, prices, bench, vix=None, fast=20, slow=50,
-                 vol_win=20, dd_win=60, norm_win=120):
+                 vol_win=20, dd_win=60, norm_win=120, dates=None):
+        self.map = None
+        if dates and len(dates) == len(bench):
+            daily_bench = to_daily(bench, dates)
+            if len(daily_bench) < len(bench):          # input really was intraday
+                # bar t -> index of the last session that had already CLOSED at bar t
+                seen, idx = {}, []
+                order = []
+                for d in dates:
+                    if d not in seen:
+                        seen[d] = len(order)
+                        order.append(d)
+                    idx.append(seen[d])
+                self.map = [i - 1 for i in idx]        # -1 = today's session excluded
+                bench = daily_bench
+                prices = {k: to_daily(v, dates) for k, v in prices.items()
+                          if len(v) == len(dates)}
+                if vix:
+                    vix = to_daily(vix, dates)
         self.bench = bench
         self.vix = vix
         self.fast, self.slow = fast, slow
@@ -93,6 +136,13 @@ class Regime:
         self.breadth = breadth_series(prices, fast, slow)
         self.ef = ema(bench, fast)
         self.es = ema(bench, slow)
+
+    def _t(self, t):
+        """Translate a caller's bar index into this object's (possibly daily) index."""
+        if self.map is None:
+            return t
+        i = max(0, min(t, len(self.map)) - 1)
+        return max(0, self.map[i] + 1)                 # +1 = exclusive end, as elsewhere
 
     # ---- individual channels, each strictly backward-looking ----
     def trend_ok(self, t):
@@ -144,6 +194,7 @@ class Regime:
 
     # ---- the verdict ----
     def at(self, t, floor=0.40, vol_cap=1.6, dd_cap=0.07, vix_cap=1.35):
+        t = self._t(t)
         checks = {
             "trend": self.trend_ok(t),
             "breadth": self.breadth_ok(t, floor),
