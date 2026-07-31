@@ -35,14 +35,26 @@ $folderName = "AASHISH TRADING OS"
 $folder     = Join-Path $desktop $folderName
 
 function New-Shortcut($dir, $name, $bat, $iconDll, $iconIdx, $desc) {
-    $lnk = $sh.CreateShortcut((Join-Path $dir "$name.lnk"))
-    $lnk.TargetPath       = (Join-Path $here $bat)
-    $lnk.WorkingDirectory = $here
-    $lnk.IconLocation     = "$iconDll,$iconIdx"
-    $lnk.Description      = $desc
-    $lnk.Save()
-    Write-Host "  [OK] $name"
+    # Windows forbids \ / : * ? " < > | in a filename. A "/" in a shortcut name is read as
+    # a folder separator and throws - which, with ErrorActionPreference=Stop, aborted the
+    # whole script and silently dropped every launcher after it, including the kill switch.
+    $safe = $name
+    foreach ($ch in @('\','/',':','*','?','"','<','>','|')) { $safe = $safe.Replace($ch, '-') }
+    try {
+        $lnk = $sh.CreateShortcut((Join-Path $dir "$safe.lnk"))
+        $lnk.TargetPath       = (Join-Path $here $bat)
+        $lnk.WorkingDirectory = $here
+        $lnk.IconLocation     = "$iconDll,$iconIdx"
+        $lnk.Description      = $desc
+        $lnk.Save()
+        Write-Host "  [OK] $safe"
+    } catch {
+        # One bad launcher must never cost the others - especially the kill switch.
+        Write-Host "  [!!] $safe  ->  $($_.Exception.Message)"
+        $script:failed = $script:failed + 1
+    }
 }
+$script:failed = 0
 
 # --- clean up every loose icon we have ever dropped on the Desktop ---
 $stale = @(
@@ -90,7 +102,7 @@ New-Shortcut $folder "9 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\S
 New-Shortcut $folder "10 - Lot Audit"       "run_lot_audit.bat"  "%SystemRoot%\System32\shell32.dll" 77  "Check every F&O lot size against its live price - wrong lot = wrong quantity"
 New-Shortcut $folder "11 - Expiry Check"    "run_expiry_check.bat" "%SystemRoot%\System32\shell32.dll" 137 "Kaunsi expiry sasti padti hai tere hold ke hisaab se"
 New-Shortcut $folder "SETUP - Telegram Alerts" "TELEGRAM-SETUP.bat" "%SystemRoot%\System32\shell32.dll" 12 "Ek baar: phone pe alert lagao jab T1/stop hit ho"
-New-Shortcut $folder "LIVE - arm / disarm" "LIVE-ARM.bat"       "%SystemRoot%\System32\shell32.dll" 48  "Asli order chalu/band - HAAN likhna padega"
+New-Shortcut $folder "LIVE - arm or disarm" "LIVE-ARM.bat"       "%SystemRoot%\System32\shell32.dll" 48  "Asli order chalu/band - HAAN likhna padega"
 New-Shortcut $folder "STOP - Kill Switch"   "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC: halt all trading immediately"
 
 # a shortcut straight to the code folder, handy for config.py edits
@@ -103,5 +115,6 @@ Write-Host ""
 Write-Host "================================================================"
 Write-Host "  Done. ONE folder on your Desktop:  $folderName"
 Write-Host "  Open it - everything is inside, numbered in running order."
+if ($script:failed -gt 0) { Write-Host "  [!!] $($script:failed) launcher(s) nahi bane - upar dekh." }
 Write-Host "  Roz:  bas  1 - START DAY  -  baaki sab khud chalu ho jayega."
 Write-Host "================================================================"
