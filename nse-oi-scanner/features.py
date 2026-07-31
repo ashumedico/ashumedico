@@ -86,12 +86,24 @@ def at(bars, dates, t=None, rvol_win=20, sr_lookback=60):
             # Room: a long into overhead resistance has less to gain than the same
             # signal with clear air above it.
             f["room_up"] = (f["to_resistance_atr"] is None or f["to_resistance_atr"] > 1.0)
+            # The short book needs the same question asked downwards: a short into
+            # support has as little to gain as a long into resistance. Leaving this out
+            # is how a short book ends up unfiltered while the long book is gated.
+            f["room_down"] = (f["to_support_atr"] is None or f["to_support_atr"] > 1.0)
             # continuation() returns {dir, count, of}; keep the parts a filter can use
             # rather than the dict, which compares as neither a number nor a direction.
             c = CA.continuation(win) or {}
             f["cont_dir"] = c.get("dir")
             f["cont_up"] = c.get("count", 0) if c.get("dir") == "up" else 0
-            f["breakout"] = bool(r1 and CA.body_breakout(win[-1], r1))
+            f["cont_down"] = c.get("count", 0) if c.get("dir") == "down" else 0
+            bo = CA.body_breakout(win[-1], r1) if r1 else None
+            bd = CA.body_breakout(win[-1], s1) if s1 else None
+            f["breakout"] = bool(bo and bo.get("dir") == "up")
+            # A 60%-body candle closing DOWN through S1. body_breakout reports direction,
+            # and taking it as a plain boolean would let an up-candle through S1 count as
+            # a breakdown - the same class of bug that once let down-candles satisfy a
+            # long continuation filter.
+            f["breakdown"] = bool(bd and bd.get("dir") == "down")
             tr = CA.trend(win) or {}
             f["trend_struct"] = tr.get("combined") or tr.get("primary")
         except Exception as e:      # noqa
@@ -146,6 +158,43 @@ def passes(p, params):
             return False
     if params.get("need_expansion"):
         # the bar a coil breaks - the entry bar, not the fifth bar of a move
+        if not f or not f.get("expanding"):
+            return False
+    if params.get("max_squeeze"):
+        if not f or (f.get("squeeze") or 99) > float(params["max_squeeze"]):
+            return False
+    return True
+
+
+def passes_short(p, params):
+    """The same gate, every direction-bearing condition mirrored.
+
+    The long book was gated on VWAP, RVOL, room and expansion while the short book had no
+    feature gate at all. That is not a strategy choice, it is an omission: it makes the two
+    sides incomparable, and any backtest that puts them together is measuring a filtered
+    book against an unfiltered one.
+
+    Squeeze and RVOL are direction-free and are used unchanged. VWAP, room, continuation
+    and the body-break flip.
+    """
+    f = p.get("feat")
+    if params.get("need_vwap"):
+        # below VWAP for a short: sellers have been hitting bids all session
+        if not f or f.get("above_vwap") is not False:
+            return False
+    if params.get("min_rvol"):
+        if not f or (f.get("rvol") or 0) < float(params["min_rvol"]):
+            return False
+    if params.get("need_room"):
+        if not f or not f.get("room_down"):
+            return False
+    if params.get("need_breakout"):
+        if not f or not f.get("breakdown"):
+            return False
+    if params.get("min_cont"):
+        if not f or (f.get("cont_down") or 0) < int(params["min_cont"]):
+            return False
+    if params.get("need_expansion"):
         if not f or not f.get("expanding"):
             return False
     if params.get("max_squeeze"):

@@ -124,6 +124,14 @@ def _entry_ok_short(p, rule, params):
         return False                            # must be falling on its own too
     if params.get("need_buildup") and p.get("signal") not in ("SHORT BUILDUP", "LONG UNWINDING"):
         return False
+    # The mirrored feature gate. Without this the short book runs unfiltered while the
+    # long book is gated, and any comparison between the two sides is meaningless.
+    try:
+        import features as F
+        if not F.passes_short(p, params):
+            return False
+    except Exception:
+        pass
     return True
 
 
@@ -298,8 +306,13 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
                 picks += [(p, +1) for p in longs[:(slots // 2 if want_short else slots)]]
             if want_short:
                 taken = {p["name"] for p, _ in picks}
+                # ASCENDING. The rank is a bullishness score - higher is stronger - so
+                # sorting shorts the same way the longs are sorted put the STRONGEST name
+                # at the top of the short list and shorted it. Every earlier measurement
+                # of the short book was made through that, so "shorts do not work" was a
+                # statement about a broken short book, not about shorting.
                 shorts = sorted([p for p in pts if usable(p) and p["name"] not in taken
-                                 and _entry_ok_short(p, rule, params)], key=rank, reverse=True)
+                                 and _entry_ok_short(p, rule, params)], key=rank)
                 picks += [(p, -1) for p in shorts[:slots - len(picks)]]
             for p, d in picks[:slots]:
                 held[p["name"]] = {"entry_px": by_name[p["name"]][t - 1], "bars": 0, "dir": d}
@@ -525,8 +538,13 @@ def select(points, rule=None, params=None, max_pos=10, prices=None):
     longs = [p for p in points if _entry_ok(p, rule, params)]
     longs.sort(key=rank_key(rule, params, prices), reverse=True)
     exits = [p for p in points if _exit_ok(p, params)]
-    return {"longs": longs[:max_pos], "exits": exits, "rule": rule, "params": params,
-            "band": band}
+    # The short book was already in the backtest and reachable from nothing live. Ranked
+    # by the same key, inverted - the weakest name is the best short, and using the long
+    # ranking unchanged would have put the strongest name at the top of the short list.
+    shorts = [p for p in points if _entry_ok_short(p, rule, params)]
+    shorts.sort(key=rank_key(rule, params, prices))
+    return {"longs": longs[:max_pos], "shorts": shorts[:max_pos], "exits": exits,
+            "rule": rule, "params": params, "band": band}
 
 
 def main():

@@ -168,36 +168,53 @@ def min_days_for_thesis(hold_bars=None, bar_minutes=None, daily_vol_pct=None,
 
 
 def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
-               instrument="OPTION", capital=None, risk_pct=None, lot=None):
-    """point: an rrg_engine point dict. closes: that stock's close series."""
+               instrument="OPTION", capital=None, risk_pct=None, lot=None, side="LONG"):
+    """point: an rrg_engine point dict. closes: that stock's close series.
+
+    side="SHORT" builds the mirror: a PE, stop above, targets below, and the stretch test
+    inverted. Everything derived from the stop distance follows automatically, which is
+    the point of mirroring here rather than in the caller - a short card assembled at the
+    display layer would get the option maths from the long path and quietly price a put
+    off a call's stop.
+    """
     capital = float(capital if capital is not None else getattr(config, "CAPITAL", 500000))
     risk_pct = float(risk_pct if risk_pct is not None else getattr(config, "RISK_PCT", 0.005))
     spot = float(point.get("close") or closes[-1])
-    direction = "BULLISH"                      # RRG longs; short book is a separate mode
+    short = str(side).upper() == "SHORT"
+    direction = "BEARISH" if short else "BULLISH"
     vol = realised_vol(closes) or spot * 0.02
+    sgn = -1.0 if short else 1.0
 
     # ---- stock-level structure: stop 2x daily vol, targets at 3x and 6x ----
-    stop_px   = round(spot - 2.0 * vol, 2)
-    t1_px     = round(spot + 3.0 * vol, 2)
-    t2_px     = round(spot + 6.0 * vol, 2)
-    risk_pts  = max(spot - stop_px, 1e-9)
-    rr1 = round((t1_px - spot) / risk_pts, 2)
-    rr2 = round((t2_px - spot) / risk_pts, 2)
+    stop_px   = round(spot - sgn * 2.0 * vol, 2)
+    t1_px     = round(spot + sgn * 3.0 * vol, 2)
+    t2_px     = round(spot + sgn * 6.0 * vol, 2)
+    risk_pts  = max(abs(spot - stop_px), 1e-9)
+    rr1 = round(abs(t1_px - spot) / risk_pts, 2)
+    rr2 = round(abs(t2_px - spot) / risk_pts, 2)
 
     # ---- entry timing: chase or wait? ----
-    # extended = already far above the fast mean -> waiting for a pullback beats chasing
-    stretch = (spot - (sum(closes[-10:]) / 10)) / vol if len(closes) >= 10 else 0
-    if point.get("abs_trend", 0) <= 0:
-        action, entry_note = "SKIP", "own trend is not up — rotation alone is not enough"
+    # extended = already far from the fast mean IN THE TRADE'S DIRECTION -> waiting beats
+    # chasing. For a short that means far BELOW the mean, so the sign travels with it.
+    raw_stretch = (spot - (sum(closes[-10:]) / 10)) / vol if len(closes) >= 10 else 0
+    stretch = raw_stretch * sgn
+    trend = point.get("abs_trend", 0)
+    if (trend >= 0) if short else (trend <= 0):
+        action = "SKIP"
+        entry_note = ("own trend is not down — rotation alone is not enough" if short
+                      else "own trend is not up — rotation alone is not enough")
         limit_px = None
     elif stretch > 2.2:
         action = "WAIT FOR PULLBACK"
-        limit_px = round(spot - 0.8 * vol, 2)
-        entry_note = f"extended {stretch:.1f}x vol above its 10-day mean — bid {limit_px}, don't chase"
+        limit_px = round(spot + sgn * 0.8 * vol, 2)
+        entry_note = (f"extended {stretch:.1f}x vol "
+                      f"{'below' if short else 'above'} its 10-day mean — "
+                      f"{'offer' if short else 'bid'} {limit_px}, don't chase")
     else:
-        action = "BUY NOW"
-        limit_px = round(spot * 1.002, 2)      # small buffer so a market-ish limit fills
-        entry_note = f"in range ({stretch:+.1f}x vol from mean) — buy up to {limit_px}"
+        action = "BUY PE NOW" if short else "BUY NOW"
+        limit_px = round(spot * (0.998 if short else 1.002), 2)
+        entry_note = (f"in range ({stretch:+.1f}x vol from mean) — "
+                      f"{'sell down to' if short else 'buy up to'} {limit_px}")
 
     card = {
         "name": point["name"], "symbol": point.get("symbol"),
@@ -229,11 +246,16 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         # chain is checked rather than believed.
         prem_reject = None
         if ch_strike is not None and ch_prem is not None:
-            intrinsic = max(0.0, spot - ch_strike)
+            # A put's intrinsic is strike-minus-spot, not spot-minus-strike. Using the
+            # call formula for a PE makes every in-the-money put look absurdly overpriced
+            # and would get every real quote rejected as fake.
+            intrinsic = (max(0.0, ch_strike - spot) if short
+                         else max(0.0, spot - ch_strike))
             if ch_prem <= 0 or ch_prem > intrinsic + 0.25 * spot:
-                prem_reject = (f"chain quoted {ch_strike:g}CE at {ch_prem} against spot "
-                               f"{spot:.1f} (intrinsic {intrinsic:.1f}) - not a real "
-                               f"slightly-ITM premium; estimated instead")
+                prem_reject = (f"chain quoted {ch_strike:g}{'PE' if short else 'CE'} at "
+                               f"{ch_prem} against spot {spot:.1f} (intrinsic "
+                               f"{intrinsic:.1f}) - not a real slightly-ITM premium; "
+                               f"estimated instead")
         if ch_strike is not None and ch_prem is not None and prem_reject is None:
             strike, premium = ch_strike, ch_prem
             prem_src = "live chain"
@@ -252,9 +274,11 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
                               f"~{need_days}d - roll to the next series")
         # Delta follows the strike actually chosen: ~0.5 at the money, ~0.6 one strike in.
         delta = 0.50 if getattr(config, "MONEYNESS", "ATM") == "ATM" else 0.60
-        opt_stop = round(max(premium - delta * (spot - stop_px), premium * 0.55), 1)
-        opt_t1   = round(premium + delta * (t1_px - spot), 1)
-        opt_t2   = round(premium + delta * (t2_px - spot), 1)
+        # Distances, not signed differences: the premium of a put rises as the stock
+        # falls, so the same formula serves both sides once the direction is taken out.
+        opt_stop = round(max(premium - delta * abs(spot - stop_px), premium * 0.55), 1)
+        opt_t1   = round(premium + delta * abs(t1_px - spot), 1)
+        opt_t2   = round(premium + delta * abs(t2_px - spot), 1)
         card["option"] = {
             "type": "CE" if direction == "BULLISH" else "PE",
             "strike": strike, "expiry": expiry_label or "current",

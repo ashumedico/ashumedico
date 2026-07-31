@@ -442,27 +442,36 @@ if longs:
             return ("A+" if total >= 9 else "A" if total >= 7
                     else "B" if total >= 5 else "C")
 
-        for p in longs[:8]:
+        def render(p, is_short):
             c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
                               expiry_label="—",
                               days_to_expiry=TC.min_days_for_thesis(),
-                              capital=float(getattr(config, "CAPITAL", 200000)))
+                              capital=float(getattr(config, "CAPITAL", 200000)),
+                              side="SHORT" if is_short else "LONG")
             stk = c["stock"]
             e, sl = stk.get("entry") or c["spot"], stk["stop"]
-            r = max(0.01, e - sl)
-            t3 = round(e + 2 * r, 2)
+            # R is a distance. Signing it would make the short's T3 land above entry.
+            r = max(0.01, abs(e - sl))
+            t3 = round(e - 2 * r, 2) if is_short else round(e + 2 * r, 2)
             now_px = p.get("close") or e
-            pts_now = now_px - e
+            pts_now = (e - now_px) if is_short else (now_px - e)
             s = SC.score(p)
-            g = grade(s["total"])
+            # The scorecard is built from LONG conditions. On a short the same total means
+            # the opposite thing, so it is inverted rather than reused - a short showing
+            # "9/10 STRONG" because the stock is strong is the worst kind of wrong.
+            total = (s["of"] - s["total"]) if is_short else s["total"]
+            g = grade(total)
             gcol = {"A+": "#3fb950", "A": "#56d364", "B": "#d29922"}.get(g, "#8b949e")
             pcol = "#56d364" if pts_now >= 0 else "#ff7b72"
+            side_txt = "SHORT · PE" if is_short else "LONG · CE"
+            side_bg = ("background:#3d1519;color:#ff7b72" if is_short
+                       else "background:#0d2b18;color:#56d364")
             st.markdown(
                 f'<div class="card" style="border-left-color:{gcol}">'
-                f'<div class="card-h"><span class="side">LONG · CE</span>'
+                f'<div class="card-h"><span class="side" style="{side_bg}">{side_txt}</span>'
                 f'<span class="card-n">{c["name"]}</span>'
                 f'<span class="grade" style="color:{gcol}">★ {g} &nbsp;'
-                f'{s["total"]}/{s["of"]}</span></div>'
+                f'{total}/{s["of"]}</span></div>'
                 f'<div class="lv">'
                 f'<div><b>E</b>{e}</div>'
                 f'<div><b>SL</b><span style="color:#ff7b72">{sl}</span></div>'
@@ -472,9 +481,30 @@ if longs:
                 f'<div><b>R</b>{r:.2f}</div>'
                 f'<div><b>Pts ab</b><span style="color:{pcol}">{pts_now:+.2f}</span></div>'
                 f'</div></div>', unsafe_allow_html=True)
-        st.caption("Sirf LONG · CE. SHORT card banane ka matlab hota PE ka rule jo kabhi "
-                   "test hi nahi hua — aur card ek instruction hai, wo le liya jaata hai. "
-                   "**Pts ab** = abhi ka spot minus entry, premium nahi.")
+
+        cl, cr = st.columns(2)
+        with cl:
+            st.markdown("**LONG · CE**")
+            for p in longs[:6]:
+                render(p, False)
+        with cr:
+            st.markdown("**SHORT · PE**")
+            shorts = sel.get("shorts") or []
+            if not shorts:
+                st.caption("Aaj koi naam short rule pass nahi kar raha.")
+            for p in shorts[:6]:
+                render(p, True)
+
+        if not bool(getattr(config, "TRADE_SHORTS", False)):
+            st.warning(
+                "**SHORT cards dikh rahe hain, par engine unhe trade nahi karega.** "
+                "Short book ka mirror ban gaya aur test ho gaya (stop upar, PE, put "
+                "intrinsic, weakest-first ranking) — lekin uska *edge* abhi tere data pe "
+                "measure nahi hua. `Tools → Short book test` chala; agar number bane toh "
+                "`TRADE_SHORTS = True` kar dunga. Dekhna aur paisa lagana alag baat hai.")
+        st.caption("**Pts ab** = spot ka faasla entry se, us trade ki direction mein — "
+                   "premium nahi. Score short ke liye ulta hai: mazboot stock ka matlab "
+                   "kharab short.")
     except Exception as e:      # noqa
         st.caption(f"cards nahi bane: {e}")
 

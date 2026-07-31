@@ -36,6 +36,8 @@ KEYS = {
     "WATCH_SECONDS": (lambda v: str(int(v)),      "how often to check stops while holding"),
     "PRICE_MIN":     (lambda v: str(int(v)),      "ignore names cheaper than this (0 = off)"),
     "PRICE_MAX":     (lambda v: str(int(v)),      "ignore names dearer than this (0 = off)"),
+    "TRADE_SHORTS":  (lambda v: "True" if v else "False",
+                      "let the engine TAKE short (PE) trades, not just show them"),
 }
 
 # Credentials. Same safe writer, different door: these are strings, they are never

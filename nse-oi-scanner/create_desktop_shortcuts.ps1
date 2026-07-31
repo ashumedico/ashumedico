@@ -109,6 +109,7 @@ New-Shortcut $tools "Paper auto (setup)"  "SETUP-PAPER.bat"     "%SystemRoot%\Sy
 New-Shortcut $tools "Paper auto (stop)"   "STOP-PAPER.bat"      "%SystemRoot%\System32\shell32.dll" 109 "Roz-apne-aap band karo"
 New-Shortcut $tools "Find Best Setup"     "run_sweep.bat"       "%SystemRoot%\System32\shell32.dll" 21  "Walk-forward sweep"
 New-Shortcut $tools "Ablation test"       "run_hypothesis.bat"  "%SystemRoot%\System32\shell32.dll" 24  "Har filter ki asli keemat - isi ne RRG ko kaata"
+New-Shortcut $tools "Short book test"    "run_short_test.bat"  "%SystemRoot%\System32\shell32.dll" 168 "LONG vs SHORT vs BOTH - ek hi data pe"
 New-Shortcut $tools "Robustness Test"     "run_robustness.bat"  "%SystemRoot%\System32\shell32.dll" 166 "Edge ko DISPROVE karne ki koshish"
 New-Shortcut $tools "Journal"             "run_journal.bat"     "%SystemRoot%\System32\shell32.dll" 47  "Purane signals grade karo"
 New-Shortcut $tools "Sector feed probe" "run_sectors.bat"     "%SystemRoot%\System32\shell32.dll" 18  "Kaunse index symbols resolve hote hain"
