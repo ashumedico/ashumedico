@@ -15,6 +15,13 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
+echo   Config mein naye settings add kar raha hoon (purane values chhede bina)...
+echo.
+REM New releases add config keys. Without this the new code reads a key that is not there,
+REM falls back to a default, and behaves differently from what the screen says it is doing.
+python upgrade_config.py
+
+echo.
 echo   Icons refresh kar raha hoon...
 echo.
 powershell -ExecutionPolicy Bypass -File "%~dp0create_desktop_shortcuts.ps1"

@@ -49,8 +49,8 @@ python checkin.py
 echo.
 echo   ================================================================
 echo   Sab chalu hai. Paper trader alag window mein chal raha hai.
-echo   Trade le liya?  ->  "2a - LIYA"      Nikal gaya?  ->  "2b - NIKLA"
-echo   Score dekhna?   ->  "2c - PAPER TRADE"
+echo   Website dekhni?  ->  "3 - DESK"        Check-in?  ->  "2 - CHECK-IN"
+echo   Trade le liya?   ->  Tools\LIYA        Nikal gaya?  ->  Tools\NIKLA
 echo   ================================================================
 echo.
 pause

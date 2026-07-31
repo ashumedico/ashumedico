@@ -1,30 +1,34 @@
+# --- secrets and anything personal. This repo is PUBLIC. ---
 config.py
-access_token.txt
-oi_snapshot.json
-oi_baseline.json
-scanner.log
-signals_*.csv
-# runtime-generated output (the 4 demo charts ARE committed on purpose)
-charts/dash_*.png
-charts/rep_*.png
-report.html
-paper_book.json
-STOP_TRADING.txt
-fno_symbols.txt
-__pycache__/
-*.pyc
-cache/
-rrg_best_setup.json
-rrg_live.html
-charts/app_rrg.png
-journal.jsonl
-journal_report.md
-fno_lots.json
 config.py.bak-*
+access_token.txt
+
+# --- runtime state: the book, the positions, the orders ---
 positions.json
-alerts_sent.json
+paper_book.json
+paper_trades.json
+orders.jsonl
+journal.jsonl
+STOP_TRADING.txt
+logs/
+
+# --- generated reports and pages ---
+journal_report.md
 robustness_report.txt
 hypothesis_report.txt
-paper_trades.json
-logs/
+lot_audit.txt
 order.html
+
+# --- caches and market snapshots (refetched, never authoritative) ---
+cache/
+oi_snapshot.json
+oi_baseline.json
+fno_symbols.txt
+fno_lots.json
+rrg_best_setup.json
+alerts_sent.json
+signals_*.csv
+scanner.log
+
+__pycache__/
+*.pyc

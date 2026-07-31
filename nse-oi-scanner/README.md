@@ -7,8 +7,9 @@ want to dig.
 
 ## The daily loop (this is 95% of it)
 ```
-1 - Fyers Login     today's token
+1 - START DAY       token + lot check + paper trader + today's check-in
 2 - CHECK-IN        what to hold / book / buy - then leave
+3 - DESK            the website, when you want to look
 ```
 `checkin.py` answers three questions and gets out of the way: what to do with what you
 already hold, whether there is a new trade, and how the closed ones have gone. State
@@ -54,9 +55,19 @@ reached it — banner, ribbon, levels, all three scenario branches, disclaimer. 
 | `robustness.py` | Tries to **disprove** the edge: out-of-sample, cost sensitivity, regime, parameter stability |
 | `trade_card.py` | Candidate -> order ticket: which option, size, entry/stop/T1/T2, exit contract |
 | `journal.py` | Grades its own past calls, slices what works, prints KEEP/STOP lessons |
-| `risk_gate.py` · `execution.py` · `auto_trader.py` | 5-check risk gate, paper/live broker layer, hands-free loop |
-| `rrg_app.py` | The deep-dive cockpit (Streamlit) - RRG main window, action board, journal |
-| `scanner.py` · `option_chain.py` · `chart_action.py` · `signal_engine.py` | OI buildup, PCR/Max-Pain/walls, support-resistance, 3-layer confluence |
+| `paper.py` · `broker.py` | The hands-free loop: take/mark/close, bar-by-bar trailing, market-minute timeouts, and the Fyers order layer beside it |
+| `features.py` · `indicators.py` | Every candidate becomes one dict per bar: VWAP, RVOL, ATR, squeeze, expansion, R1/R2·S1/S2, continuation, breakout, structure |
+| `hypothesis.py` | The ablation - each filter turned off in turn, so a filter has to earn its place |
+| `desk.py` | The website (Streamlit): banner, ribbon, ticket, chart with levels, scenarios, paper score |
+| `scanner.py` · `option_chain.py` · `chart_action.py` | OI buildup, PCR/Max-Pain/walls, support-resistance, the 60%-body rule |
+| `charges.py` · `option_pnl.py` | Verified statutory rates, round-trip drag, breakeven move, DTE sweep |
+
+**Deleted, on purpose:** `signal_engine.py`, `report.py`, `charts.py`, `app.py`, `rrg_app.py`,
+`rrg_view.py`, `rrg.py`, `auto_trader.py`, `execution.py`, `risk_gate.py`. They were the
+previous generation - a three-idea desk that included a **future**, and sizing that came
+**out of the risk budget**. Both contradict decisions since made (options only; one lot,
+fixed). Code that contradicts the doctrine does not sit quietly in a folder; it gets opened
+by mistake at 9:20am.
 
 ## What the evidence says
 On 204 real F&O names over ~1.6 years, at the **positional** cadence (~monthly
@@ -83,39 +94,39 @@ is public - keep credentials and phone numbers out of tracked files.
 
 ---
 
-## v4.0 — the AUTO-TRADER (paper-first, Fyers-linked, risk-gated)
-A 24/7 automated engine that runs the whole pipeline and can place orders — **paper by
-default, live only when you deliberately arm it.**
+## The standing frame — decisions, not defaults
+| | |
+|---|---|
+| Instrument | **Options only.** Stock CE/PE. No futures. |
+| Style | **Intraday**, 15-minute candles |
+| Strike | **ATM** (delta ≈ 0.50) |
+| Size | **1 lot, fixed.** The risk budget is a **veto**, not a sizer |
+| Expiry | Near month; roll once the running series has **< 15 days** left |
+| Entry | The **first expansion bar** — the bar a coil breaks |
+| Exit | ATR stop, trailing from the high-water mark, **ratchet only**. Breakeven is a floor |
+| Mode | Paper and live together; live only when armed |
 
-```
-SCAN → RISK GATE → EXECUTE → MANAGE → HALT
-```
-- **`risk_gate.py`** — the hard 5-check gate (position size · exposure · drawdown · volatility ·
-  max-loss). Sizes every trade from *risk per trade*; any fail → **BLOCK**. Conservative preset:
-  **0.5%/trade, 2% daily stop.**
-- **`execution.py`** — broker layer. **Paper** simulates fills into `paper_book.json` and marks P&L.
-  **Live** calls the Fyers order API — but a real order fires *only* if **all** are true:
-  `LIVE_TRADING=True` · no kill-switch file · valid token · risk gate passed.
-- **`auto_trader.py`** — the loop: scans signals, gates + sizes, executes (paper/live), manages
-  exits (target/stop/invalidation/square-off), and **auto-halts** on the daily drawdown limit.
+Change them through `python configure.py` — it rewrites only the named keys and keeps a
+backup. Hand-editing `config.py` is how the system silently reverted to SWING once.
 
+## The auto-trader (paper-first, Fyers-linked)
 ```bash
-python auto_trader.py --dry-run     # one full cycle on synthetic signals (safe demo)
-python auto_trader.py --paper --loop # continuous PAPER trading on live signals
+python paper.py --session     # the loop: every candle, take / mark / trail / exit
+python paper.py               # just the score against what the backtest claimed
 ```
+`paper.py` runs the whole cycle and writes a paper record for every decision; when live is
+armed, `broker.py` places the same order at Fyers beside it. A real order fires **only** if
+`LIVE_TRADING=True` **and** no kill-switch file **and** a valid token **and** the risk gate
+passed. Exits are managed bar by bar: stop, T1 (half off, stop to breakeven *if that is
+higher than the trail*), T2, bar-count timeout, square-off.
 
-**Kill switch:** create `STOP_TRADING.txt` in the folder (or double-click **STOP-TRADING.bat**) →
-everything halts. **Going live** is a deliberate 3-step act (see the header of `auto_trader.py`):
-paper-prove it → set `LIVE_TRADING=True` + real `CAPITAL`/caps in `config.py` → fresh Fyers token.
-Two new desktop icons: **Auto-Trader (PAPER)** and **STOP Trading**.
-
-> Paper P&L in `--dry-run` is a plumbing demo (assumes exits tag targets), not a backtest.
-> Real fills/P&L come from live Fyers data. **You arm live trading; you own the outcome.**
+**Kill switch:** create `STOP_TRADING.txt` (or the **STOP - Kill Switch** icon) → everything
+halts. **You arm live trading; you own the outcome.**
 
 ## v2.1 — the derivatives picture completed
 Added the pieces a futures-only scanner was missing:
 - **`option_chain.py`** — PCR, **Max Pain**, Support/Resistance walls, **call/put-writing** detection,
-  strike-wise OI ladder. Wired into the dashboard. Run: `python option_chain.py --dry-run`.
+  strike-wise OI ladder. Run: `python option_chain.py --dry-run`.
 - **Volume confirmation** — buildup rows now flag `VOL✓` (OI up *with* rising volume = stronger).
 - **F&O ban-list filter** — `BAN_LIST` in config; banned underlyings are skipped (no fresh positions allowed).
 

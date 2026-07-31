@@ -105,7 +105,9 @@ New-Shortcut $tools "LIYA (bought)"       "BOUGHT.bat"          "%SystemRoot%\Sy
 New-Shortcut $tools "NIKLA (sold)"        "SOLD.bat"            "%SystemRoot%\System32\shell32.dll" 166 "Exit record karo"
 New-Shortcut $tools "Paper score"         "run_paper.bat"       "%SystemRoot%\System32\shell32.dll" 71  "Backtest ke against score"
 New-Shortcut $tools "Paper auto (setup)"  "SETUP-PAPER.bat"     "%SystemRoot%\System32\shell32.dll" 43  "Ek baar: roz apne aap"
+New-Shortcut $tools "Paper auto (stop)"   "STOP-PAPER.bat"      "%SystemRoot%\System32\shell32.dll" 109 "Roz-apne-aap band karo"
 New-Shortcut $tools "Find Best Setup"     "run_sweep.bat"       "%SystemRoot%\System32\shell32.dll" 21  "Walk-forward sweep"
+New-Shortcut $tools "Ablation test"       "run_hypothesis.bat"  "%SystemRoot%\System32\shell32.dll" 24  "Har filter ki asli keemat - isi ne RRG ko kaata"
 New-Shortcut $tools "Robustness Test"     "run_robustness.bat"  "%SystemRoot%\System32\shell32.dll" 166 "Edge ko DISPROVE karne ki koshish"
 New-Shortcut $tools "Journal"             "run_journal.bat"     "%SystemRoot%\System32\shell32.dll" 47  "Purane signals grade karo"
 New-Shortcut $tools "Lot Audit"           "run_lot_audit.bat"   "%SystemRoot%\System32\shell32.dll" 77  "Har naam ka lot check"
@@ -114,6 +116,7 @@ New-Shortcut $tools "Desk render test"    "run_desk_test.bat"   "%SystemRoot%\Sy
 New-Shortcut $tools "Telegram alerts"     "TELEGRAM-SETUP.bat"  "%SystemRoot%\System32\shell32.dll" 12  "Phone pe alert"
 New-Shortcut $tools "Secret update"       "SET-SECRET.bat"      "%SystemRoot%\System32\shell32.dll" 48  "Fyers secret badla toh"
 New-Shortcut $tools "MCP token"           "SET-FIA-TOKEN.bat"   "%SystemRoot%\System32\shell32.dll" 48  "Fyers MCP token"
+New-Shortcut $tools "First-time setup"    "FIRST-TIME-SETUP.bat" "%SystemRoot%\System32\shell32.dll" 45 "Naye computer pe zero se - clone + keys"
 
 # a shortcut straight to the code folder, handy for config.py edits
 $lnk = $sh.CreateShortcut((Join-Path $folder "Open code folder.lnk"))
