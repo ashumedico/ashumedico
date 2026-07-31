@@ -22,7 +22,7 @@ python checkin.py --sold GNFC --half --price 58   # booked half; stop moves to b
 ```
 
 ## When you are away
-`watchdog.py` pings Telegram (or SMS) **only when a decision is due** - T1 hit, T2 hit,
+`alert_watch.py` pings Telegram (or SMS) **only when a decision is due** - T1 hit, T2 hit,
 stop broken, or dead money. Silence is deliberate. Set it up once with
 **SETUP - Telegram Alerts**, which discovers your chat id itself and schedules the checks.
 

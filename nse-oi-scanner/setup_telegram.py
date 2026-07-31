@@ -120,8 +120,8 @@ def main():
 
     print("\n  Test message bhej raha hoon...")
     try:
-        import importlib, watchdog
-        importlib.reload(watchdog.config) if hasattr(watchdog, "config") else None
+        import importlib, alert_watch
+        importlib.reload(alert_watch.config) if hasattr(alert_watch, "config") else None
     except Exception:
         pass
     r = _api(token, "sendMessage", {
@@ -138,7 +138,7 @@ def main():
     print("  HO GAYA. Ab schedule lagane ke liye chala:")
     print("     SETUP-ALERTS.bat      (roz 12:30 aur 15:10 pe khud check karega)")
     print("  Ya khud kabhi bhi:")
-    print("     python watchdog.py")
+    print("     python alert_watch.py")
     print("=" * 66 + "\n")
     return 0
 

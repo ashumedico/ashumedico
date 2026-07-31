@@ -22,7 +22,7 @@ pause >nul
 
 echo.
 echo === Telegram test ===
-python watchdog.py --test
+python alert_watch.py --test
 echo.
 echo  Phone pe message aaya? agar NAHI to token/id dobara check karo.
 echo  Aaya? koi bhi key dabao - schedule laga deta hoon.
@@ -30,8 +30,8 @@ pause >nul
 
 echo.
 echo === Roz ka schedule laga raha hoon ===
-schtasks /Create /TN "AashishTradingWatchdog_Mid" /TR "cmd /c cd /d \"%~dp0\" && python watchdog.py" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 12:30 /F
-schtasks /Create /TN "AashishTradingWatchdog_Close" /TR "cmd /c cd /d \"%~dp0\" && python watchdog.py" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:10 /F
+schtasks /Create /TN "AashishTradingWatchdog_Mid" /TR "cmd /c cd /d \"%~dp0\" && python alert_watch.py" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 12:30 /F
+schtasks /Create /TN "AashishTradingWatchdog_Close" /TR "cmd /c cd /d \"%~dp0\" && python alert_watch.py" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:10 /F
 
 echo.
 echo ============================================================

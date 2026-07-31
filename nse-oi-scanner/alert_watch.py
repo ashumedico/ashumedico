@@ -1,5 +1,5 @@
 """
-watchdog.py  —  pings Telegram ONLY when you need to act. Otherwise stays silent.
+alert_watch.py  —  pings Telegram ONLY when you need to act. Otherwise stays silent.
 
 Aashish trades occasionally and leaves. The gap that costs real money is this: T1 gets
 hit on Tuesday, he checks on Friday, and the move is gone. The system knew - nobody
@@ -12,13 +12,17 @@ So this runs on a schedule and messages him only when a decision is due:
     dead money      -> 25 sessions and going nowhere, close it
     a fresh signal  -> only if he holds nothing and a new setup passed
 
-Silence is the feature. A watchdog that barks every day gets ignored, and then it barks
+NAMING: this file must NOT be called watchdog.py. That is the name of the PyPI package
+Streamlit imports for file-watching, and a local module of the same name shadows it -
+which crashed the Streamlit app with "cannot import name 'events' from 'watchdog'".
+
+Silence is the feature. A watcher that barks every day gets ignored, and then it barks
 on the day that mattered and gets ignored too. Every alert is de-duplicated per day, so
 the same T1 is never sent twice.
 
-    python watchdog.py            # check + alert if needed
-    python watchdog.py --test     # prove Telegram works
-    python watchdog.py --dry      # print what WOULD be sent, send nothing
+    python alert_watch.py            # check + alert if needed
+    python alert_watch.py --test     # prove Telegram works
+    python alert_watch.py --dry      # print what WOULD be sent, send nothing
 
 NOT financial advice.
 """
