@@ -351,6 +351,10 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
             "avg_exposure": round(sum(exposure) / len(exposure), 2) if exposure else 1.0,
             "win_rate": round(wins / len(closed_rs) * 100, 1) if closed_rs else 0,
             "years": round(years, 2), "low_sample": low_sample,
+            # every realised trade's STOCK return. The book is traded in options, so this
+            # is the input option_pnl.py needs to say what the trader would actually have
+            # been paid - the headline above is the underlying's move, not his P&L.
+            "trade_returns": [round(r, 6) for r in closed_rs],
             "equity": [round(e, 4) for e in equity]}
 
 

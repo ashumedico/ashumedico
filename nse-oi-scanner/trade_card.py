@@ -117,20 +117,34 @@ def hold_days(hold_bars=None, bar_minutes=None):
     return hb * bm / SESSION_MINUTES
 
 
-def min_days_for_thesis(hold_bars=None, bar_minutes=None):
-    """How much life the expiry must have left - and no more.
+def min_days_for_thesis(hold_bars=None, bar_minutes=None, daily_vol_pct=None,
+                        spread_pct=None):
+    """Which expiry the ticket should quote - chosen by arithmetic, not by feel.
 
-    Two failures, opposite directions. Too little time and the option dies before the
-    target prints. Too much and you pay for months of time value you will never use;
-    jumping a series out costs real premium, and on a small account that cost is the
-    whole edge. So: the NEAREST series that outlasts the intended hold.
+    The intuition that a short hold wants a near expiry is wrong, and expensively so. A
+    nearer option is cheaper and therefore more levered, but its decay per session is
+    savage; a further one costs premium and gives that leverage back. Neither effect wins
+    by default. What matters is the combination: how far must the STOCK move before the
+    option has paid for its own decay and spread. That number has a minimum, and for a
+    two-and-a-half-hour hold it sits nearer ten days than three - the 3-day answer this
+    function used to give needs roughly twice the move to break even.
 
-    On an intraday hold that resolves to a very small number, which is correct - the
-    near series is the cheapest and the most responsive. The floor of 3 days is not
-    about the thesis; it is that the last sessions before expiry are a different
-    instrument, where theta and gamma dominate whatever the chart said.
+    Falls back to the old bound if the optimiser is unavailable, so a missing module
+    degrades the answer rather than breaking the ticket.
     """
-    return max(3, int(hold_days(hold_bars, bar_minutes) * 1.4) + 2)
+    hd = hold_days(hold_bars, bar_minutes)
+    try:
+        import option_pnl as OP
+        rows = OP.dte_sweep(
+            hold_days=hd,
+            daily_vol=(daily_vol_pct if daily_vol_pct else 0.018),
+            delta=0.60,
+            spread_pct=(spread_pct if spread_pct is not None
+                        else getattr(config, "OPTION_SPREAD_PCT", 0.02)))
+        best = min(rows, key=lambda r: r["breakeven"])
+        return max(3, int(best["dte"]))
+    except Exception:
+        return max(3, int(hd * 1.4) + 2)
 
 
 def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
