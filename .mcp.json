@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "FIA-MCP": {
+      "url": "https://mcp.fyers.in/mcp",
+      "type": "sse",
+      "headers": {
+        "Authorization": "${FIA_TOKEN}"
+      }
+    }
+  }
+}
