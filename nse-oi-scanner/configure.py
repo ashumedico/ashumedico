@@ -91,6 +91,8 @@ def main():
                     help="roll to next month when the running one has fewer days left")
     ap.add_argument("--set-lot", action="append", metavar="NAME=LOT",
                     help="pin a lot size permanently, e.g. --set-lot SONACOMS=1225")
+    ap.add_argument("--secret", action="store_true",
+                    help="update SECRET_KEY (asks for it - never pass it on the command line)")
     a = ap.parse_args()
 
     updates = {}
@@ -111,6 +113,18 @@ def main():
         updates["LOTS_PER_TRADE"] = KEYS["LOTS_PER_TRADE"][0](a.lots_per_trade)
     if a.min_expiry_days is not None:
         updates["MIN_EXPIRY_DAYS"] = KEYS["MIN_EXPIRY_DAYS"][0](a.min_expiry_days)
+
+    # Secret is prompted, never taken as an argument: a command line ends up in shell
+    # history, in scrollback, and in any screenshot of the window.
+    if a.secret:
+        val = input("  Naya SECRET_KEY paste kar: ").strip()
+        if not val:
+            print("  Kuch nahi likha - kuch nahi badla.")
+            return
+        if not write({"SECRET_KEY": repr(val)}):
+            return
+        print("  SECRET_KEY update ho gaya. Ab dobara login kar: python fyers_auth.py")
+        return
 
     # A pinned lot beats anything parsed. The parser has been wrong twice, and this
     # number is checkable in seconds on NSE - so let it be stated once and stay stated.
