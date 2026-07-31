@@ -317,6 +317,16 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "risk_pct_of_capital": round(100 * risk_per_lot / capital, 1) if capital else None,
             "affordable_lots": int(capital // cost_per_lot) if cost_per_lot else 0,
         })
+        # Cross-check the outlay against the contract it controls. SEBI sizes a stock
+        # F&O lot so the contract is worth Rs 5-10 lakh, and a short-dated slightly-ITM
+        # call costs a few percent of that - roughly Rs 20,000-40,000 per lot. An outlay
+        # approaching the contract's own value means premium or lot is wrong, and this
+        # catches the wrong-LOT case that the premium check alone cannot see.
+        if contract_value and cost_per_lot > 0.20 * contract_value:
+            card["size"]["cost_warning"] = (
+                f"one lot costs Rs {cost_per_lot:,} against a contract worth Rs "
+                f"{contract_value:,} - {100*cost_per_lot/contract_value:.0f}% of the "
+                f"underlying. A real short-dated call is 3-5%; premium or lot is wrong.")
         if cost_per_lot > capital:
             card["size"]["afford_note"] = (
                 f"one lot costs Rs {cost_per_lot:,} - more than your entire Rs "

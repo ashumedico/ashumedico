@@ -205,7 +205,8 @@ def show_new(card, chk, point, skipped=None):
             print(f"    {Y}   ek lot se chhota kuch hai nahi - le ya chhod de{X}")
     if s.get("afford_note"):
         print(f"    {Y}!! {s['afford_note']}{X}")
-    for w in (o.get("expiry_warning"), s.get("lot_warning")):
+    for w in (o.get("premium_reject"), o.get("expiry_warning"),
+              s.get("lot_warning"), s.get("cost_warning")):
         if w:
             print(f"    {R}!! {w}{X}")
     print(f"    LIMIT   : {card['stock']['entry']}")
