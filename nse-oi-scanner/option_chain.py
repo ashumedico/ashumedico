@@ -53,14 +53,29 @@ def expiries(min_days=0):
     return sorted(out, key=lambda t: t[1])
 
 
-def pick_expiry(min_days):
-    """First expiry that outlasts the thesis. If none does, return the furthest one
-    available and let the caller warn — silently buying a dying option is the bug."""
-    ok = expiries(min_days)
-    if ok:
-        return ok[0]
+MAX_SERIES_OUT = 1      # near month, or the one after it. Never further.
+
+
+def pick_expiry(min_days, max_out=None):
+    """The near month if it has enough life left, otherwise the next one. Never beyond.
+
+    Stock options carry almost all their open interest in the near month, so a contract
+    two series out is quotable but not tradeable in size. The rule also has to survive a
+    bad min_days: when a stale config asked for 60 days, an unbounded search happily
+    returned September while the trader wanted August, and nothing said why.
+
+    So the choice is bounded to the first `max_out + 1` series. If none of them clears
+    min_days, the furthest of those is returned and the caller warns - which is the honest
+    outcome, rather than reaching for a series nobody wants to be filled in.
+    """
     allx = expiries(-3650)
-    return allx[-1] if allx else (None, None, None)
+    if not allx:
+        return (None, None, None)
+    near = allx[:int(MAX_SERIES_OUT if max_out is None else max_out) + 1]
+    for e in near:
+        if e[1] >= min_days:
+            return e
+    return near[-1]
 
 
 def analyse(chain, spot):
