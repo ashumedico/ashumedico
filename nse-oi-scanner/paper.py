@@ -270,10 +270,18 @@ def main():
         points, prices, bench = E.demo_points()
         quotes = {t["symbol"]: t["spot_in"] * 1.02 for t in bk["open"] if t.get("symbol")}
     else:
+        # The token expires daily. A scheduled run that finds no token must say so loudly:
+        # a paper book with silent gaps is worse than no paper book, because the gaps are
+        # invisible later and the record looks complete.
+        if not os.path.exists(getattr(config, "TOKEN_FILE", "access_token.txt")):
+            print(f"  {R}TOKEN NAHI HAI - aaj ka paper trade MISS ho gaya.{X}")
+            print(f"  {DIM}Subah ek baar '1 - Fyers Login' chala de, phir ye apne aap "
+                  f"chalta rahega.{X}\n")
+            return
         try:
             points, prices, bench = E.live_points(tail=6)
         except Exception as e:      # noqa
-            print(f"  {R}Data nahi aaya:{X} {e}")
+            print(f"  {R}Data nahi aaya - aaj ka paper trade MISS:{X} {e}")
             print(f"  {DIM}Token expire? icon '1 - Fyers Login' chala.{X}\n")
             return
         quotes = E.live_quote([t["symbol"] for t in bk["open"] if t.get("symbol")])

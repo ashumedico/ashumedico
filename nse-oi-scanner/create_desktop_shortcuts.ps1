@@ -77,6 +77,7 @@ New-Shortcut $folder "2 - CHECK-IN"         "CHECKIN.bat"        "%SystemRoot%\S
 New-Shortcut $folder "2a - LIYA (bought)"  "BOUGHT.bat"         "%SystemRoot%\System32\shell32.dll" 165 "Trade le liya - book mein daal do"
 New-Shortcut $folder "2b - NIKLA (sold)"   "SOLD.bat"           "%SystemRoot%\System32\shell32.dll" 166 "Trade se nikal gaya - scorecard mein daal do"
 New-Shortcut $folder "2c - PAPER TRADE"   "run_paper.bat"      "%SystemRoot%\System32\shell32.dll" 71  "Roz chala - paper trade, backtest ke against score"
+New-Shortcut $folder "2d - PAPER AUTO (setup)" "SETUP-PAPER.bat"   "%SystemRoot%\System32\shell32.dll" 43  "Ek baar: paper trading roz apne aap chalne lago"
 New-Shortcut $folder "3 - RRG Trader"       "run_rrg_app.bat"    "%SystemRoot%\System32\shell32.dll" 137 "Deep dive: RRG main window + auto-trader (localhost:8501)"
 New-Shortcut $folder "4 - Signal Desk"      "run_signals.bat"    "%SystemRoot%\System32\shell32.dll" 13  "One-page desk: OI buildup + 1 CE/1 PE/1 Future + charts + RRG"
 New-Shortcut $folder "5 - Auto-Trader"      "run_autotrader.bat" "%SystemRoot%\System32\shell32.dll" 25  "Hands-free auto-trader loop (PAPER unless armed)"
