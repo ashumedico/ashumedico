@@ -90,6 +90,7 @@ New-Shortcut $folder "9 - OI Scanner"       "run_scanner.bat"    "%SystemRoot%\S
 New-Shortcut $folder "10 - Lot Audit"       "run_lot_audit.bat"  "%SystemRoot%\System32\shell32.dll" 77  "Check every F&O lot size against its live price - wrong lot = wrong quantity"
 New-Shortcut $folder "11 - Expiry Check"    "run_expiry_check.bat" "%SystemRoot%\System32\shell32.dll" 137 "Kaunsi expiry sasti padti hai tere hold ke hisaab se"
 New-Shortcut $folder "SETUP - Telegram Alerts" "TELEGRAM-SETUP.bat" "%SystemRoot%\System32\shell32.dll" 12 "Ek baar: phone pe alert lagao jab T1/stop hit ho"
+New-Shortcut $folder "LIVE - arm / disarm" "LIVE-ARM.bat"       "%SystemRoot%\System32\shell32.dll" 48  "Asli order chalu/band - HAAN likhna padega"
 New-Shortcut $folder "STOP - Kill Switch"   "STOP-TRADING.bat"   "%SystemRoot%\System32\shell32.dll" 131 "PANIC: halt all trading immediately"
 
 # a shortcut straight to the code folder, handy for config.py edits

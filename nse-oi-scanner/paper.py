@@ -74,6 +74,7 @@ def take(bk, card, point):
         "spot_in": card["spot"],
         "strike": o["strike"], "type": o["type"], "expiry": o.get("expiry"),
         "premium_in": o["premium"], "premium_source": o.get("premium_source"),
+        "tradingsymbol": o.get("tradingsymbol"),
         "qty": card["size"]["qty"], "lot": card["size"]["lot"],
         "cost": card["size"].get("cost_per_lot", 0) * card["size"]["lots"],
         # the stock-level plan the option inherits
@@ -84,6 +85,15 @@ def take(bk, card, point):
         "oi": (point or {}).get("signal"),
         "half_booked": False,
     }
+    # The live order goes out BESIDE the paper record, never instead of it. Paper is the
+    # measurement and has to stay complete whether or not the live leg fills - and if the
+    # two ever diverge, that divergence is itself the thing worth knowing.
+    try:
+        import broker
+        ok, detail = broker.buy(t["tradingsymbol"], t["qty"], tag=f"entry:{t['name']}")
+        t["live_entry"] = {"ok": ok, "detail": str(detail)[:200]}
+    except Exception as e:      # noqa
+        t["live_entry"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
     bk["open"].append(t)
     return t, None
 
@@ -192,6 +202,12 @@ def close(bk, t, spot_now, reason):
               "statutory_cost": round(statutory), "total_cost": round(cost),
               "pnl_pct_of_capital": round(100 * (gross - cost) /
                                           float(getattr(config, "CAPITAL", 200000)), 2)})
+    try:
+        import broker
+        ok, detail = broker.sell(t.get("tradingsymbol"), t["qty"], tag=f"exit:{t['name']}")
+        t["live_exit"] = {"ok": ok, "detail": str(detail)[:200]}
+    except Exception as e:      # noqa
+        t["live_exit"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
     bk["open"] = [p for p in bk["open"] if p is not t]
     bk["closed"].append(t)
 
@@ -367,9 +383,15 @@ def run_once(a):
     bk = load()
     import rrg_engine as E, rrg_strategy as S, trade_card as TC, checkin as C
 
+    try:
+        import broker
+        live = broker.armed() and not broker.killed()
+    except Exception:
+        live = False
+    tag = (f"{R}LIVE + PAPER - asli order ja rahe hain{X}" if live
+           else f"{DIM}(paper only - koi asli order nahi){X}")
     print("\n" + "=" * 70)
-    print(f"  {B}PAPER TRADING{X}   {now():%a %d %b %Y · %H:%M IST}"
-          f"   {DIM}(koi asli order nahi){X}")
+    print(f"  {B}PAPER TRADING{X}   {now():%a %d %b %Y · %H:%M IST}   {tag}")
     print("=" * 70)
 
     if a.demo:

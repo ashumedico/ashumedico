@@ -89,7 +89,11 @@ def premium_estimate(spot, strike, direction, vol_daily, days_to_expiry=25):
 
 
 def option_from_chain(chain, strike, direction):
-    """Exact premium from a live Fyers chain, if we have one."""
+    """Exact premium AND the exchange's tradeable symbol from a live chain.
+
+    The symbol matters as much as the price: an order has to name a contract, and a
+    symbol assembled by hand from strike and expiry is one typo away from a rejection or
+    from a different contract entirely."""
     want = "CE" if direction == "BULLISH" else "PE"
     best = None
     for o in chain or []:
@@ -97,8 +101,8 @@ def option_from_chain(chain, strike, direction):
             if best is None or abs(o["strike"] - strike) < abs(best["strike"] - strike):
                 best = o
     if best and best.get("ltp"):
-        return best["strike"], float(best["ltp"])
-    return None, None
+        return best["strike"], float(best["ltp"]), best.get("symbol")
+    return None, None, None
 
 
 # ---------------- the card ----------------
@@ -208,7 +212,7 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     # ---- the option leg ----
     if instrument == "OPTION":
         strike = pick_strike(spot, direction, "ITM1")
-        ch_strike, ch_prem = option_from_chain(chain, strike, direction)
+        ch_strike, ch_prem, ch_sym = option_from_chain(chain, strike, direction)
         # Sanity-gate the chain before trusting it. A slightly-in-the-money call is worth
         # its intrinsic plus a few percent of spot; a quote approaching the share price
         # itself means the lookup landed on a deep-ITM strike, a stale print, or another
@@ -251,6 +255,7 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "days_to_expiry": days_to_expiry,
             "expiry_warning": expiry_warning,
             "premium_reject": prem_reject,
+            "tradingsymbol": ch_sym,
             # the raw inputs behind the money figures, so a wrong number can be pinned to
             # its source instead of guessed at from the total
             "raw": {"spot": round(spot, 2), "wanted_strike": strike,

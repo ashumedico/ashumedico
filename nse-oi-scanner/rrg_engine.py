@@ -197,21 +197,30 @@ def _cache_path(key):
     return os.path.join(CACHE_DIR, f"{key}_{day}.json")
 
 
+def _quiet_fyers():
+    """Silence the Fyers SDK's per-request DEBUG lines.
+
+    Naming the loggers was not enough: the SDK logs through "FyersAPIRequest" and sets
+    that logger's own level, which beats anything set on the root. So every logger whose
+    name mentions fyers is pinned to WARNING, and the sweep is repeated after the client
+    is built because the SDK configures logging when it is instantiated, not on import.
+    """
+    import logging
+    for name in list(logging.root.manager.loggerDict) + [
+            "FyersAPIRequest", "fyers_apiv3", "fyersApi", "fyers_logger"]:
+        if "yers" in str(name):
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.WARNING)
+            lg.propagate = False
+    logging.getLogger().setLevel(logging.WARNING)
+
+
 def _fy():
     from fyers_apiv3 import fyersModel
     token = open(config.TOKEN_FILE).read().strip()
     # Fyers' SDK logs a DEBUG line per API call to stdout, which buries the ticket under
     # request traces. Quieten it and send its log file to a folder rather than the cwd.
-    try:
-        import logging, os
-        logging.getLogger("fyers_apiv3").setLevel(logging.WARNING)
-        logging.getLogger("fyersApi").setLevel(logging.WARNING)
-        for h in list(logging.root.handlers):
-            logging.root.removeHandler(h)
-        logging.basicConfig(level=logging.WARNING)
-        os.makedirs("logs", exist_ok=True)
-    except Exception:
-        pass
+    _quiet_fyers()
     return fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
 
 

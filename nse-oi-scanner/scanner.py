@@ -91,6 +91,24 @@ def _with_retry(fn, tries=3, delay=1.5):
             time.sleep(delay * (i + 1))
     raise last
 
+def _quiet_fyers():
+    """Silence the Fyers SDK's per-request DEBUG lines.
+
+    Naming the loggers was not enough: the SDK logs through "FyersAPIRequest" and sets
+    that logger's own level, which beats anything set on the root. So every logger whose
+    name mentions fyers is pinned to WARNING, and the sweep is repeated after the client
+    is built because the SDK configures logging when it is instantiated, not on import.
+    """
+    import logging
+    for name in list(logging.root.manager.loggerDict) + [
+            "FyersAPIRequest", "fyers_apiv3", "fyersApi", "fyers_logger"]:
+        if "yers" in str(name):
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.WARNING)
+            lg.propagate = False
+    logging.getLogger().setLevel(logging.WARNING)
+
+
 def fetch_live():
     """LTP + OI for the universe via Fyers, with retry + auth detection."""
     from fyers_apiv3 import fyersModel
@@ -99,16 +117,7 @@ def fetch_live():
     token = open(config.TOKEN_FILE).read().strip()
     # Fyers' SDK logs a DEBUG line per API call to stdout, which buries the ticket under
     # request traces. Quieten it and send its log file to a folder rather than the cwd.
-    try:
-        import logging, os
-        logging.getLogger("fyers_apiv3").setLevel(logging.WARNING)
-        logging.getLogger("fyersApi").setLevel(logging.WARNING)
-        for h in list(logging.root.handlers):
-            logging.root.removeHandler(h)
-        logging.basicConfig(level=logging.WARNING)
-        os.makedirs("logs", exist_ok=True)
-    except Exception:
-        pass
+    _quiet_fyers()
     fy = fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
 
     out = {}
