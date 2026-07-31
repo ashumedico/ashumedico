@@ -179,10 +179,10 @@ def find_contract(underlying, strike, opt_type="CE", month=None):
                       f"'10 - Lot Audit' chala ke master theek kar.")
     return {"symbol": hit["symbol"], "strike": hit["strike"], "type": opt_type.upper(),
             "premium": hit["ltp"], "lot": int(lot), "lot_source": lot_src,
-            "expiry": pick[0], "days": pick[1]}, None
+            "spot": _spot, "expiry": pick[0], "days": pick[1]}, None
 
 
-def order_interactive(underlying, strike, opt_type, month, lots, side):
+def order_interactive(underlying, strike, opt_type, month, lots, side, lot_override=None):
     """Place one named order after showing exactly what it costs. The confirmation is not
     ceremony: the premium and the lot are the two numbers that have been wrong before, and
     this is the last point at which a wrong one is free to catch."""
@@ -190,6 +190,11 @@ def order_interactive(underlying, strike, opt_type, month, lots, side):
     if err:
         print(f"\n  {err}\n")
         return
+    # An explicit lot beats every guessed one. The symbol master has been wrong twice now
+    # - 13 for COFORGE, 4595 for SONACOMS against a real 1225 - and the number is checkable
+    # in ten seconds on NSE or in the broker's own order window.
+    if lot_override:
+        c["lot"], c["lot_source"] = int(lot_override), "tera diya hua"
     lot = int(c["lot"] or 0)
     qty = lot * int(lots)
     cost = (c["premium"] or 0) * qty
@@ -215,6 +220,29 @@ def order_interactive(underlying, strike, opt_type, month, lots, side):
         print(f"  charges     Rs {d['total']:,.0f} round trip ({d['pct_of_premium']*100:.2f}%)")
     except Exception:
         pass
+    # The same guard the ticket builder has, which this path was missing. SEBI sizes a
+    # single-stock contract to Rs 5-10 lakh and a short-dated call costs a few percent of
+    # it. A lot that puts the contract far outside that band is a parsing error, and it
+    # arrives here as a plausible-looking rupee figure.
+    spot = c.get("spot") or 0
+    contract = spot * lot
+    problems = []
+    # Band is Rs 5-10 lakh at review; prices drift between six-monthly revisions, so the
+    # check allows well outside it before complaining. Rs 34 lakh is not drift.
+    if contract and not (200000 <= contract <= 2000000):
+        problems.append(f"contract value Rs {contract:,.0f} (spot {spot:g} x lot {lot}) - "
+                        f"NSE stock F&O contracts are Rs 5-10 lakh")
+    if contract and cost > 0.20 * contract:
+        problems.append(f"premium is {100*cost/contract:.0f}% of the contract - a real "
+                        f"short-dated call is 3-5%")
+    if cap and cost > 0.5 * cap:
+        problems.append(f"one lot is {100*cost/cap:.0f}% of your capital")
+    for w in problems:
+        print(f"  !! {w}")
+    if problems:
+        print(f"  {'=' * 60}")
+        print("  Ye numbers galat lag rahe hain. Bhejne se pehle Fyers app mein")
+        print("  is contract ka lot khud dekh le - '10 - Lot Audit' bhi chala sakta hai.")
     print(f"  {'=' * 60}")
     if not armed():
         print("  LIVE_TRADING off hai - ye order jayega nahi.")
@@ -245,6 +273,21 @@ def status():
     print()
 
 
+def _reload_config():
+    """Re-read config.py after writing it.
+
+    The module is already in memory, so a freshly written LIVE_TRADING is invisible until
+    it is reloaded - which had --arm print "LIVE_TRADING = True" and then, one line later,
+    "LIVE TRADING : off (safe)". A status display that can disagree with the file it just
+    wrote is worse than none: it can also claim off while armed."""
+    global config
+    try:
+        import importlib
+        config = importlib.reload(config)
+    except Exception:
+        pass
+
+
 def _set_live(on):
     import re, shutil
     if not os.path.exists("config.py"):
@@ -255,7 +298,9 @@ def _set_live(on):
     s = (re.sub(r"^LIVE_TRADING\s*=.*$", line, s, count=1, flags=re.M)
          if re.search(r"^LIVE_TRADING\s*=", s, re.M) else s.rstrip("\n") + f"\n{line}\n")
     open("config.py", "w").write(s)
-    print(f"  LIVE_TRADING = {on}")
+    _reload_config()
+    print(f"  config.py mein likha: LIVE_TRADING = {on}")
+    print(f"  dobara padh ke confirm: armed() = {armed()}")
 
 
 def main():
@@ -269,6 +314,8 @@ def main():
     ap.add_argument("--type", default="CE", choices=["CE", "PE", "ce", "pe"])
     ap.add_argument("--month", help="expiry month, e.g. AUG (default: nearest)")
     ap.add_argument("--lots", type=int, default=1)
+    ap.add_argument("--lot", type=int,
+                    help="override the lot size for this order (see it on NSE/Zerodha)")
     a = ap.parse_args()
 
     if a.buy or a.sell:
@@ -276,7 +323,7 @@ def main():
             print("  --strike chahiye. Jaise:  --buy SONACOMS --strike 750 --month AUG")
             return
         order_interactive(a.buy or a.sell, a.strike, a.type, a.month, a.lots,
-                          "BUY" if a.buy else "SELL")
+                          "BUY" if a.buy else "SELL", lot_override=a.lot)
         return
     if a.arm:
         print("\n  LIVE_TRADING on karne ja raha hoon. Iske baad system tere Fyers")

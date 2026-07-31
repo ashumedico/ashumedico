@@ -31,6 +31,7 @@ KEYS = {
     "RESOLUTION":    (lambda v: repr(str(v)),     "candle the signal runs on ('D' or '15')"),
     "BAR_MINUTES":   (lambda v: str(int(v)),      "minutes in one bar (375 = one session)"),
     "MIN_EXPIRY_DAYS": (lambda v: str(int(v)),    "expiry must have this many days left"),
+    "LOT_SIZES":     (lambda v: str(v),           "pinned lot sizes that beat the parser"),
 }
 
 # The bar size decides everything downstream - trend, volatility, stops, how long a
@@ -88,6 +89,8 @@ def main():
     ap.add_argument("--bar-minutes", type=int, help="minutes per bar, if not using --mode")
     ap.add_argument("--min-expiry-days", type=int,
                     help="roll to next month when the running one has fewer days left")
+    ap.add_argument("--set-lot", action="append", metavar="NAME=LOT",
+                    help="pin a lot size permanently, e.g. --set-lot SONACOMS=1225")
     a = ap.parse_args()
 
     updates = {}
@@ -108,6 +111,24 @@ def main():
         updates["LOTS_PER_TRADE"] = KEYS["LOTS_PER_TRADE"][0](a.lots_per_trade)
     if a.min_expiry_days is not None:
         updates["MIN_EXPIRY_DAYS"] = KEYS["MIN_EXPIRY_DAYS"][0](a.min_expiry_days)
+
+    # A pinned lot beats anything parsed. The parser has been wrong twice, and this
+    # number is checkable in seconds on NSE - so let it be stated once and stay stated.
+    if a.set_lot:
+        import ast
+        cur_txt = open(CFG).read() if os.path.exists(CFG) else ""
+        m = re.search(r"^LOT_SIZES\s*=\s*(\{.*?\})", cur_txt, re.M | re.S)
+        d = {}
+        if m:
+            try:
+                d = ast.literal_eval(m.group(1))
+            except Exception:
+                d = {}
+        for pair in a.set_lot:
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                d[k.strip().upper()] = int(v)
+        updates["LOT_SIZES"] = repr(d)
 
     if updates and not write(updates):
         return
