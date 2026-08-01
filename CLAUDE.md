@@ -67,6 +67,12 @@ Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR con
 Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and
 option-chain analytics. Invoke for any market task; pairs with `@edge-seeker`. Not financial advice.
 
+## Option selection → `.claude/skills/option-selection/`
+`/option-selection` — what makes an option worth **buying**, as opposed to what makes a stock worth
+trading. IV vs realised, measured spread, liquidity, theta in rupees, delta, expiry fit, and how to
+translate a stock-level backtest into option P&L without inventing the premium. *A correct read on
+a name, expressed through the wrong contract, loses.*
+
 ## Execution safety → `.claude/skills/execution-safety/`
 `/execution-safety` — anything that can send a real order. Three gates (LIVE_TRADING · kill
 switch · a contract from the exchange's own chain), the two-press rule, quantity as a safety

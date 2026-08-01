@@ -88,3 +88,20 @@ GAP_SMA           = 20      # Daily Close > SMA of the closes ENDING YESTERDAY
 GAP_INTRADAY_GATE = False   # also require [0] 15-min Close > Daily Open. Off, as on your
                             # Chartink. With it on, a name with no intraday bar FAILS -
                             # "could not check" is not "checked out".
+
+# ---------------------------------------------------------------- OPTION QUALITY --
+# The gates an option BUYER needs and this system did not have. Selection was entirely
+# stock-level: trend, VWAP, RVOL, squeeze, expansion. The option was chosen afterwards
+# (ATM, current expiry) and priced - never judged. These make the option itself pass or
+# fail, because for a buyer the contract is the trade, not a wrapper around it.
+OPTION_SPREAD_PCT   = 0.02   # fallback ONLY, when the chain gives no bid/ask. The real
+                             # spread is now measured per strike; this is the estimate of
+                             # last resort, not the assumption it used to be.
+MAX_SPREAD_PCT      = 0.05   # refuse a strike whose round trip costs more than 5% of the
+                             # premium - paid twice, it eats a whole day's expected move
+MIN_OPTION_OI       = 500    # contracts of open interest at the strike being bought
+MIN_OPTION_VOLUME   = 100    # contracts traded today at that strike. OI without volume is
+                             # a position somebody is stuck in, not a market you can exit
+MAX_IV_TO_REALISED  = 2.0    # refuse when implied vol is this many times what the stock
+                             # has actually been doing - paying for a move bigger than the
+                             # one being forecast. None disables the gate.

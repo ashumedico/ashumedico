@@ -377,10 +377,87 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
     for e in equity:
         peak = max(peak, e); mdd = min(mdd, e / peak - 1)
     wins = sum(1 for r in closed_rs if r > 0)
+    # ---- THE NUMBER THAT WAS NEVER COMPUTED ---------------------------------
+    # Everything above measures the STOCK. The money goes into an option, and an option
+    # is not a scaled copy of the stock: leverage multiplies the move, the bid-ask is
+    # charged on the premium (not the notional) and twice, and theta is charged every
+    # calendar day whether the thesis works or not. option_pnl.py was written for exactly
+    # this translation and was called from nowhere - a comment three lines below pointed
+    # at it. So the headline of this system has always been the underlying's move, and
+    # the trader's P&L was never reported at all.
+    #
+    # This is a MODEL, not a measurement: it assumes an average premium, an average delta
+    # and an average spread rather than the chain that existed on each day. It is a
+    # first-order answer to "does the stock edge survive being traded as an option", and
+    # a first-order answer is what a stock-only headline never gave.
+    opt = None
+    try:
+        import option_pnl as OP
+        import trade_card as _TC
+        try:
+            import config
+        except ImportError:                 # noqa - defaults below are then used
+            class config:                   # noqa
+                pass
+        hold_d = _TC.hold_days(hold_bars=step)
+        dte = float(getattr(config, "MIN_EXPIRY_DAYS", 15))
+
+        # PREMIUM AS A FRACTION OF SPOT: derived, not assumed.
+        # config carried OPT_PREMIUM_PCT = 0.012 as a proxy. Leverage is delta/premium,
+        # so that one constant sets the whole translation - and 1.2% is about half what a
+        # 15-day ATM option on a 30%-vol name really costs (0.4*sigma*sqrt(T) ~ 2.4%).
+        # Halving the premium DOUBLES the leverage and doubles the apparent edge. So it
+        # is priced properly: Black-Scholes at the money, on the volatility this universe
+        # has actually been running, for the expiry actually being bought.
+        prem_pct = getattr(config, "OPT_PREMIUM_PCT", None)
+        prem_src = "config OPT_PREMIUM_PCT"
+        try:
+            import option_metrics as OM
+            sigma = OM.realised_vol_annual(bench, window=20) or 0.25
+            prem_pct = OM.price(1.0, 1.0, OM.years_to_expiry(dte), sigma, "CE")
+            prem_src = (f"Black-Scholes ATM at {sigma*100:.0f}% vol, {dte:.0f}d "
+                        f"= {prem_pct*100:.2f}% of spot")
+        except Exception:      # noqa - fall back to the config proxy, and say which
+            prem_pct = float(prem_pct or 0.012)
+
+        o_rs, meta = OP.translate(
+            closed_rs,
+            premium_pct=float(prem_pct),
+            delta=float(getattr(config, "OPT_DELTA", 0.5)),
+            spread_pct=float(getattr(config, "OPTION_SPREAD_PCT", 0.02)),
+            days_to_expiry=dte,
+            hold_days=hold_d)
+        if meta.get("invalid"):
+            # The hold and the expiry do not fit each other. Reporting a number here
+            # would be reporting the price of a contract that expired inside the trade.
+            opt = {"invalid": meta["invalid"], "hold_days": round(hold_d, 2),
+                   "days_to_expiry": float(getattr(config, "MIN_EXPIRY_DAYS", 15))}
+        else:
+            o_wins = sum(1 for r in o_rs if r > 0)
+            opt = {
+                "avg_per_trade_pct": round(100 * sum(o_rs) / len(o_rs), 2) if o_rs else None,
+                "win_rate": round(100 * o_wins / len(o_rs), 1) if o_rs else None,
+                "sum_of_trades_pct": round(100 * sum(o_rs), 1) if o_rs else None,
+                "hold_days": round(hold_d, 2),
+                "drag_per_trade_pct": round(100 * meta["drag"], 2),
+                "theta_pct": round(100 * meta["theta_pct"], 2),
+                "spread_pct": round(100 * meta["spread_pct"], 2),
+                "leverage": round(meta["leverage"], 1),
+                "premium_pct": round(100 * float(prem_pct), 2),
+                "premium_src": prem_src,
+                "note": ("modelled, not measured: average premium/delta/spread, not the "
+                         "chain that existed each day. Directionally right, not a P&L "
+                         "statement."),
+            }
+    except Exception as e:      # noqa - a failed translation must not hide the stock result
+        opt = {"error": str(e)[:160]}
+
     return {"total_return": round(total * 100, 2),
             "cagr": round(cagr * 100, 2) if cagr is not None else None,
             "sharpe": round(sharpe, 2), "max_dd": round(mdd * 100, 2),
             "trades": len(closed_rs), "entries": entries,
+            # what the OPTION would have paid, which is the only number he can spend
+            "option": opt,
             "avg_exposure": round(sum(exposure) / len(exposure), 2) if exposure else 1.0,
             "win_rate": round(wins / len(closed_rs) * 100, 1) if closed_rs else 0,
             "years": round(years, 2), "low_sample": low_sample,
@@ -448,6 +525,37 @@ def sweep(prices, bench, step=5, max_pos=10, verbose=True, hold_min=5, profile=N
                   f"maxDD {best['max_dd']:.1f}%)")
             beat = "beats" if best["total_return"] > bm["total_return"] else "does NOT beat"
             print(f"  -> this setup {beat} buy-and-hold on this sample.")
+
+            # ---- the same edge, TRADED AS AN OPTION ------------------------
+            # Every number above is the underlying's move. He buys a call. Printing only
+            # the stock line is how a validated backtest becomes an account that bleeds:
+            # the direction was right and the contract still lost, because leverage,
+            # spread and theta sit between the two and on a short hold they are not small.
+            o = best.get("option") or {}
+            print("  " + "-" * 78)
+            if o.get("error"):
+                print(f"  AS AN OPTION: could not translate — {o['error']}")
+            elif o.get("invalid"):
+                print(f"  AS AN OPTION: NOT COMPARABLE")
+                print(f"    {o['invalid']}")
+                print(f"    This is a finding about the SETUP, not a missing number: a "
+                      f"{o['hold_days']:.0f}-day hold\n    cannot be expressed in a "
+                      f"{o['days_to_expiry']:.0f}-day option. Either the cadence or "
+                      f"MIN_EXPIRY_DAYS is wrong.")
+            elif o.get("avg_per_trade_pct") is not None:
+                print(f"  AS AN OPTION  (the number he can actually spend)")
+                print(f"    per trade      {o['avg_per_trade_pct']:+.2f}%   "
+                      f"win rate {o['win_rate']:.1f}%   "
+                      f"(stock win rate {best['win_rate']:.1f}%)")
+                print(f"    drag/trade     {o['drag_per_trade_pct']:.2f}%   "
+                      f"= theta {o['theta_pct']:.2f}% + spread {o['spread_pct']:.2f}%   "
+                      f"over a {o['hold_days']:.2f}-day hold")
+                print(f"    leverage       {o['leverage']:.1f}x   "
+                      f"(premium {o['premium_pct']:.2f}% of spot — {o['premium_src']})")
+                verdict = ("SURVIVES the option" if o["avg_per_trade_pct"] > 0
+                           else "DOES NOT survive the option")
+                print(f"    -> the stock edge {verdict}.")
+                print(f"    {o['note']}")
         print("  " + "-" * 78)
         if any(r.get("low_sample") for r in rows):
             print("  * = thin sample (few rebalances). Direction is informative,")

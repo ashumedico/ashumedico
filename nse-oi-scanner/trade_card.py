@@ -113,6 +113,86 @@ def option_from_chain(chain, strike, direction):
     return None, None, None
 
 
+def option_quality(row, spot, days_to_expiry, kind, closes=None, cfg=None):
+    """Judge the CONTRACT, not the stock. (metrics dict, [failed gate strings]).
+
+    Everything before this line picks a name. This is the only place that asks whether
+    the option on that name is worth buying - the question a buyer actually faces, and
+    one this system never asked. Four gates, each from what a professional buyer screens:
+
+      SPREAD    measured from bid/ask, not assumed. Paid twice, on the premium.
+      OI        somebody is on the other side of the exit
+      VOLUME    OI without volume is a position people are stuck in, not a market
+      IV/RV     implied against what the stock has really been doing. Buying a 1.5% move
+                at twice its realised vol is paying for a move bigger than the forecast.
+
+    Missing data NEVER passes a gate silently: an absent bid/ask is reported as unknown
+    and the fallback estimate is labelled as an estimate. Unknown is not a yes.
+    """
+    import option_metrics as OM
+    cfg = cfg or config
+    m = {"spread_pct": None, "spread_src": None, "oi": row.get("oi"),
+         "volume": row.get("volume"), "iv": None, "rv": None, "vol": None,
+         "delta": None, "theta_day": None, "gamma": None, "vega_1pct": None}
+    fails = []
+    ltp = float(row.get("ltp") or 0)
+
+    # ---- spread, measured ----
+    bid, ask = row.get("bid"), row.get("ask")
+    if bid and ask and float(ask) > 0 and float(ask) >= float(bid):
+        mid = (float(bid) + float(ask)) / 2.0
+        m["spread_pct"] = round((float(ask) - float(bid)) / mid, 4) if mid else None
+        m["spread_src"] = "measured"
+    elif ltp:
+        m["spread_pct"] = float(getattr(cfg, "OPTION_SPREAD_PCT", 0.02))
+        m["spread_src"] = "assumed — the chain gave no bid/ask"
+    cap = getattr(cfg, "MAX_SPREAD_PCT", None)
+    if cap and m["spread_pct"] and m["spread_pct"] > float(cap) and m["spread_src"] == "measured":
+        fails.append(f"bid-ask is {m['spread_pct']*100:.1f}% of premium, over the "
+                     f"{float(cap)*100:.0f}% cap — paid twice, that is most of a day's move")
+
+    # ---- liquidity ----
+    min_oi = getattr(cfg, "MIN_OPTION_OI", None)
+    if min_oi and m["oi"] is not None and float(m["oi"]) < float(min_oi):
+        fails.append(f"open interest {int(m['oi']):,} at this strike, under the "
+                     f"{int(min_oi):,} floor — thin on the way out")
+    min_vol = getattr(cfg, "MIN_OPTION_VOLUME", None)
+    if min_vol and m["volume"] is not None and float(m["volume"]) < float(min_vol):
+        fails.append(f"only {int(m['volume']):,} contracts traded here today, under the "
+                     f"{int(min_vol):,} floor — OI without volume is somebody stuck, "
+                     f"not a market")
+
+    # ---- implied vs realised ----
+    t = OM.years_to_expiry(days_to_expiry)
+    if ltp and t > 0 and spot:
+        m["iv"] = OM.implied_vol(ltp, spot, float(row.get("strike") or spot), t, kind)
+        if m["iv"]:
+            g = OM.greeks(spot, float(row.get("strike") or spot), t, m["iv"], kind)
+            m.update(g)
+    if closes:
+        m["rv"] = OM.realised_vol_annual(closes, window=20,
+                                         bars_per_year=_bars_per_year())
+    m["vol"] = OM.vol_verdict(m["iv"], m["rv"])
+    lim = getattr(cfg, "MAX_IV_TO_REALISED", None)
+    if lim and m["vol"].get("ratio") and m["vol"]["ratio"] > float(lim):
+        fails.append(f"implied vol is {m['vol']['ratio']:.1f}x realised, over the "
+                     f"{float(lim):.1f}x cap — paying for a bigger move than the one "
+                     f"being forecast")
+    return m, fails
+
+
+def _bars_per_year():
+    """Annualisation factor matching the bar size the closes are on.
+
+    Handing daily-vol code a 15-minute series with 252 understates volatility by an order
+    of magnitude and makes every option look cheap - the same class of mistake as calling
+    twenty 15-minute bars a 20-day mean."""
+    bm = int(getattr(config, "BAR_MINUTES", 375) or 375)
+    if bm >= 375:
+        return 252
+    return 252 * (375 // max(bm, 1))
+
+
 # ---------------- the card ----------------
 SESSION_MINUTES = 375           # 09:15 to 15:30
 
@@ -256,6 +336,15 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     if instrument == "OPTION":
         strike = pick_strike(spot, direction)
         ch_strike, ch_prem, ch_sym = option_from_chain(chain, strike, direction)
+        # The full row, so the contract can be JUDGED and not merely priced. Selection up
+        # to this point has been entirely stock-level; this is where the option itself
+        # has to earn the order.
+        want_t = "PE" if short else "CE"
+        ch_row = None
+        for _o in (chain or []):
+            if _o.get("type") == want_t and _o.get("strike") == ch_strike:
+                ch_row = _o
+                break
         # Sanity-gate the chain before trusting it. A slightly-in-the-money call is worth
         # its intrinsic plus a few percent of spot; a quote approaching the share price
         # itself means the lookup landed on a deep-ITM strike, a stale print, or another
@@ -311,11 +400,26 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "expiry_warning": expiry_warning,
             "premium_reject": prem_reject,
             "tradingsymbol": ch_sym,
+            "quality": None, "quality_fails": [],
             # the raw inputs behind the money figures, so a wrong number can be pinned to
             # its source instead of guessed at from the total
             "raw": {"spot": round(spot, 2), "wanted_strike": strike,
                     "chain_strike": ch_strike, "chain_ltp": ch_prem},
         }
+        # Judge the contract. Only possible on a real chain row - an estimated premium has
+        # no bid, no ask, no open interest and no traded volume, so its gates cannot be
+        # evaluated and are reported as not evaluated rather than as passed.
+        if ch_row:
+            q, qfails = option_quality(ch_row, spot, days_to_expiry,
+                                       card["option"]["type"], closes)
+            card["option"]["quality"] = q
+            card["option"]["quality_fails"] = qfails
+            # theta in rupees is added once the lot is known, further down
+        else:
+            card["option"]["quality_fails"] = []
+            card["option"]["quality_note"] = (
+                "no live chain row — spread, open interest, volume and implied vol could "
+                "not be checked. Not checked is not the same as passed.")
         risk_per_unit = max(premium - opt_stop, 1e-9)
     else:
         risk_per_unit = risk_pts
@@ -407,6 +511,18 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         # from the beginning and was enforced nowhere. The worst case is what this ticket
         # itself says it can lose if the stop fills: (premium - stop) x qty, across the
         # lots actually being bought.
+        # THETA IN RUPEES. "theta -0.70" means nothing at 9:20am; "this position gives up
+        # Rs 875 a day if the stock does nothing, and Rs 2,625 across a weekend" is the
+        # number that decides whether a two-day hold is worth starting. Calendar days,
+        # because decay does not stop on Saturday.
+        q = (o.get("quality") or {})
+        if q.get("theta_day") is not None:
+            per_day = abs(q["theta_day"]) * lot * lots
+            card["option"]["theta_rs_day"] = round(per_day)
+            card["option"]["theta_rs_weekend"] = round(per_day * 3)
+            if cost_per_lot:
+                card["option"]["theta_pct_of_cost"] = round(100 * per_day / cost_per_lot, 1)
+
         try:
             import risk_limits as RL
             ok_ml, why_ml = RL.per_trade_ok(risk_per_lot * lots, config)

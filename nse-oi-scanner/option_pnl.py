@@ -52,11 +52,30 @@ def translate(stock_returns, premium_pct=0.04, delta=0.60, spread_pct=0.02,
     dte = max(float(days_to_expiry), 1e-6)
     hold = min(float(hold_days), dte)
     theta_pct = 1.0 - ((dte - hold) / dte) ** 0.5
+
+    # A HOLD THAT OUTLASTS THE OPTION IS NOT A TRADE.
+    # When hold >= dte the formula returns theta_pct = 1.0 - a 100% decay charge - and
+    # keeps going, producing an "average return" for a contract that expired mid-hold.
+    # That is not a pessimistic number, it is a meaningless one, and it was printing as
+    # a result. It is refused instead, because the honest finding is not "-100%", it is
+    # "this holding period and this expiry do not fit each other".
+    invalid = None
+    if float(hold_days) >= dte:
+        invalid = (f"hold of {float(hold_days):.1f} days is longer than the "
+                   f"{dte:.1f} days to expiry - the option expires inside the trade. "
+                   f"Either roll to a longer series or shorten the hold; translating "
+                   f"this would price a contract that no longer exists.")
+
     out = []
     for r in stock_returns:
-        out.append(r * lev - theta_pct - spread_pct)
+        # A LONG OPTION CANNOT LOSE MORE THAN THE PREMIUM. The raw expression is
+        # unbounded below, so a 30% adverse stock move at 40x leverage came out as
+        # -1200% - a loss twelve times the money that was ever at risk. Every figure
+        # built on that (win rate, average, sum) was wrong in the direction that makes a
+        # strategy look worse than it is, which is the one nobody double-checks.
+        out.append(max(-1.0, r * lev - theta_pct - spread_pct))
     return out, {"leverage": lev, "theta_pct": theta_pct, "spread_pct": spread_pct,
-                 "drag": theta_pct + spread_pct}
+                 "drag": theta_pct + spread_pct, "invalid": invalid}
 
 
 def summarise(rets, deploy=1.0):

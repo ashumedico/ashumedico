@@ -183,9 +183,27 @@ def fetch_live(symbol, timestamp=""):
         ot = o.get("option_type")
         if ot not in ("CE", "PE"):
             continue
+        # BID, ASK and VOLUME were being discarded here, and their absence was papered
+        # over with `OPTION_SPREAD_PCT = 0.02` - the same 2% assumed for every strike on
+        # every name. For an option BUYER the spread is the largest single cost and it is
+        # not a constant: it is a few paise on a liquid ATM strike and a quarter of the
+        # premium on an illiquid one. Assuming it is how a backtest shows an edge the
+        # ledger will not pay out. Fyers spells these differently across versions, so
+        # every known spelling is tried and LAST_FIELDS records what actually arrived.
+        def pick(*names):
+            for n in names:
+                v = o.get(n)
+                if v not in (None, ""):
+                    return v
+            return None
+
         chain.append({"strike": o.get("strike_price"), "type": ot,
                       "oi": o.get("oi", 0), "ltp": o.get("ltp", 0),
                       "oi_chg": o.get("oichng", 0),
+                      "bid": pick("bid", "bid_price", "bp", "buy_price"),
+                      "ask": pick("ask", "ask_price", "ap", "sell_price"),
+                      "volume": pick("volume", "vol", "v", "traded_qty"),
+                      "prev_oi": pick("prev_oi", "previous_oi"),
                       # The exchange's own tradeable symbol. Never construct this string
                       # from strike and expiry - a hand-built symbol that is one character
                       # wrong is either a rejected order or, worse, a different contract.
@@ -217,8 +235,17 @@ def fetch_dry(symbol="NSE:NIFTY50-INDEX", spot=24200):
         # puts pile up below spot (support), calls above (resistance)
         ce_oi = max(2000, int(90000 * (1 - abs(i - 2) / 8)))
         pe_oi = max(2000, int(95000 * (1 - abs(i + 2) / 8)))
-        chain.append({"strike": K, "type": "CE", "oi": ce_oi, "ltp": max(1, 200 - i * 30), "oi_chg": (i - 1) * 1500})
-        chain.append({"strike": K, "type": "PE", "oi": pe_oi, "ltp": max(1, 200 + i * 30), "oi_chg": (-i + 1) * 1600})
+        # The dry chain carries bid/ask/volume too, and the spread WIDENS away from the
+        # money exactly as a real one does. A demo whose every strike quotes a perfect
+        # 0.1% spread cannot exercise the liquidity gate, and a gate that is never
+        # exercised is a gate nobody has seen work.
+        for typ, oi, mid in (("CE", ce_oi, max(1, 200 - i * 30)),
+                             ("PE", pe_oi, max(1, 200 + i * 30))):
+            half = max(0.05, mid * (0.004 + 0.006 * abs(i)))     # wider further out
+            chain.append({"strike": K, "type": typ, "oi": oi, "ltp": mid,
+                          "oi_chg": ((i - 1) if typ == "CE" else (-i + 1)) * 1500,
+                          "bid": round(mid - half, 2), "ask": round(mid + half, 2),
+                          "volume": max(0, int(oi * 0.35 / max(1, abs(i) + 1)))})
     return chain, spot
 
 

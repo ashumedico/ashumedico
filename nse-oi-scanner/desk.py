@@ -1264,6 +1264,38 @@ with T_SIG:
                 # printing beside it. A cap that only warns is not a cap.
                 elif sz.get("max_loss_breach"):
                     blocked = f"Over your MAX_LOSS cap — {sz['max_loss_breach']}."
+                # The CONTRACT's own gates. Everything above this line judged the stock;
+                # for a buyer the contract is the trade, and a strike nobody can exit at
+                # a fair price is not tradeable however good the name looks.
+                elif o.get("quality_fails"):
+                    blocked = ("Contract fails its own checks — "
+                               + "; ".join(o["quality_fails"]) + ".")
+
+                # THE BUYER'S OWN NUMBERS. Until now the ticket showed what the STOCK
+                # would do and priced the option off it. It never said what holding the
+                # option costs per day, nor whether the premium was fair against what the
+                # name has actually been moving — the two questions a buyer lives or dies
+                # on. Built here rather than inline: nested quotes inside an f-string are
+                # a syntax error waiting for the one edit that trips it.
+                q = o.get("quality") or {}
+                qcells = ""
+                if q:
+                    vv = q.get("vol") or {}
+                    ratio = f'{vv["ratio"]}x' if vv.get("ratio") else "—"
+                    vcol = "#FF6BB0" if vv.get("verdict") == "EXPENSIVE" else "#5CF2FF"
+                    spread = (f'{q["spread_pct"] * 100:.1f}%'
+                              if q.get("spread_pct") else "—")
+                    oi_txt = f'{int(q["oi"]):,}' if q.get("oi") else "—"
+                    theta = o.get("theta_rs_day")
+                    theta_txt = f'₹{theta:,}' if theta is not None else "—"
+                    qcells = (
+                        f'<div><b>IV vs realised</b><span style="color:{vcol}">'
+                        f'{ratio} {vv.get("verdict", "")}</span></div>'
+                        f'<div><b>Theta / day</b>'
+                        f'<span style="color:#FF6BB0">{theta_txt}</span></div>'
+                        f'<div><b>Delta</b>{q.get("delta", "—")}</div>'
+                        f'<div><b>Spread</b>{spread}</div>'
+                        f'<div><b>Strike OI</b>{oi_txt}</div>')
 
                 st.markdown(
                     f'<div class="ticket hud">'
@@ -1290,7 +1322,8 @@ with T_SIG:
                     f'<div><b>Option TP3</b>{o.get("t3","—")}</div>'
                     f'<div><b>R (points)</b>{r}</div>'
                     f'<div><b>R:R at TP1</b>{stk["rr1"]} : 1</div>'
-                    f'</div></div>', unsafe_allow_html=True)
+                    + qcells
+                    + '</div></div>', unsafe_allow_html=True)
 
                 for w in (o.get("premium_reject"), o.get("expiry_warning"),
                           sz.get("cost_warning"), c.get("afford_note")):
