@@ -47,6 +47,23 @@ because a demo that cannot show the page working cannot prove the page works.
 reached it — banner, ribbon, levels, all three scenario branches, disclaimer. Icon:
 **Tools → Desk render test**.
 
+## On the chart — `tradingview/`
+| File | What it is |
+|---|---|
+| `AashishMomentum.pine` | The strategy: entry on the first expansion bar, ATR stop trailing from the high-water mark, EOD square-off. Backtestable on TradingView. |
+| `AashishScreener.pine` | A **table on the chart** showing which of 20 names pass the same five gates right now — trend, VWAP, RVOL, squeeze, expansion — with a PASS count. |
+
+The screener is **not** the scanner. TradingView caps a script at 40 `request.*` calls, so
+it sees 20 names while the Python system sees the whole F&O list — and it computes none of
+what a ticket needs: no option chain, no lot size, no premium, no charges, no S/R levels.
+A green row means *worth opening the desk for*. It never means *place this*.
+
+The live bar **repaints**: it is unfinished, so a row can turn green and back inside one
+candle. Tick **confirmed bars only** to see closed candles alone.
+
+`python test_pine.py` (Tools → Pine vs Python) checks the two halves still agree on every
+number. Pine itself is compiled by TradingView, not here.
+
 ## The engine underneath
 | File | Role |
 |---|---|

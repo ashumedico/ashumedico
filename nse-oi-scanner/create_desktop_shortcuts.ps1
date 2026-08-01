@@ -117,6 +117,7 @@ New-Shortcut $tools "Sector feed probe" "run_sectors.bat"     "%SystemRoot%\Syst
 New-Shortcut $tools "Watchlist (Q1)"      "run_watchlist.bat"   "%SystemRoot%\System32\shell32.dll" 70  "Q1 list mein se kaunse F&O mein hain"
 New-Shortcut $tools "Lot Audit"           "run_lot_audit.bat"   "%SystemRoot%\System32\shell32.dll" 77  "Har naam ka lot check"
 New-Shortcut $tools "Expiry Check"        "run_expiry_check.bat" "%SystemRoot%\System32\shell32.dll" 137 "Kaunsi expiry sasti"
+New-Shortcut $tools "Pine vs Python"     "run_pine_test.bat"   "%SystemRoot%\System32\shell32.dll" 23 "Chart aur engine ke numbers ek hain ya nahi"
 New-Shortcut $tools "Sector map test"    "run_sectors_test.bat" "%SystemRoot%\System32\shell32.dll" 23 "Sector membership sahi nikalta hai ya nahi"
 New-Shortcut $tools "Desk render test"    "run_desk_test.bat"   "%SystemRoot%\System32\shell32.dll" 23  "Website sach mein render hoti hai ya nahi"
 New-Shortcut $tools "Telegram alerts"     "TELEGRAM-SETUP.bat"  "%SystemRoot%\System32\shell32.dll" 12  "Phone pe alert"
