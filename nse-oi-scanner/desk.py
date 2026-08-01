@@ -1045,6 +1045,11 @@ with T_SIG:
                     blocked = f"Quantity refused — {sz['lot_warning']}. Tools → Lot Audit."
                 # MAX_LOSS is an absolute cap, so it BLOCKS the ticket rather than
                 # printing beside it. A cap that only warns is not a cap.
+                # A stop this wide is not a risk-limit breach - the rupees still fit,
+                # because the size just shrank. It is a bad trade that every
+                # rupee-denominated check waves through.
+                elif sz.get("stop_too_wide"):
+                    blocked = f"Entry too late — {sz['stop_too_wide']}."
                 elif sz.get("max_loss_breach"):
                     blocked = f"Over your MAX_LOSS cap — {sz['max_loss_breach']}."
                 # The CONTRACT's own gates. Everything above this line judged the stock;

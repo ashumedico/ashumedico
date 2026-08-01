@@ -62,6 +62,11 @@ MAX_LOSS       = 5000       # hard worst-case rupee cap per trade
 # Counted from orders.jsonl, not from the book: a loop re-sending the same entry books
 # no P&L, so the drawdown halt watches a number that never moves while orders keep going.
 MAX_ORDERS_PER_DAY = 20     # runaway-loop backstop for unattended runs
+# How far the stop may sit from entry, as a fraction of the stock. MAX_LOSS caps the
+# RUPEES at risk and a wide stop passes it by simply shrinking the size - leaving a trade
+# that must travel twice this to make 2R. Bites hardest when a late confirmation is
+# bought with the entry price.
+MAX_STOP_PCT   = 0.015      # 1.5% of the underlying
 
 # Instrument modelling
 DEFAULT_LOT      = 50       # fallback lot size; override per name in LOT_SIZES

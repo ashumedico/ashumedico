@@ -568,6 +568,28 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "risk_pct_of_capital": round(100 * risk_per_lot / capital, 1) if capital else None,
             "affordable_lots": int(capital // cost_per_lot) if cost_per_lot else 0,
         })
+        # HOW FAR AWAY THE STOP IS, as a fraction of the stock. MAX_LOSS caps the RUPEES
+        # at risk, and the two are not the same question. A stop 4% away still passes
+        # MAX_LOSS - the size simply shrinks to one lot - and what it leaves behind is a
+        # trade that has to travel 8% to make 2R. That is not a risk-limit breach, it is a
+        # bad trade that every rupee-denominated check waves through.
+        #
+        # It bites hardest on exactly the setup being built here. Wait for a second
+        # 15-minute candle to confirm a breakout and the stock has often already run 3-4%
+        # from the level the stop belongs behind; the confirmation is bought with the
+        # entry price. The usual advice is to eyeball the chart before pressing - which is
+        # no use to someone who is not at the screen, so it is arithmetic instead.
+        stop_px_ = card.get("stock", {}).get("stop")
+        entry_px_ = card.get("stock", {}).get("entry")
+        if stop_px_ and entry_px_:
+            stop_away = abs(entry_px_ - stop_px_) / float(entry_px_)
+            card["stock"]["stop_pct"] = round(100 * stop_away, 2)
+            cap_stop = getattr(config, "MAX_STOP_PCT", None)
+            if cap_stop and stop_away > float(cap_stop):
+                card["size"]["stop_too_wide"] = (
+                    f"stop is {100*stop_away:.1f}% away against a MAX_STOP_PCT of "
+                    f"{100*float(cap_stop):.1f}% - the move is already spent")
+
         # MAX_LOSS - the absolute rupee cap on one trade's worst case. It sat in config
         # from the beginning and was enforced nowhere. The worst case is what this ticket
         # itself says it can lose if the stop fills: (premium - stop) x qty, across the
