@@ -52,10 +52,19 @@ def collect(side="both", top=MAX_SLOTS, everything=False):
     import rrg_engine as E
     import rrg_strategy as S
 
+    # This function writes a TRADINGVIEW WATCHLIST - a file he opens and trades from. It
+    # used to fall back to synthetic names when the token was missing, printing one yellow
+    # line and then producing a watchlist indistinguishable from a real one. A warning on
+    # a terminal that has already scrolled is not a safety mechanism; the artifact outlives
+    # it. No token, no watchlist.
+    import real_only as RO
     demo = not os.path.exists("access_token.txt")
+    if demo and not RO.allowed():
+        raise RO.Synthetic(
+            f"no token, so these would be invented names in a watchlist you trade "
+            f"from. Nothing written. {RO.FIX}")
     if demo:
-        print(f"  {Y}Token nahi hai - DEMO naam nikal rahe hain. Ye asli scan nahi "
-              f"hai.{X}")
+        print(f"  {Y}[SYNTHETIC] test process - these names are not a scan.{X}")
         pts, prices, bench = E.demo_points()
     else:
         pts, prices, bench = E.live_points(tail=6)

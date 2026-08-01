@@ -37,6 +37,10 @@ def html(at, fragment):
 
 
 def main():
+    # The desk refuses to invent data. A test process asks for the exception explicitly,
+    # before desk.py is imported - and the same variable bars this process from placing
+    # an order at the broker, so nothing here can reach an exchange.
+    os.environ["DESK_SYNTHETIC"] = "1"
     try:
         from streamlit.testing.v1 import AppTest
     except ImportError:
@@ -49,8 +53,8 @@ def main():
 
     check("script raises nothing", not at.exception,
           "; ".join(str(e.value)[:120] for e in at.exception))
-    check("demo mode is announced",
-          any("DEMO" in w.value for w in at.warning))
+    check("the page says its data is synthetic, as an error not a note",
+          any("SYNTHETIC" in e.value for e in at.error))
 
     # The banner and the ribbon are ONE line now - a verdict pill followed by the numbers
     # that justify it. Two stacked blocks cost 115px above every one of the five tabs.

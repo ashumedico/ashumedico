@@ -15,7 +15,9 @@ It also trades the OPTION, not the stock. A paper book that records "the stock w
     python paper.py --report   # just the scorecard
     python paper.py --reset    # start the book over (asks first)
 
-Nothing here places a real order. It writes to paper_trades.json only.
+Nothing here places a real order. It writes to paper_trades.json only - and `--demo`
+writes to paper_trades.synthetic.json instead, so an invented fill can never end up in
+the record he judges the system by.
 
 NOT financial advice.
 """
@@ -41,18 +43,32 @@ def now():
     return datetime.now(IST)
 
 
-def load():
-    if os.path.exists(BOOK):
+def book_path(synthetic=False):
+    """Which book to write. Synthetic runs NEVER touch the real one.
+
+    The paper book is the record he judges the system by - the only honest answer to
+    "does this actually work". `--demo` used to write invented trades straight into it,
+    and a synthetic fill in a track record is not a labelling problem, it is a corrupted
+    measurement: three months later nobody can tell which rows were real, and the whole
+    file has to be thrown away. Separate file, permanently.
+    """
+    return "paper_trades.synthetic.json" if synthetic else BOOK
+
+
+def load(synthetic=False):
+    p = book_path(synthetic)
+    if os.path.exists(p):
         try:
-            with open(BOOK) as f:
+            with open(p) as f:
                 return json.load(f)
         except Exception:
             pass
-    return {"open": [], "closed": [], "started": now().isoformat()}
+    return {"open": [], "closed": [], "started": now().isoformat(),
+            **({"synthetic": True} if synthetic else {})}
 
 
-def save(bk):
-    with open(BOOK, "w") as f:
+def save(bk, synthetic=False):
+    with open(book_path(synthetic), "w") as f:
         json.dump(bk, f, indent=2)
 
 
@@ -535,15 +551,15 @@ def session_loop(a):
         nxt = next_bar_time(bm)
         if nxt >= close_t:
             print(f"\n  {Y}Session khatam - sab square off kar raha hoon.{X}")
-            bk = load()
+            bk = load(a.demo)
             if bk["open"]:
                 q = ({t["symbol"]: t.get("spot_now") for t in bk["open"]} if a.demo
                      else __import__("rrg_engine").live_quote(
                          [t["symbol"] for t in bk["open"] if t.get("symbol")]))
                 for nm in square_off_all(bk, q):
                     print(f"  {Y}>> {nm}: EOD square off{X}")
-                save(bk)
-            report(load())
+                save(bk, a.demo)
+            report(load(a.demo))
             return
         wait = max(5, (nxt - now()).total_seconds())
         # Entries wait for the candle to close, because that is what the signal is built
@@ -553,16 +569,16 @@ def session_loop(a):
         watch = int(getattr(config, "WATCH_SECONDS", 60) or 60)
         print(f"  {DIM}agla candle close {nxt:%H:%M} - {int(wait/60)} min{X}"
               + (f"{DIM}, position khuli hai toh har {watch}s dekh raha hoon{X}"
-                 if load()["open"] else ""))
+                 if load(a.demo)["open"] else ""))
         try:
             end = now() + timedelta(seconds=wait)
             while now() < end:
-                bk = load()
+                bk = load(a.demo)
                 if not bk["open"]:
                     _time.sleep(min(watch, (end - now()).total_seconds()))
                     continue
                 _time.sleep(min(watch, max(1, (end - now()).total_seconds())))
-                bk = load()
+                bk = load(a.demo)
                 if not bk["open"]:
                     continue
                 q = ({t["symbol"]: t.get("spot_now") for t in bk["open"]} if a.demo
@@ -570,7 +586,7 @@ def session_loop(a):
                          [t["symbol"] for t in bk["open"] if t.get("symbol")]))
                 for nm, what in mark(bk, q, 99):
                     print(f"  {Y}>> {nm}: {what}{X}")
-                save(bk)
+                save(bk, a.demo)
         except KeyboardInterrupt:
             print(f"\n  {Y}Band kar diya. Book waise ka waisa hai.{X}")
             return
@@ -586,10 +602,10 @@ def main():
     ap.add_argument("--demo", action="store_true")
     a = ap.parse_args()
 
-    bk = load()
+    bk = load(a.demo)
     if a.reset:
         if input("  Poora paper book mita doon? (haan/nahi): ").strip().lower() in ("haan", "y", "yes"):
-            save({"open": [], "closed": [], "started": now().isoformat()})
+            save({"open": [], "closed": [], "started": now().isoformat()}, a.demo)
             print("  Book saaf. Aaj se naya.")
         return
     if a.report:
@@ -602,7 +618,16 @@ def main():
 
 
 def run_once(a):
-    bk = load()
+    # `--demo` is a test flag, not a mode. It fabricates fills, so it needs the same
+    # permission every other fabrication needs, and it writes to its own book.
+    import real_only as RO
+    if a.demo and not RO.allowed():
+        print(f"\n  {R}--demo refused.{X} {DIM}Invented fills in the book you judge the "
+              f"system by are not a labelling problem, they are a corrupted "
+              f"measurement.{X}")
+        print(f"  {DIM}{RO.FIX}{X}\n")
+        return 2
+    bk = load(a.demo)
     import rrg_engine as E, rrg_strategy as S, trade_card as TC, checkin as C
 
     try:
@@ -663,7 +688,7 @@ def run_once(a):
     else:
         print(f"  {DIM}Aaj koi setup pass nahi hua.{X}")
 
-    save(bk)
+    save(bk, a.demo)
     report(bk)
 
 

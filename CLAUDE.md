@@ -96,6 +96,13 @@ an order: provenance · basis · magnitude · staleness · absence · agreement 
 Seven checks, each one written from a bug that shipped. *A number that looks like an answer is
 the most expensive kind of wrong.*
 
+## No fake data → `.claude/skills/real-money-only/`
+`/real-money-only` — **always on for anything that touches the market.** Demo, sample, placeholder
+and fallback data are **refused**, not labelled. Permission to fabricate is per-process and
+expiring (an env var a test harness sets), never a config flag — and a process allowed to *invent*
+a number is never allowed to *send* an order. *A banner said "not one number here is real" and four
+tickets below it quoted a stop to the paisa. Reading is not a safety mechanism.*
+
 ## The bar → `.claude/skills/solution-first/`
 `/solution-first` — **always on, every task.** Never hand back an excuse, a caveat or a limitation
 as the deliverable. Research the real answer (vendor docs, the API's own response, the source), fix

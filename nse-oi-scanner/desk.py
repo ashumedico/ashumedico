@@ -33,7 +33,13 @@ except ImportError:
         CAPITAL = 200000
     config = _C()
 
-DEMO = not os.path.exists(getattr(config, "TOKEN_FILE", "access_token.txt"))
+# NO TOKEN is a fact about the world. SYNTHETIC is a permission, and it is off. The two
+# used to be the same variable called DEMO, which is how a page with no token ended up
+# quoting an entry, a stop and a target to the paisa under a banner nobody reads.
+import real_only as RO
+
+NO_TOKEN = not os.path.exists(getattr(config, "TOKEN_FILE", "access_token.txt"))
+SYNTHETIC = NO_TOKEN and RO.allowed()
 
 # ------------------------------------------------------------------- look --
 # The palette lives in theme.py as NAMED tokens, not as hex codes scattered through this
@@ -52,10 +58,17 @@ def tag(text, kind="muted"):
 
 
 @st.cache_data(ttl=120, show_spinner="Fetching data...")
-def load(demo):
+def load(synthetic):
+    """The universe, from the exchange. Invented only in a test process, never here."""
     import rrg_engine as E
-    if demo:
+    if synthetic:
+        RO.require("the whole universe")      # belt and braces; the caller already asked
         pts, prices, bench = E.demo_points()
+    elif NO_TOKEN:
+        # Fail here, loudly and immediately, instead of letting live_points() fail deeper
+        # with a transport error that reads like a network problem. The cause is a missing
+        # login and the fix is one icon.
+        raise RO.Synthetic(f"no token, so there is no market data. {RO.FIX}")
     else:
         pts, prices, bench = E.live_points(tail=6)
     return pts, prices, bench, E.LAST_BARS, E.LAST_DATES
@@ -78,20 +91,22 @@ def chain_for(symbol, min_days, spot=None):
     "this name has no F&O series" are three different problems with three different
     fixes, and a button that greys out identically for all three teaches nothing.
     """
-    if DEMO:
-        # A SYNTHETIC chain, not "no chain". With none at all, every ticket in demo mode
-        # reads NO CONTRACT and the entire option layer - spread, liquidity, implied vol,
-        # theta, the gates that block a bad strike - is invisible and unexercised. A demo
-        # that cannot walk a code path cannot prove that path works, which is the same
-        # reason the demo market now gaps. Labelled DEMO everywhere it surfaces.
+    if NO_TOKEN and not SYNTHETIC:
+        # No invented chain. A synthetic chain exercises the whole option layer, which is
+        # why it exists for tests - but a strike, a premium and a lot size that nobody
+        # quoted are three numbers shaped exactly like an answer, sitting under a BUY.
+        return None, None, None, None, f"no token, so no option chain. {RO.FIX}"
+    if SYNTHETIC:
+        # Test process only. Labelled at every surface, and disqualified from ordering at
+        # the broker itself - see real_only.why_no_orders().
         if not spot:
-            return None, None, None, None, "no token, and no spot to build a demo chain"
+            return None, None, None, None, "no spot to build a test chain from"
         try:
             import option_chain as OC
             ch, _ = OC.fetch_dry(symbol, float(spot))
             return ch, "DEMO", int(min_days), 50, None
         except Exception as e:      # noqa
-            return None, None, None, None, f"demo chain failed: {str(e)[:90]}"
+            return None, None, None, None, f"test chain failed: {str(e)[:90]}"
     try:
         import option_chain as OC
         ch, lbl, days, lot = OC.tradeable_chain(symbol, min_days)
@@ -134,8 +149,8 @@ def exchange_quotes(symbols):
 
     Short TTL because the LTP inside it is "Daily Close" while the session runs.
     """
-    if DEMO:
-        return {}
+    if NO_TOKEN:
+        return {}          # no quotes; the caller falls back to candles and says so
     try:
         import rrg_engine as E
         return E.live_ohlc(list(symbols))
@@ -507,8 +522,10 @@ with st.sidebar:
     bm = int(getattr(config, "BAR_MINUTES", 375))
     bits.append(tag(f"{'INTRADAY' if bm < 375 else 'SWING'} · {bm}min",
                     "ok" if bm < 375 else "warn"))
-    if DEMO:
-        bits.append(tag("DEMO DATA", "bad"))
+    if SYNTHETIC:
+        bits.append(tag("SYNTHETIC · TEST", "bad"))
+    elif NO_TOKEN:
+        bits.append(tag("NO TOKEN", "bad"))
     try:
         import broker
         bits.append(tag("LIVE ARMED", "bad") if broker.armed() and not broker.killed()
@@ -553,12 +570,13 @@ if not hasattr(config, "RESOLUTION") or not hasattr(config, "BAR_MINUTES"):
     st.error("RESOLUTION / BAR_MINUTES are not set in config — this is running SWING, "
              "not INTRADAY.  Fix:  python configure.py --mode intraday")
 
-if DEMO:
-    st.warning("No token — this is DEMO data. Not one number here is real. "
-               "Run the '1 - START DAY' icon to log in.")
+if SYNTHETIC:
+    st.error(RO.banner())
+elif NO_TOKEN:
+    st.warning(f"**No token — no numbers.** This desk does not invent data. {RO.FIX}")
 
 try:
-    pts, prices, bench, bars, dates = load(DEMO)
+    pts, prices, bench, bars, dates = load(SYNTHETIC)
     # The floating window is defined before the data exists, so it reads these. Module
     # globals rather than arguments because st.dialog callbacks take only what the click
     # passes - a name - and everything else has to be reachable from inside.
@@ -585,7 +603,7 @@ longs = sel["longs"]
 STRIP.markdown(
     f'<div class="strip">'
     f'<span class="radar-dish"></span>'
-    f'<span><i>SCAN</i><b>{"ARMED" if not DEMO else "DEMO"}</b></span>'
+    f'<span><i>SCAN</i><b>{"SYNTHETIC" if SYNTHETIC else "NO TOKEN" if NO_TOKEN else "LIVE"}</b></span>'
     f'<span><i>IST</i><b>{datetime.now(IST):%H:%M:%S}</b></span>'
     f'<span><i>LAST SCAN</i><b>{st.session_state.last_scan or "—"}</b></span>'
     f'<span><i>UNIVERSE</i><b>{len(pts)}</b></span>'
@@ -1032,7 +1050,7 @@ with T_SIG:
                 # that never expires, because nothing ever starts collecting. Once per
                 # name per day - the desk reruns on every click, and observing on each
                 # rerun would weight a day he browsed a lot above one he did not.
-                if q.get("iv") and not DEMO:
+                if q.get("iv") and not SYNTHETIC:
                     try:
                         import iv_history as IVH
                         IVH.record(p["symbol"], q["iv"], spot=c.get("spot"),

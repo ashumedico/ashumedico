@@ -104,6 +104,21 @@ def place(symbol, qty, side, kind="MARKET", limit_price=0.0, tag="", product=Non
     if kind in ("SL", "SL_LIMIT") and not req["stopPrice"]:
         return False, "stop order needs a trigger price - refusing to send it without one"
 
+    # GATE ZERO, above every other one: a process that is allowed to INVENT a number is
+    # not allowed to SEND one. Checked here rather than at the screen because this is the
+    # single point every order passes through, and because it disqualifies on the
+    # fabrication itself, not on what the fabricated symbol happens to look like. The
+    # DEMO: prefix check downstream stays - two independent guards fail independently,
+    # and a guard defeated by its own placeholder is what dead buttons taught us.
+    try:
+        import real_only as RO
+        _synth = RO.why_no_orders()
+    except Exception:      # noqa - a missing module must not silently open the gate
+        _synth = "real_only.py is missing - refusing to send orders without its guarantee"
+    if _synth:
+        _log({"event": "blocked", "why": "synthetic process", "req": req, "tag": tag})
+        return False, _synth
+
     if not symbol:
         _log({"event": "blocked", "why": "no tradeable symbol", "tag": tag})
         return False, "no tradeable symbol - the chain did not supply one"

@@ -63,10 +63,16 @@ def free_port():
 
 
 def serve(port):
+    # This harness has no Fyers token, and the desk refuses to invent one - which is the
+    # point. A test process asks for the permission explicitly, per launch, and gets it
+    # by environment variable: it dies with the process, so it cannot be left on the way
+    # a config flag can. The same variable disqualifies the process from placing orders
+    # at the broker, so nothing measured here can reach an exchange.
+    env = dict(os.environ, DESK_SYNTHETIC="1")
     proc = subprocess.Popen(
         [sys.executable, "-m", "streamlit", "run", "desk.py",
          "--server.port", str(port), "--server.headless", "true"],
-        cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cwd=HERE, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     import urllib.request
     for _ in range(120):
         try:
@@ -112,8 +118,9 @@ def measure(port):
             # same lie as a wrong number.
             demo = pg.evaluate("""() => {
                 let t = 0;
-                const marks = ["DEMO data", "BAR_MINUTES", "option gates are NOT enforced",
-                               "Not enforced:", "Demo contract"];
+                const marks = ["SYNTHETIC DATA", "No token", "BAR_MINUTES",
+                               "option gates are NOT enforced", "Not enforced:",
+                               "Demo contract"];
                 const sel = '[data-testid="stAlert"], [data-testid="stCaptionContainer"]';
                 for (const a of document.querySelectorAll(sel)) {
                     const s = a.innerText || "";
