@@ -47,6 +47,11 @@ CLAUDE = {
     "font": ('ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", '
              '"Times New Roman", serif'),
     "mono": 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+    # Claude sets PROSE in serif and the chrome - labels, tabs, buttons - in a sans.
+    # Serif at 0.6rem uppercase is both wrong to the reference and wider, which is what
+    # made the ticket labels wrap onto a second line.
+    "ui": ('-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, '
+           "system-ui, sans-serif"),
 }
 
 # NEON: three neons on black, the previous look. Kept whole so switching back is a
@@ -71,6 +76,7 @@ NEON = {
     "attn_soft": "#0A2B05",
     "font": 'ui-monospace, Consolas, "SF Mono", monospace',
     "mono": 'ui-monospace, Consolas, "SF Mono", monospace',
+    "ui": 'ui-monospace, Consolas, "SF Mono", monospace',
 }
 
 PALETTES = {"claude": CLAUDE, "neon": NEON}
@@ -120,7 +126,7 @@ def css(T):
   [data-testid="stMetricValue"] {{font-size:1.3rem; color:{T['ink']};
       font-family:{T['mono']};}}
   [data-testid="stMetricLabel"] {{font-size:.7rem; color:{T['muted']};
-      letter-spacing:.4px; text-transform:uppercase;}}
+      letter-spacing:.4px; text-transform:uppercase; font-family:{T['ui']};}}
   [data-testid="stMetricDelta"] {{font-family:{T['mono']};}}
 
   code, pre, .stCode {{background:{T['panel2']} !important; border:1px solid {T['line']};
@@ -131,7 +137,7 @@ def css(T):
      accent - that is the whole hierarchy, and a second one destroys it. */
   .stButton > button {{background:{T['panel']}; color:{T['ink_soft']};
       border:1px solid {T['line']}; border-radius:9px; font-weight:600;
-      letter-spacing:.2px; font-size:.8rem; font-family:{T['font']};
+      letter-spacing:.2px; font-size:.8rem; font-family:{T['ui']};
       padding:.24rem .7rem; min-height:0; line-height:1.5; transition:all .12s ease;}}
   .stButton > button:hover {{border-color:{T['accent']}; color:{T['accent']};}}
   .stButton > button[kind="primary"] {{background:{T['accent']}; color:#FFFFFF;
@@ -145,7 +151,7 @@ def css(T):
   [data-testid="stTabs"] [data-baseweb="tab-list"] {{gap:2px; background:{T['panel2']};
       border:1px solid {T['line']}; border-radius:10px; padding:3px;}}
   [data-testid="stTabs"] [data-baseweb="tab"] {{height:30px; background:transparent;
-      color:{T['muted']}; font-family:{T['font']}; font-size:.78rem; font-weight:600;
+      color:{T['muted']}; font-family:{T['ui']}; font-size:.78rem; font-weight:600;
       letter-spacing:.3px; border-radius:8px; padding:0 14px;}}
   [data-testid="stTabs"] [aria-selected="true"] {{background:{T['panel']};
       color:{T['ink']}; box-shadow:0 1px 2px rgba(0,0,0,.06);}}
@@ -153,7 +159,7 @@ def css(T):
   [data-testid="stTabs"] [data-baseweb="tab-border"] {{display:none;}}
 
   .tag {{display:inline-block; padding:3px 10px; border-radius:20px; margin-right:6px;
-        font-size:.7rem; font-weight:600; letter-spacing:.2px; font-family:{T['font']};}}
+        font-size:.7rem; font-weight:600; letter-spacing:.2px; font-family:{T['ui']};}}
   .ok   {{background:{T['up_soft']};   color:{T['up']};}}
   .warn {{background:{T['attn_soft']}; color:{T['attn']};}}
   .bad  {{background:{T['down_soft']}; color:{T['down']};}}
@@ -166,7 +172,7 @@ def css(T):
 
   .sec {{font-size:.72rem; letter-spacing:1.4px; text-transform:uppercase;
         color:{T['muted']}; border-bottom:1px solid {T['line']}; padding-bottom:4px;
-        margin:.5rem 0 .45rem 0; font-family:{T['font']}; font-weight:600;}}
+        margin:.5rem 0 .45rem 0; font-family:{T['ui']}; font-weight:600;}}
 
   /* heatmap tiles, radar badges */
   .hm {{border-radius:9px; padding:10px 13px; margin-bottom:8px; position:relative;
@@ -180,7 +186,7 @@ def css(T):
   .hm-t {{font-size:.6rem; letter-spacing:.8px; font-weight:700;}}
 
   .badge {{display:inline-block; padding:5px 12px; border-radius:20px; margin:0 7px 7px 0;
-          font-size:.7rem; font-weight:600; letter-spacing:.2px; font-family:{T['font']};}}
+          font-size:.7rem; font-weight:600; letter-spacing:.2px; font-family:{T['ui']};}}
   .b-up   {{background:{T['up_soft']};   color:{T['up']};}}
   .b-dn   {{background:{T['down_soft']}; color:{T['down']};}}
   .b-turn {{background:{T['attn_soft']}; color:{T['attn']};}}
@@ -208,7 +214,7 @@ def css(T):
             color:{T['ink']};}}
   .tk-grid b {{display:block; color:{T['muted']}; font-weight:600; font-size:.6rem;
               letter-spacing:.4px; text-transform:uppercase; margin-bottom:1px;
-              font-family:{T['font']};}}
+              font-family:{T['ui']}; white-space:nowrap;}}
 
   .card {{background:{T['panel']}; border:1px solid {T['line']};
          border-left:3px solid {T['up']}; border-radius:10px; padding:11px 15px;
@@ -221,7 +227,7 @@ def css(T):
   .lv {{display:flex; flex-wrap:wrap; gap:20px; font-family:{T['mono']};
        font-size:.82rem;}}
   .lv b {{color:{T['muted']}; font-weight:600; font-size:.66rem; letter-spacing:.3px;
-         text-transform:uppercase; display:block; font-family:{T['font']};}}
+         text-transform:uppercase; display:block; font-family:{T['ui']};}}
 
   .banner {{padding:10px 15px; border-radius:9px; font-weight:600; font-size:.9rem;
            margin:.2rem 0 .5rem 0;}}
@@ -232,7 +238,7 @@ def css(T):
   /* the status strip: one line, pills, no wrapping. A header that changes height
      moves the whole page. */
   .strip {{display:flex; align-items:center; gap:7px; overflow-x:auto; padding:3px 0;
-          font-family:{T['font']}; white-space:nowrap;}}
+          font-family:{T['ui']}; white-space:nowrap;}}
   .strip > span {{display:inline-flex; align-items:baseline; gap:6px; padding:4px 11px;
           border:1px solid {T['line']}; border-radius:20px; background:{T['panel']};}}
   .strip i {{font-style:normal; font-size:.6rem; letter-spacing:.5px;
