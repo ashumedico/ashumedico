@@ -96,7 +96,7 @@ def main():
     check("tables open the chart on row click",
           src.count("clickable(") >= 4,
           f"{src.count('clickable(') - 1} tables wired")
-    check("trade cards have their own chart button", "chart_window(p[" in src)
+    check("trade cards have their own chart button", 'chart_window(nm)' in src)
     check("one chart builder, used by page and popup alike",
           src.count("def make_fig") == 1 and src.count("make_fig(") >= 3,
           f"{src.count('make_fig(') - 1} call sites")

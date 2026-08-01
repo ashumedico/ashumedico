@@ -329,11 +329,22 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     #    that means the lot came from the wrong place and the quantity is fiction.
     # 2) If the live chain and the symbol master disagree, one of them is stale - a split
     #    revises the lot (COFORGE went 75 -> 375 on a 5:1). Trade the chain, but say so.
+    # The band has to be checked from BOTH sides. It only ever tested "too small", which
+    # is the failure that happened first (COFORGE at 13). The freeze-quantity bug fails the
+    # other way - PERSISTENT came back as lot 18,365, a Rs 102 CRORE contract - and a
+    # one-sided check waved it straight through to a button.
     contract_value = round(spot * lot)
     lot_warning = None
+    lot_absurd = False
     if contract_value < 200000:
+        lot_absurd = True
         lot_warning = (f"lot {lot} gives a contract value of only Rs {contract_value:,} - "
                        f"NSE F&O contracts are ~Rs 5-10 lakh, so verify the lot before you order")
+    elif contract_value > 2500000:
+        lot_absurd = True
+        lot_warning = (f"lot {lot} gives a contract value of Rs {contract_value:,} - "
+                       f"NSE F&O contracts are ~Rs 5-10 lakh, so this lot is wrong "
+                       f"(freeze quantity reads like this). Do NOT order on it.")
     elif chain_lot and master_lot and chain_lot != master_lot:
         lot_warning = (f"lot mismatch: live chain says {chain_lot}, symbol master says "
                        f"{master_lot} - using {chain_lot}; a recent split may have revised it")
@@ -345,6 +356,7 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
                     "too_big": rule_lots < lots,
                     "one_lot_risk": round(risk_per_unit * lot),
                     "contract_value": contract_value,
+                    "lot_absurd": lot_absurd,
                     "lot_warning": lot_warning}
 
     # ---- can he actually pay for it? ----

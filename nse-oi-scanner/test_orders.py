@@ -118,7 +118,13 @@ def main():
     check("the payload is shown before it is sent",
           "st.code(" in src.split("_armed_key(key)")[1][:400])
     check("a missing contract disables the button",
-          'payload.get("symbol")' in src and "no contract" in src)
+          'payload.get("symbol")' in src and "NO CONTRACT" in src)
+    check("and a placeholder counts as missing",
+          'payload["symbol"] in ("-", "None")' in src,
+          "'-' is truthy; `sym or '-'` walked past the empty check and armed the button")
+    check("an absurd contract value blocks every button on that ticket",
+          "blocked=blocked" in src and src.count("blocked=blocked") >= 3,
+          f"{src.count('blocked=blocked')} of 3 buttons")
     check("the kill switch disables the button here too",
           "KILL SWITCH ON" in src and "disabled=True" in src)
     check("the broker's own reply is shown verbatim",

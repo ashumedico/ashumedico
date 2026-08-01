@@ -277,7 +277,23 @@ recurs, and recognising the shape is faster than rediscovering the bug.
     The session loop's trail ratchets and dies with the window; an SL-M resting at Fyers
     survives a closed laptop and cannot trail. Place both.
 
-18. **Language: the chat is Hinglish, the product is English.** Code, commits, the
+18. **A guard defeated by its own placeholder is worse than no guard.** The order button
+    checked `payload.get("symbol")` and the caller passed `sym or "-"` for display -
+    `"-"` is truthy, so the guard read as protection on screen and never fired. Check the
+    placeholder too, and never let display formatting reach a safety test.
+
+19. **Sanity bands must be checked from BOTH sides.** The contract-value check only
+    tested "too small" (COFORGE at 13). The freeze-quantity bug fails the other way -
+    PERSISTENT at lot 18,365 is a ₹102 CRORE contract - and a one-sided check waved it
+    straight through to a live order button. An absurd quantity now blocks every button
+    on that ticket.
+
+20. **Design hierarchy is a safety feature.** Three equal buttons in a half-width column
+    wrapped "CANCEL" onto three lines and crushed the confirm sheet at the exact moment
+    it had to be readable. One number, one primary action, everything else quieter and
+    full width.
+
+21. **Language: the chat is Hinglish, the product is English.** Code, commits, the
     website and any MLR/UCPMP content stay English. A half-translated screen reads as
     careless.
 

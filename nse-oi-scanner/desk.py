@@ -131,6 +131,28 @@ st.markdown("""
   .b-bnc  {background:#00222B; color:#22D3EE; border:1px solid #0A6675;}
   .b-none {background:#0A0E14; color:#4E6072; border:1px solid #14202C;}
 
+  /* ---- the order ticket: broker-app hierarchy, terminal palette ----
+     One number dominates (what you pay), one action is primary, everything else is
+     secondary and quiet. Roomy on purpose - a confirm sheet that has to be readable
+     cannot live in a crushed column. */
+  .ticket {background:#080C12; border:1px solid #14202C; border-radius:6px;
+           padding:16px 18px 14px; margin-bottom:10px;}
+  .tk-head {display:flex; align-items:center; gap:12px; margin-bottom:10px;}
+  .tk-name {font-size:1.15rem; font-weight:800; color:#D5E6F2; letter-spacing:1.6px;
+            font-family: ui-monospace, Consolas, monospace;}
+  .tk-grade {font-size:.72rem; font-weight:800; color:#7CFF5E; margin-left:auto;
+             font-family: ui-monospace, Consolas, monospace;}
+  .tk-big {font-size:2.1rem; font-weight:800; letter-spacing:1px; line-height:1.35;
+           font-family: ui-monospace, Consolas, monospace; padding:2px 0 6px;
+           text-shadow:0 0 18px currentColor;}
+  .tk-sub {font-size:.78rem; font-weight:600; color:#4E6072; letter-spacing:.4px;
+           text-shadow:none;}
+  .tk-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px 18px;
+            margin-top:8px; font-family: ui-monospace, Consolas, monospace;
+            font-size:.86rem; color:#D5E6F2;}
+  .tk-grid b {display:block; color:#3E5060; font-weight:600; font-size:.62rem;
+              letter-spacing:.8px; text-transform:uppercase; margin-bottom:1px;}
+
   .card {background:#080C12; border:1px solid #14202C; border-left:3px solid #00E5FF;
          border-radius:4px; padding:11px 15px; margin-bottom:9px;
          transition:box-shadow .12s ease;}
@@ -424,7 +446,8 @@ def _armed_key(k):
     return True
 
 
-def order_button(label, key, payload, fire, colour="#00E5FF"):
+def order_button(label, key, payload, fire, blocked=None, explain=True,
+                 colour="#00E5FF"):
     """Two-press order control. Returns nothing; renders its own result.
 
     payload is shown verbatim before anything is sent - the numbers on the button and the
@@ -443,12 +466,24 @@ def order_button(label, key, payload, fire, colour="#00E5FF"):
         st.button(f"{label} · KILL SWITCH ON", key=key, disabled=True,
                   use_container_width=True)
         return
-    if not payload.get("symbol"):
-        st.button(f"{label} · no contract", key=key, disabled=True,
+    # This guard existed and did nothing, because the caller passed `sym or "-"` for
+    # display and "-" is truthy. The button armed, showed symbol=-, and only the broker
+    # stopped it. A guard defeated by its own placeholder is worse than no guard: it reads
+    # as protection on the screen and is not.
+    if not payload.get("symbol") or payload["symbol"] in ("-", "None"):
+        st.button(f"{label} · NO CONTRACT", key=key, disabled=True,
                   use_container_width=True)
-        st.caption("The chain did not supply a tradeable symbol, so there is nothing to "
-                   "send. An order assembled by hand from strike and expiry is one typo "
-                   "from a different contract.")
+        # Once per ticket, not once per button: the same sentence three times reads as
+        # three problems and buries the one that matters.
+        if explain:
+            st.caption("The chain did not supply a tradeable symbol, so there is nothing "
+                       "to send. An order assembled by hand from strike and expiry is one "
+                       "typo from a different contract.")
+        return
+    if blocked:
+        st.button(f"{label} · BLOCKED", key=key, disabled=True, use_container_width=True)
+        if explain:
+            st.error(blocked)
         return
 
     if _armed_key(key):
@@ -1043,88 +1078,114 @@ if longs:
                 f'</div></div>', unsafe_allow_html=True)
 
         def signal_block(p, is_short):
-            """The plan in BOTH languages - the stock's levels and the option's - plus the
-            three things he can actually do about it.
+            """One position ticket, laid out the way a broker app lays one out.
 
-            Both matter and they are not interchangeable. The stock levels are where the
-            thesis lives (stop below structure, targets at ATR multiples). The option
-            levels are what the account will actually see, because the premium moves by
-            delta and not one-for-one. Showing only one of them is how a trader ends up
-            watching the wrong number."""
+            Robinhood's lesson is not the colour, it is the hierarchy: ONE number you are
+            about to pay, ONE primary action, and everything else quieter and out of the
+            way. The old version put three equal buttons in a narrow half-width column, so
+            "CANCEL" wrapped to three lines and the confirm sheet was unreadable at the
+            moment it mattered most. Full width, one action, the rest secondary.
+            """
             c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
                               expiry_label="—",
                               days_to_expiry=TC.min_days_for_thesis(),
                               capital=float(getattr(config, "CAPITAL", 200000)),
                               side="SHORT" if is_short else "LONG")
             _CARDS[c["name"]] = c
-            render(p, is_short)
             o = c.get("option") or {}
             stk, sz = c["stock"], c["size"]
             e, sl = stk.get("entry") or c["spot"], stk["stop"]
             r = max(0.01, abs(e - sl))
             t3 = round(e - 2 * r, 2) if is_short else round(e + 2 * r, 2)
+            prem, qty = o.get("premium"), sz["qty"]
+            sym = o.get("tradingsymbol")
+            outlay = (prem or 0) * qty
 
-            und = (f'UNDERLYING &nbsp; E <b>{e}</b> &nbsp; SL <b>{sl}</b> &nbsp; '
-                   f'TP1 <b>{stk["t1"]}</b> &nbsp; TP2 <b>{stk["t2"]}</b> &nbsp; '
-                   f'TP3 <b>{t3}</b>')
-            opt = (f'OPTION {o.get("strike","?")} {o.get("type","")} &nbsp; '
-                   f'BUY <b>{o.get("premium","?")}</b> &nbsp; '
-                   f'SL <b>{o.get("stop","?")}</b> &nbsp; '
-                   f'TP1 <b>{o.get("t1","?")}</b> &nbsp; TP2 <b>{o.get("t2","?")}</b> '
-                   f'&nbsp; qty <b>{sz["qty"]}</b>')
+            import scorecard as SC
+            sc_ = SC.score(p)
+            total = (sc_["of"] - sc_["total"]) if is_short else sc_["total"]
+            g = grade(total)
+            side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
+            acc = "#FF2D8A" if is_short else "#00E5FF"
+
+            # A lot that implies an absurd contract value is not a display problem, it is
+            # a wrong quantity - and a wrong quantity one confirm away from the exchange.
+            blocked = None
+            if sz.get("lot_absurd"):
+                blocked = (f"Quantity refused. {sz['lot_warning']}  "
+                           f"Fix with Tools → Lot Audit before ordering this name.")
+
             st.markdown(
-                f'<div class="scen" style="margin-top:-4px">{und}<br>{opt}</div>',
-                unsafe_allow_html=True)
+                f'<div class="ticket hud">'
+                f'<div class="tk-head">'
+                f'<span class="side" style="background:{acc}22;color:{acc}">{side_txt}</span>'
+                f'<span class="tk-name">{c["name"]}</span>'
+                f'<span class="tk-grade">★ {g} &nbsp;{total}/{sc_["of"]}</span></div>'
+                f'<div class="tk-big" style="color:{acc}">₹{prem if prem is not None else "—"}'
+                f'<span class="tk-sub">&nbsp;per unit &nbsp;·&nbsp; {o.get("strike","?")} '
+                f'{o.get("type","")} &nbsp;·&nbsp; {qty} qty &nbsp;·&nbsp; '
+                f'<b style="color:#D5E6F2">₹{outlay:,.0f} to buy</b></span></div>'
+                f'<div class="tk-grid">'
+                f'<div><b>Stock entry</b>{e}</div>'
+                f'<div><b>Stock SL</b><span style="color:#FF6BB0">{sl}</span></div>'
+                f'<div><b>TP1</b>{stk["t1"]}</div><div><b>TP2</b>{stk["t2"]}</div>'
+                f'<div><b>TP3 · 2R</b>{t3}</div>'
+                f'<div><b>Option SL</b><span style="color:#FF6BB0">{o.get("stop","—")}</span></div>'
+                f'<div><b>Option TP1</b>{o.get("t1","—")}</div>'
+                f'<div><b>Option TP2</b>{o.get("t2","—")}</div>'
+                f'</div></div>', unsafe_allow_html=True)
 
-            sym, qty = o.get("tradingsymbol"), sz["qty"]
-            prem = o.get("premium")
-            b1, b2, b3 = st.columns(3)
+            for w in (o.get("premium_reject"), o.get("expiry_warning"),
+                      sz.get("cost_warning"), c.get("afford_note")):
+                if w:
+                    st.warning(w)
+
             nm = c["name"]
+            order_button(
+                f"BUY {qty} @ market  ·  ₹{outlay:,.0f}", f"buy_{nm}",
+                {"symbol": sym, "side": "BUY", "qty": qty, "type": "MARKET",
+                 "premium~": prem, "outlay~": round(outlay)},
+                lambda sym=sym, qty=qty, nm=nm: __import__("broker").buy(
+                    sym, qty, tag=f"desk:buy:{nm}"),
+                blocked=blocked)
+            b1, b2 = st.columns(2)
             with b1:
-                order_button(
-                    f"BUY {qty} @ mkt", f"buy_{nm}",
-                    {"symbol": sym or "-", "side": "BUY", "qty": qty,
-                     "type": "MARKET", "premium~": prem},
-                    lambda sym=sym, qty=qty, nm=nm: __import__("broker").buy(
-                        sym, qty, tag=f"desk:buy:{nm}"))
-            with b2:
                 trig = o.get("stop")
                 order_button(
-                    f"SET SL @ {trig}", f"sl_{nm}",
-                    {"symbol": sym or "-", "side": "SELL", "qty": qty,
-                     "type": "SL-M", "trigger": trig},
+                    f"Set stop @ {trig}", f"sl_{nm}",
+                    {"symbol": sym, "side": "SELL", "qty": qty, "type": "SL-M",
+                     "trigger": trig},
                     lambda sym=sym, qty=qty, trig=trig, nm=nm:
                         __import__("broker").stop_loss(sym, qty, trig,
-                                                       tag=f"desk:sl:{nm}"))
-            with b3:
+                                                       tag=f"desk:sl:{nm}"),
+                    blocked=blocked, explain=False)
+            with b2:
                 order_button(
-                    f"EXIT {qty} @ mkt", f"exit_{nm}",
-                    {"symbol": sym or "-", "side": "SELL", "qty": qty,
-                     "type": "MARKET"},
+                    f"Exit {qty} @ market", f"exit_{nm}",
+                    {"symbol": sym, "side": "SELL", "qty": qty, "type": "MARKET"},
                     lambda sym=sym, qty=qty, nm=nm: __import__("broker").sell(
-                        sym, qty, tag=f"desk:exit:{nm}"))
-            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+                        sym, qty, tag=f"desk:exit:{nm}"),
+                    blocked=blocked, explain=False)
+            if st.button(f"Chart — {nm}", key=f"ch_{nm}", use_container_width=True):
+                chart_window(nm)
+            st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
-        cl, cr = st.columns(2)
-        with cl:
-            st.markdown('<div class="callsign">// LONG — BUY CE</div>',
-                        unsafe_allow_html=True)
-            for p in longs[:6]:
-                signal_block(p, False)
-                if st.button(f"Chart — {p['name']}", key=f"ch_l_{p['name']}",
-                             use_container_width=True):
-                    chart_window(p["name"])
-        with cr:
-            st.markdown('<div class="callsign">// SHORT — BUY PE</div>',
-                        unsafe_allow_html=True)
-            shorts = sel.get("shorts") or []
-            if not shorts:
-                st.caption("No name passes the short rule today.")
-            for p in shorts[:6]:
-                signal_block(p, True)
-                if st.button(f"Chart — {p['name']}", key=f"ch_s_{p['name']}",
-                             use_container_width=True):
-                    chart_window(p["name"])
+        # ONE column. Two half-width columns is what crushed the confirm sheet into three
+        # wrapped lines - and the confirm sheet is the one thing that has to be readable.
+        st.markdown('<div class="callsign">// LONG — BUY CE</div>',
+                    unsafe_allow_html=True)
+        if not longs:
+            st.caption("No name passes the long rule right now.")
+        for p in longs[:6]:
+            signal_block(p, False)
+
+        st.markdown('<div class="callsign">// SHORT — BUY PE</div>',
+                    unsafe_allow_html=True)
+        shorts = sel.get("shorts") or []
+        if not shorts:
+            st.caption("No name passes the short rule today.")
+        for p in shorts[:6]:
+            signal_block(p, True)
 
         st.caption("**SET SL rests at the exchange.** That is the difference between it "
                    "and the trailing stop in the session loop: the trail ratchets but "
