@@ -228,11 +228,13 @@ def main():
     # "Demo contract" told him the contract was synthetic and nothing about why the trade
     # was refused - and it short-circuited before the block reason, so the answer ended
     # up in an expander nobody opens under time pressure.
-    errs = [e.value for e in at.error]
+    refusals = html(at, 'class="refuse"')
     check("a blocked ticket states its reason on the face",
-          any("Quantity refused" in e or "MAX_LOSS" in e or "own checks" in e
-              for e in errs),
-          next((e[:80] for e in errs), "no error shown"))
+          any("refused" in x or "MAX_LOSS" in x for x in refusals),
+          next((x[:80] for x in refusals), "no refusal shown"))
+    check("...as a compact line, not an alert box",
+          all("stAlert" not in x for x in refusals),
+          "st.error carries ~24px of padding; four refused tickets is 100px of screen")
     order = src.index("BLOCKED") < src.index("DEMO CONTRACT")
     check("the block reason is evaluated BEFORE the demo note", order,
           "a ticket that fails its checks is blocked whether the contract is real or not")

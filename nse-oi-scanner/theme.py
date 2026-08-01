@@ -228,6 +228,9 @@ def css(T):
   .tk-why {{font-size:.7rem; color:{T['muted']}; font-family:{T['ui']};
            width:100%; margin-top:-2px;}}
 
+  .refuse {{color:{T['down']}; font-size:.74rem; font-family:{T['ui']};
+           margin:-2px 0 4px 0; line-height:1.35;}}
+
   .card {{background:{T['panel']}; border:1px solid {T['line']};
          border-left:3px solid {T['up']}; border-radius:10px; padding:11px 15px;
          margin-bottom:9px;}}

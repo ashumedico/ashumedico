@@ -348,7 +348,10 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
     if blocked:
         st.button(f"{label} · BLOCKED", key=key, disabled=True, use_container_width=True)
         if explain:
-            st.error(blocked)
+            # A compact line, not an alert box. st.error carries ~24px of padding, and
+            # four refused tickets turned that into 100px of a 940px screen for text
+            # that is one sentence long. The colour already says "refused".
+            st.markdown(f'<div class="refuse">{blocked}</div>', unsafe_allow_html=True)
         return
 
     # A DEMO: symbol is synthetic by construction - it exists so the page can render its
