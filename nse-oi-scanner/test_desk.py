@@ -227,6 +227,27 @@ def main():
           any("No contract" in c and "token" in c for c in caps),
           next((c[:90] for c in caps if "No contract" in c), "no such caption"))
 
+    # ---- the gap-up screen ----------------------------------------------------
+    # The demo used to open every session exactly at the previous close, so no name could
+    # gap and this screen could never return one. "Nothing passes" then looked like an
+    # observation while being an impossibility - the worst kind of empty. The demo gaps
+    # now, so the pass path is actually exercised here rather than assumed.
+    import rrg_engine as _E, gapup as _GU
+    _pts, _pr, _b = _E.demo_points()
+    _rows = _GU.scan(_E.LAST_BARS, _pts)
+    check("the demo can produce a gap at all",
+          sum(1 for bb in _E.LAST_BARS.values()
+              if len(bb) > 2 and abs(float(bb[-1][1]) - float(bb[-2][4])) > 1e-9) > 10,
+          "a market where open always equals the last close cannot test a gap screen")
+    check("and the screen returns names on it", bool(_rows),
+          ", ".join(f"{r['name']} {r['gap_pct']:+.2f}%" for r in _rows[:3]))
+    check("the gap tab exists on the page",
+          bool(html(at, "Gap-up screen")))
+    check("it says it is not backtested, on the page",
+          any("not backtested" in w.value for w in at.warning))
+    check("the tested rule is named as the one with the edge",
+          any("SIGNALS & TICKETS" in w.value for w in at.warning))
+
     print("  " + "-" * 62)
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")

@@ -8,7 +8,7 @@ toolbar, and AppTest reported both elements present and correct while a screensh
 a blank strip where the header should be. Rendered and visible are different claims.
 
 So this one drives a real browser at the size of his desk - 21 inches, 1920x940 of usable
-viewport - clicks through all five tabs, and measures how far each one runs past one
+viewport - clicks through every tab, and measures how far each one runs past one
 screen. A tab that scrolls is not a failure of taste, it is the thing he asked not to
 happen: the ticket he is about to press BUY on and the evidence for it have to be visible
 together, or the decision gets made from memory.
@@ -28,7 +28,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VIEWPORT = (1920, 940)          # a 21-inch desktop, minus browser chrome
-TABS = ["COMMAND DECK", "SIGNALS & TICKETS", "CHART", "SCREENER", "SCORE"]
+TABS = ["COMMAND DECK", "SIGNALS & TICKETS", "GAP-UP", "CHART", "SCREENER", "SCORE"]
 SLACK = 24                      # px of rounding/margin we do not argue about
 
 FAILED = []
@@ -142,7 +142,7 @@ def main():
 
     for name, a, b in rows:
         if name == "__tabcount__":
-            check("all five tabs exist", a == len(TABS), f"{a} found")
+            check(f"all {len(TABS)} tabs exist", a == len(TABS), f"{a} found")
         elif name.startswith("__visible__"):
             sel = name.replace("__visible__", "")
             check(f"{sel} is painted below the toolbar, not under it",

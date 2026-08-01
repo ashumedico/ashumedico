@@ -43,10 +43,10 @@ Nothing on it is illustrative. Every level and premium is computed from bars tha
 fetched; with no token it says **DEMO DATA** in three places and still renders end to end,
 because a demo that cannot show the page working cannot prove the page works.
 
-The page is **five tabs** — Command deck, Signals & tickets, Chart, Screener, Score — each
-sized to fit one landscape screen at 1920×940 without scrolling. The verdict and the
-numbers behind it sit on one status line above all five, so whatever tab is open, the tape
-and the selected name are still on screen.
+The page is **six tabs** — Command deck, Signals & tickets, Gap-up, Chart, Screener,
+Score — each sized to fit one landscape screen at 1920×940 without scrolling. The verdict
+and the numbers behind it sit on one status line above all of them, so whatever tab is
+open, the tape and the selected name are still on screen.
 
 `python test_desk.py` runs the page through Streamlit's own AppTest and asserts on what
 reached it — verdict strip, levels, all three scenario branches, disclaimer, and that a
@@ -56,6 +56,30 @@ ticket is built from a live option chain. Icon: **Tools → Desk render test**.
 browser at 1920×940, every tab clicked, every overflow measured. AppTest cannot catch a
 header that rendered correctly *underneath* Streamlit's own toolbar; this does. Icon:
 **Tools → Screen fit test**.
+
+## The gap-up screen — `gapup.py`
+The Chartink filter, rebuilt to run on our own bars so every clause can be checked:
+
+| Clause | Meaning |
+|---|---|
+| `Daily Close > 1 day ago Sma(1 day ago Close, 20)` | above the 20-day mean **ending yesterday** — today is not inside its own benchmark |
+| `Daily Open > 1 day ago Close × 1.01` | gapped up more than 1% — below that is noise |
+| `Daily Open < 1 day ago Close × 1.02` | gapped up less than 2% — above that it has already moved |
+| `[0] 15 minute Close > Daily Open` | still above its open. **Off**, exactly as it is on your Chartink |
+
+Its own tab (**GAP-UP**), not a filter over the signal book: the ticket book asks *what
+does the tested rule say*, this asks *what gapped and held*, and intersecting them
+quietly would produce a list that is neither with the authority of both. The band, the
+SMA length and the 15-minute gate are controls in the sidebar, not constants in the
+source. Ranked by how much of the gap each name has **held** since the open.
+
+It runs on **daily** candles — in intraday mode that is a separate pull, because a
+20-bar mean of 15-minute closes is five hours, not twenty days. Every clause reports the
+two numbers that decided it, so the screen can be argued with rather than believed.
+
+**Not backtested.** A name here means *worth opening the ticket for*. `python
+test_gapup.py` pins the parts that silently drift: the SMA window, the strict `>` at the
+band edges, and a clause that cannot be evaluated failing rather than being skipped.
 
 ## On the chart — `tradingview/`
 | File | What it is |

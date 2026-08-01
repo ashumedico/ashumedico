@@ -400,6 +400,28 @@ def chain_for(symbol, min_days):
         return None, None, None, None, str(e)[:160]
 
 
+@st.cache_data(ttl=900, show_spinner="Fetching daily bars for the gap screen...")
+def daily_bars(symbols, need):
+    """{symbol: daily candles} — the DAILY series, whatever the desk itself runs on.
+
+    The screen is written in daily terms: daily open, daily close, previous close, a
+    20-DAY mean. Running it on the 15-minute bars the rest of the desk uses would compute
+    a 20-BAR mean over five hours and call it a 20-day average - a different test wearing
+    the same name, and one that would pass and fail on the wrong names all morning.
+
+    In swing mode the loaded bars are already daily, so nothing is refetched. In intraday
+    mode this is a separate pull, cached on disk per day by the engine underneath.
+    """
+    if int(getattr(config, "BAR_MINUTES", 375)) >= 375:
+        return None          # the caller already holds daily bars; do not spend a fetch
+    try:
+        import rrg_engine as E
+        E.fetch_history(list(symbols), resolution="D", days=max(90, need * 3))
+        return dict(E.LAST_BARS or {})
+    except Exception as e:      # noqa
+        return {"__error__": str(e)[:200]}
+
+
 @st.cache_data(ttl=3600)
 def watch_map():
     """{SYMBOL: (trigger, guidance)} for the F&O-tradeable watchlist names. Display only -
@@ -715,6 +737,24 @@ with st.sidebar:
     st.caption("Index, commodity and global feeds are not wired into this system. "
                "What does not exist gets no button — an empty button is a lie.")
 
+    # ---- the Chartink screen, with its numbers where he can reach them --------
+    # A screener whose thresholds live in the source is a screener he has to ask me to
+    # change. The band is the whole idea here - below 1% is noise, above 2% has already
+    # moved - so the band is a control, not a constant.
+    st.markdown('<div class="sec">Gap-up screen</div>', unsafe_allow_html=True)
+    GAP_MIN = st.number_input("Gap at least (x prev close)", 1.000, 1.100,
+                              float(getattr(config, "GAP_MIN", 1.01)), 0.001,
+                              format="%.3f")
+    GAP_MAX = st.number_input("Gap under (x prev close)", 1.001, 1.200,
+                              float(getattr(config, "GAP_MAX", 1.02)), 0.001,
+                              format="%.3f")
+    GAP_SMA = int(st.number_input("SMA length (daily)", 5, 200,
+                                  int(getattr(config, "GAP_SMA", 20)), 1))
+    GAP_GATE = st.checkbox("Also require: 15-min close > day's open",
+                           value=bool(getattr(config, "GAP_INTRADAY_GATE", False)))
+    st.caption("Off by default because it is off on your Chartink. With it on, a name "
+               "with no intraday bar **fails** rather than being skipped.")
+
     st.markdown('<div class="sec">Mode</div>', unsafe_allow_html=True)
     bits = []
     bm = int(getattr(config, "BAR_MINUTES", 375))
@@ -873,11 +913,12 @@ else:
 # heatmap that justifies it could never be on screen together - and a decision made by
 # scrolling back and forth is a decision made from memory.
 #
-# So: five tabs, each sized to fit one screen without scrolling, plus a status strip that
+# So: tabs, each sized to fit one screen without scrolling, plus a status strip that
 # stays above all of them. Tabs rather than a smaller font, because shrinking type on a
 # trading screen is how a 5418 gets read as a 5413.
-T_DECK, T_SIG, T_CHART, T_SCREEN, T_SCORE = st.tabs(
-    ["◈  COMMAND DECK", "◈  SIGNALS & TICKETS", "◈  CHART", "◈  SCREENER", "◈  SCORE"])
+T_DECK, T_SIG, T_GAP, T_CHART, T_SCREEN, T_SCORE = st.tabs(
+    ["◈  COMMAND DECK", "◈  SIGNALS & TICKETS", "◈  GAP-UP", "◈  CHART",
+     "◈  SCREENER", "◈  SCORE"])
 
 with T_DECK:
     # =========================================================== command deck ==
@@ -1308,6 +1349,102 @@ with T_SIG:
                            "distance.")
         except Exception as e:      # noqa
             st.caption(f"cards failed: {e}")
+
+with T_GAP:
+    # ================================================================== gap-up ==
+    # THE CHARTINK SCREEN, run on our own bars.
+    #
+    #     Daily Close  >  1 day ago Sma(1 day ago Close, 20)
+    #     Daily Open   >  1 day ago Close * 1.01
+    #     Daily Open   <  1 day ago Close * 1.02
+    #     [0] 15 minute Close > Daily Open        <- off there, off here
+    #
+    # It is deliberately its OWN tab and not a filter over the signal book. The two ask
+    # different questions - the ticket book asks "what does the tested rule say", this
+    # asks "what gapped and held" - and quietly intersecting them would produce a list
+    # that is neither, with the authority of both.
+    #
+    # Nothing here is walk-forward tested. That sentence is on the screen too.
+    st.markdown('<div class="sec">Gap-up screen — Chartink filter, our bars</div>',
+                unsafe_allow_html=True)
+    try:
+        import gapup as GU
+
+        GAP_CFG = {"sma_len": GAP_SMA, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
+                   "use_intraday_gate": GAP_GATE}
+        st.markdown(
+            f'<div class="scen">Close &gt; SMA{GAP_SMA} (ending yesterday) &nbsp;·&nbsp; '
+            f'Open &gt; prev close x {GAP_MIN:g} &nbsp;·&nbsp; '
+            f'Open &lt; prev close x {GAP_MAX:g}'
+            + (' &nbsp;·&nbsp; 15-min close &gt; day open' if GAP_GATE else '')
+            + ' &nbsp;·&nbsp; F&amp;O segment</div>', unsafe_allow_html=True)
+
+        syms = [p["symbol"] for p in pts if p.get("symbol")]
+        db = daily_bars(tuple(syms), GAP_SMA)
+        src = "a separate daily pull"
+        if db is None:                    # swing mode: the loaded bars ARE daily
+            db, src = bars or {}, "the bars already loaded (this desk runs daily)"
+        if isinstance(db, dict) and db.get("__error__"):
+            st.error(f"Daily bars did not load: {db['__error__']}  "
+                     f"The screen needs daily candles and will not guess at them from "
+                     f"15-minute ones.")
+            db = {}
+
+        # the [0] 15-minute clause reads the desk's own intraday closes
+        last_i = {p["symbol"]: (prices.get(p["symbol"]) or [None])[-1] for p in pts} \
+            if GAP_GATE else None
+        rows = GU.scan(db, pts, GAP_CFG, last_i)
+
+        g1, g2 = st.columns([2.1, 1], gap="medium")
+        with g1:
+            if rows:
+                clickable([{k: v for k, v in r.items() if k != "clauses"} for r in rows],
+                          key="gapup")
+                st.caption(f"{len(rows)} of {len(db)} names pass · sorted by how much of "
+                           f"the gap they have **held** since the open — the gap is the "
+                           f"entry condition, what happened after it is the only new "
+                           f"information the morning has produced. Click a row for its "
+                           f"chart.")
+            elif db:
+                # "nobody gapped into the band" and "this data has no gaps at all" look
+                # identical as an empty list and are completely different claims. The
+                # demo used to open every session exactly at the previous close, which
+                # made this screen structurally incapable of returning anything, and the
+                # empty list read as an observation. So the count is stated.
+                gapped = sum(1 for b in db.values()
+                             if len(b) > 2 and abs(float(b[-1][1]) - float(b[-2][4])) > 1e-9)
+                st.info(f"No name passes the gap screen right now, out of {len(db)} "
+                        f"checked — {gapped} of them gapped in any direction at all. "
+                        f"Empty is an answer; a screen that always returns something is "
+                        f"not a screen.")
+            else:
+                st.caption("No daily bars — nothing to screen.")
+        with g2:
+            st.markdown('<div class="callsign">// WHY IT PASSED</div>',
+                        unsafe_allow_html=True)
+            if rows:
+                who = st.selectbox("Name", [r["name"] for r in rows],
+                                   label_visibility="collapsed")
+                r = next((x for x in rows if x["name"] == who), None)
+                for c in (r or {}).get("clauses", []):
+                    st.markdown(
+                        f'<div class="hm" style="border-color:'
+                        f'{"#0A6675" if c["ok"] else "#7A0B3D"}">'
+                        f'<div class="hm-n">{"✓" if c["ok"] else "✗"} {c["clause"]}</div>'
+                        f'<div style="font-family:ui-monospace,Consolas,monospace;'
+                        f'font-size:.8rem;color:#D5E6F2">{c["detail"]}</div></div>',
+                        unsafe_allow_html=True)
+            else:
+                st.caption("Nothing to explain yet.")
+
+        st.warning(
+            "**This screen is not backtested.** It is the Chartink filter, computed on "
+            "your bars so the numbers can be checked — a name here means *worth opening "
+            "the ticket for*, never *place this*. The tested rule is on **SIGNALS & "
+            "TICKETS**; that is the one with an edge measured on your data. The last "
+            "untested thing that reached a main window (RRG) cost −6.3% after costs.")
+    except Exception as e:      # noqa
+        st.error(f"gap screen failed: {e}")
 
 with T_CHART:
     # =================================================================== chart ==

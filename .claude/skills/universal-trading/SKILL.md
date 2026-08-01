@@ -356,6 +356,25 @@ recurs, and recognising the shape is faster than rediscovering the bug.
     caption costing 45px on a tab that was 29px over. The most expensive thing on the
     page is rarely the thing that looks big.
 
+32. **A demo that cannot exercise a path cannot prove that path.** The synthetic market
+    opened every session at exactly the previous close (`o = prev`), so no name could
+    ever gap - and the new gap screen printed "nothing passes" on it, which reads as an
+    observation and was an impossibility. Empty results have to be checked against
+    whether the data COULD have produced a non-empty one. The demo gaps now, and the
+    screen states how many names gapped at all beside its own count.
+
+33. **A rewritten screener must mean what the original meant.** Four ways it silently
+    stops: the SMA window slides (Chartink's `Sma(1 day ago Close, 20)` ends YESTERDAY -
+    include today and a big up-day drags up its own benchmark); the strict `>` becomes
+    `>=` at a band edge; a clause that cannot be evaluated gets skipped instead of
+    failed; too little history passes on a partial mean. `test_gapup.py` pins all four.
+
+34. **A screen is not an edge, and the screen has to say so.** The gap filter is his,
+    not tested here, and it lives in its own tab rather than intersecting the signal
+    book - crossing them would produce a list that is neither, with the authority of
+    both. Thresholds go in the sidebar, not the source: a number he has to ask me to
+    change is a number he will stop questioning.
+
 ---
 
 ## REFERENCES

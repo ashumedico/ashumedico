@@ -508,7 +508,13 @@ def demo_points(tail=6, n_bars=400, seed=7):
         rows, prev = [], series[0]
         for t, c in enumerate(series):
             span = abs(c) * (0.004 + rnd.random() * 0.010)
-            o = prev
+            # OVERNIGHT GAPS. This used to be `o = prev` - every session opening exactly
+            # at the last close, a market where nothing ever gaps. That is not a cosmetic
+            # simplification: it makes every gap-based screen structurally incapable of
+            # returning a name, so the gap tab printed "nothing passes" on demo data and
+            # looked like an observation when it was an impossibility. A demo that cannot
+            # exercise a code path cannot prove that path works.
+            o = prev * (1 + rnd.gauss(0, 0.006))
             hi = max(o, c) + span * rnd.random()
             lo = min(o, c) - span * rnd.random()
             vol = int(200000 * (0.5 + rnd.random() * 1.6))

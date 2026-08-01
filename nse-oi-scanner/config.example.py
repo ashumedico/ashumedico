@@ -77,3 +77,14 @@ RRG_HISTORY    = 250        # bars of history pulled for the rotation maths
 SQUAREOFF   = "15:15"                 # flatten all intraday positions at this IST time
 KILL_SWITCH = "STOP_TRADING.txt"      # create this file in the folder -> halt everything
 PAPER_BOOK  = "paper_book.json"       # simulated positions + P&L live here
+
+# Gap-up screen (the Chartink filter, rebuilt in gapup.py)
+# These are the DEFAULTS the sidebar opens with; move them there for a session, or here
+# to change what "open with" means. Chartink's comparisons are strict, and so are these:
+# a name opening at exactly prev_close * GAP_MIN does not pass.
+GAP_MIN           = 1.01    # Daily Open > previous Close x this   (below 1% is noise)
+GAP_MAX           = 1.02    # Daily Open < previous Close x this   (above 2% has moved)
+GAP_SMA           = 20      # Daily Close > SMA of the closes ENDING YESTERDAY
+GAP_INTRADAY_GATE = False   # also require [0] 15-min Close > Daily Open. Off, as on your
+                            # Chartink. With it on, a name with no intraday bar FAILS -
+                            # "could not check" is not "checked out".
