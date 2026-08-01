@@ -67,6 +67,12 @@ Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR con
 Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and
 option-chain analytics. Invoke for any market task; pairs with `@edge-seeker`. Not financial advice.
 
+## Data integrity → `.claude/skills/data-integrity/`
+`/data-integrity` — the pre-flight for any market number before it reaches a screen, a ticket or
+an order: provenance · basis · magnitude · staleness · absence · agreement · self-consistency.
+Seven checks, each one written from a bug that shipped. *A number that looks like an answer is
+the most expensive kind of wrong.*
+
 ## The bar → `.claude/skills/solution-first/`
 `/solution-first` — **always on, every task.** Never hand back an excuse, a caveat or a limitation
 as the deliverable. Research the real answer (vendor docs, the API's own response, the source), fix
