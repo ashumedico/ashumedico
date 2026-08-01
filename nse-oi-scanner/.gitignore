@@ -37,3 +37,7 @@ __pycache__/
 build/
 dist/
 *.spec
+
+# generated per-scan snapshots - regenerate, never commit
+tradingview/AashishScreener_live.pine
+tradingview/watchlist.txt

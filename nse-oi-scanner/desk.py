@@ -857,6 +857,33 @@ try:
 except Exception as e:      # noqa
     st.caption(f"scorecard nahi bana: {e}")
 
+# ========================================================== chart list ==
+st.markdown('<div class="sec">Chart list — jo naam abhi pass kar rahe hain</div>',
+            unsafe_allow_html=True)
+st.caption("Screener Pine mein 20 naam maine chune the — wo galat 20 hain. Ye wale naam "
+           "aaj ke scan se aaye hain. TradingView watchlist mein paste kar de, phir har "
+           "naam pe click karte ja.")
+try:
+    import pine_export as PX
+    picks = ([(p, "LONG") for p in longs] +
+             [(p, "SHORT") for p in (sel.get("shorts") or [])])
+    tv, seen = [], set()
+    for p, sd in picks:
+        t = PX.tv_symbol(p.get("symbol"))
+        if t and t not in seen:
+            seen.add(t)
+            tv.append(t)
+    if tv:
+        st.code("\n".join(tv[:20]), language=None)
+        st.caption(f"{len(tv[:20])} naam · abhi ka scan. Ye ek **snapshot** hai — "
+                   f"agla candle isse badal sakta hai. Pine file banane ke liye: "
+                   f"`python pine_export.py` (Tools → Chart list).")
+    else:
+        st.caption("Abhi koi naam pass nahi kar raha. Khaali list bhi ek jawab hai — "
+                   "purani list chart pe chhod dena usse bura hai, kyunki wo aaj ka lagta hai.")
+except Exception as e:      # noqa
+    st.caption(f"list nahi bani: {e}")
+
 # =================================================================== score ==
 st.markdown('<div class="sec">Score — paper vs what the backtest claimed</div>',
             unsafe_allow_html=True)

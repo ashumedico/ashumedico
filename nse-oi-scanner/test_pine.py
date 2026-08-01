@@ -105,6 +105,35 @@ def main():
           "It is not the scanner" in s_src and "never means" in s_src.replace('"', ''))
     check("not financial advice", "NOT financial advice" in s_src)
 
+    # ---- the exporter must put TODAY'S names in, not a list someone picked once ----
+    import re as _re
+    import pine_export as PX
+    check("NSE:X-EQ becomes the symbol TradingView understands",
+          PX.tv_symbol("NSE:RELIANCE-EQ") == "NSE:RELIANCE"
+          and PX.tv_symbol("RELIANCE") == "NSE:RELIANCE"
+          and PX.tv_symbol("") == "",
+          "a symbol TradingView cannot resolve makes request.security throw, not skip")
+
+    rows = [{"tv": f"NSE:T{i}", "name": f"T{i}", "side": "LONG", "close": 1, "pct": 1}
+            for i in range(3)]
+    out, err = PX.write_pine(rows, demo=True)
+    check("exporter writes a Pine file", err is None and out and os.path.exists(out), err or "")
+    if out and os.path.exists(out):
+        gen = open(out, encoding="utf-8").read()
+        got = _re.findall(r'input\.symbol\("([^"]*)"', gen)
+        check("today's names land in the first slots",
+              got[:3] == ["NSE:T0", "NSE:T1", "NSE:T2"], f"{got[:3]}")
+        check("unused slots are blanked, not left as someone's old picks",
+              all(g == "" for g in got[3:]), f"{[g for g in got[3:] if g][:3]}")
+        check("the snapshot says when it was made",
+              "GENERATED" in gen and "SNAPSHOT" in gen)
+        check("demo data is marked as demo", "DEMO DATA" in gen)
+        # the gates must survive the rewrite untouched - only symbols may change
+        check("only the symbols were rewritten",
+              gen.count("ta.ema(close, emaFast)") == s_src.count("ta.ema(close, emaFast)")
+              and "sq[1] < coil and tr > trL" in gen)
+        os.remove(out)
+
     print("  " + "-" * 62)
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")
