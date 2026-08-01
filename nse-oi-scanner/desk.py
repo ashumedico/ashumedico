@@ -184,8 +184,12 @@ st.markdown("""
            text-shadow:0 0 18px currentColor;}
   .tk-sub {font-size:.7rem; font-weight:600; color:#4E6072; letter-spacing:.3px;
            text-shadow:none;}
-  /* six across: the whole plan - entry, stop, three targets, R - on two tight rows */
-  .tk-grid {display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:5px 10px;
+  /* AUTO-FIT, not a fixed six. The ticket carried 11 cells; the buyer's own numbers -
+     event risk, IV vs realised, theta, delta, spread, strike OI - took it to 17, and a
+     hard six-column grid turned that into a third row on every ticket. Packing to the
+     width available keeps it at two. */
+  .tk-grid {display:grid; grid-template-columns:repeat(auto-fit, minmax(84px, 1fr));
+            gap:5px 10px;
             margin-top:5px; font-family: ui-monospace, Consolas, monospace;
             font-size:.78rem; color:#D5E6F2;}
   .tk-grid b {display:block; color:#3E5060; font-weight:600; font-size:.62rem;
@@ -372,7 +376,7 @@ def load(demo):
 
 
 @st.cache_data(ttl=180, show_spinner=False)
-def chain_for(symbol, min_days):
+def chain_for(symbol, min_days, spot=None):
     """(chain, expiry_label, days, lot, error) for one underlying.
 
     THIS IS WHY EVERY ORDER BUTTON WAS DEAD. The tickets called build_card() with no
@@ -389,7 +393,19 @@ def chain_for(symbol, min_days):
     fixes, and a button that greys out identically for all three teaches nothing.
     """
     if DEMO:
-        return None, None, None, None, "no token — DEMO data cannot produce a real contract"
+        # A SYNTHETIC chain, not "no chain". With none at all, every ticket in demo mode
+        # reads NO CONTRACT and the entire option layer - spread, liquidity, implied vol,
+        # theta, the gates that block a bad strike - is invisible and unexercised. A demo
+        # that cannot walk a code path cannot prove that path works, which is the same
+        # reason the demo market now gaps. Labelled DEMO everywhere it surfaces.
+        if not spot:
+            return None, None, None, None, "no token, and no spot to build a demo chain"
+        try:
+            import option_chain as OC
+            ch, _ = OC.fetch_dry(symbol, float(spot))
+            return ch, "DEMO", int(min_days), 50, None
+        except Exception as e:      # noqa
+            return None, None, None, None, f"demo chain failed: {str(e)[:90]}"
     try:
         import option_chain as OC
         ch, lbl, days, lot = OC.tradeable_chain(symbol, min_days)
@@ -630,6 +646,15 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
     # display and "-" is truthy. The button armed, showed symbol=-, and only the broker
     # stopped it. A guard defeated by its own placeholder is worse than no guard: it reads
     # as protection on the screen and is not.
+    # A DEMO: symbol is synthetic by construction - it exists so the page can render its
+    # whole option layer without a token, and it must never reach an order path.
+    if str(payload.get("symbol") or "").startswith("DEMO:"):
+        st.button(f"{label} · DEMO CONTRACT", key=key, disabled=True,
+                  use_container_width=True)
+        if explain:
+            st.caption("**Demo contract** — synthetic, and deliberately not sendable. "
+                       "Run `1 - START DAY` for real ones.")
+        return
     if not payload.get("symbol") or payload["symbol"] in ("-", "None"):
         st.button(f"{label} · NO CONTRACT", key=key, disabled=True,
                   use_container_width=True)
@@ -877,6 +902,26 @@ try:
 except Exception as e:      # noqa
     RISK = None
     st.caption(f"risk limits unavailable: {e}")
+
+# The same disease, one layer down: every option gate is `getattr(cfg, KEY, None)` and a
+# missing key disables it SILENTLY. A ticket quoting a 47% bid-ask sailed through because
+# MAX_SPREAD_PCT simply was not in config - the gate did not fail, it never ran. A gate
+# that is off has to say so as loudly as one that fired.
+try:
+    _OPT_GATES = {"MAX_SPREAD_PCT": "bid-ask cap", "MIN_OPTION_OI": "open interest floor",
+                  "MIN_OPTION_VOLUME": "traded-volume floor",
+                  "MAX_IV_TO_REALISED": "implied-vs-realised cap",
+                  "EVENT_BLACKOUT_BEFORE": "results blackout"}
+    _off = [f"{k} ({v})" for k, v in _OPT_GATES.items()
+            if getattr(config, k, None) in (None, "")]
+    if _off:
+        st.warning(f"**{len(_off)} option gates are NOT enforced** — "
+                   + ", ".join(_off)
+                   + ". They are absent from `config.py`, so a wide spread, a dead "
+                     "strike or a results-day contract will not be blocked. "
+                     "Run `0 - UPDATE`.")
+except Exception as e:      # noqa
+    st.caption(f"option gate check unavailable: {e}")
 
 if sel.get("band"):
     b = sel["band"]
@@ -1227,7 +1272,8 @@ with T_SIG:
                 moment it mattered most. Full width, one action, the rest secondary.
                 """
                 need = TC.min_days_for_thesis()
-                ch, lbl, days, chlot, cherr = chain_for(p["symbol"], need)
+                ch, lbl, days, chlot, cherr = chain_for(p["symbol"], need,
+                                                        spot=p.get("close"))
                 c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
                                   chain=ch,
                                   expiry_label=lbl or "—",
@@ -1344,7 +1390,6 @@ with T_SIG:
                     f'<div><b>Option TP2</b>{o.get("t2","—")}</div>'
                     f'<div><b>Option TP3</b>{o.get("t3","—")}</div>'
                     f'<div><b>R (points)</b>{r}</div>'
-                    f'<div><b>R:R at TP1</b>{stk["rr1"]} : 1</div>'
                     + qcells
                     + '</div></div>', unsafe_allow_html=True)
 

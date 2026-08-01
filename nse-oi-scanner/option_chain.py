@@ -235,17 +235,39 @@ def fetch_dry(symbol="NSE:NIFTY50-INDEX", spot=24200):
         # puts pile up below spot (support), calls above (resistance)
         ce_oi = max(2000, int(90000 * (1 - abs(i - 2) / 8)))
         pe_oi = max(2000, int(95000 * (1 - abs(i + 2) / 8)))
+        # PRICE THE DEMO OPTION, do not invent a ladder.
+        # This used to be `max(1, 200 - i*30)` - a fixed rupee ladder built for a
+        # NIFTY-sized spot. On a Rs 180 stock it quoted the ATM call at Rs 200, which the
+        # card's own sanity check correctly rejected as impossible, so the demo fell back
+        # to an estimate and implied vol, delta, gamma and theta all came out None. The
+        # demo could render the option layer and could not exercise it. Black-Scholes at
+        # a plausible 30% vol gives premiums that are consistent with the spot, so every
+        # greek and every gate is computed on the demo exactly as it will be live.
         # The dry chain carries bid/ask/volume too, and the spread WIDENS away from the
         # money exactly as a real one does. A demo whose every strike quotes a perfect
         # 0.1% spread cannot exercise the liquidity gate, and a gate that is never
         # exercised is a gate nobody has seen work.
-        for typ, oi, mid in (("CE", ce_oi, max(1, 200 - i * 30)),
-                             ("PE", pe_oi, max(1, 200 + i * 30))):
+        try:
+            import option_metrics as _OM
+            _t = _OM.years_to_expiry(25)
+            ce_px = max(0.05, round(_OM.price(spot, K, _t, 0.30, "CE"), 2))
+            pe_px = max(0.05, round(_OM.price(spot, K, _t, 0.30, "PE"), 2))
+        except Exception:      # noqa
+            ce_px = max(0.05, round(max(0.0, spot - K) + 0.02 * spot, 2))
+            pe_px = max(0.05, round(max(0.0, K - spot) + 0.02 * spot, 2))
+        for typ, oi, mid in (("CE", ce_oi, ce_px), ("PE", pe_oi, pe_px)):
             half = max(0.05, mid * (0.004 + 0.006 * abs(i)))     # wider further out
+            # An explicitly NON-TRADEABLE symbol. It must exist so the ticket can render
+            # its whole option layer in demo - spread, liquidity, implied vol, theta, the
+            # gates - and it is prefixed DEMO: so no order path can ever mistake it for
+            # a contract. Never hand-build a symbol that LOOKS real; build one that
+            # obviously is not.
+            nm = str(symbol).split(":")[-1].replace("-EQ", "").replace("-INDEX", "")
             chain.append({"strike": K, "type": typ, "oi": oi, "ltp": mid,
                           "oi_chg": ((i - 1) if typ == "CE" else (-i + 1)) * 1500,
                           "bid": round(mid - half, 2), "ask": round(mid + half, 2),
-                          "volume": max(0, int(oi * 0.35 / max(1, abs(i) + 1)))})
+                          "volume": max(0, int(oi * 0.35 / max(1, abs(i) + 1))),
+                          "symbol": f"DEMO:{nm}{int(K)}{typ}"})
     return chain, spot
 
 

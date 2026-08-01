@@ -223,9 +223,13 @@ def main():
     check("a dead button says WHY it is dead", "no_contract_why" in src)
     # and the disabled state must be reachable rather than theoretical: DEMO has no token
     caps = [c.value for c in at.caption]
-    check("in DEMO the buttons explain the missing token, not just 'no contract'",
-          any("No contract" in c and "token" in c for c in caps),
-          next((c[:90] for c in caps if "No contract" in c), "no such caption"))
+    # In DEMO the chain is synthetic so the whole option layer renders - spread,
+    # liquidity, implied vol, theta - and the contract is explicitly unsendable. A demo
+    # that cannot walk the path cannot prove the path works; a demo that COULD send an
+    # order would be worse than either.
+    check("in DEMO the ticket says the contract is synthetic and unsendable",
+          any("Demo contract" in c and "not sendable" in c for c in caps),
+          next((c[:80] for c in caps if "Demo contract" in c), "no such caption"))
 
     # ---- the gap-up screen ----------------------------------------------------
     # The demo used to open every session exactly at the previous close, so no name could
