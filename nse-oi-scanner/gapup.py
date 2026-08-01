@@ -123,48 +123,83 @@ def daily_row(bars, sma_len=20, quote=None):
     return row
 
 
-def passes(row, cfg=None, last_intraday=None):
+def passes(row, cfg=None, last_intraday=None, side="LONG"):
     """(bool, [clause dicts]) - every clause named, with the numbers that decided it.
 
     The clause list is the point. A screen that answers only yes/no cannot be argued with,
     and a filter he cannot argue with is one he has to take on faith.
+
+    side="SHORT" runs the MIRROR of the same filter, and the mirror is the missing half of
+    the stated requirement: "whether it is on the buying side or on the selling side".
+    The Chartink workspace is gap-up only, so every falling name was invisible - not
+    rejected, never looked at. Each clause flips exactly once:
+
+        close ABOVE the 20-SMA        ->  close BELOW it
+        open 1-2% ABOVE prev close    ->  open 1-2% BELOW it
+        15-min close ABOVE day open   ->  15-min close BELOW it
+
+    The band flips with it, which is the part that is easy to get wrong. On the long side
+    the window is (1.01, 1.02) x prev close; mirrored it is (0.98, 0.99) - computed as
+    2 - gap, so one edit to the band moves both sides together and they cannot drift
+    apart. A short screen quietly still testing the up-side band would return names that
+    gapped the wrong way and look like it was working.
     """
     cfg = {**DEFAULTS, **(cfg or {})}
+    short = str(side).upper() == "SHORT"
     if not row or row.get("sma_prev") is None:
         return False, [{"clause": "history", "ok": False,
                         "detail": f"needs {cfg['sma_len'] + 2} daily bars, "
                                   f"has {row.get('bars', 0) if row else 0}"}]
 
     pc, op, cl = row["prev_close"], row["open"], row["close"]
-    lo_gap, hi_gap = pc * cfg["gap_min"], pc * cfg["gap_max"]
+    gmin, gmax = cfg["gap_min"], cfg["gap_max"]
+    if short:
+        gmin, gmax = 2.0 - gmin, 2.0 - gmax        # 1.01/1.02 -> 0.99/0.98
+    near_gap, far_gap = pc * gmin, pc * gmax
     gap_pct = (op / pc - 1.0) * 100.0 if pc else 0.0
 
-    out = [
-        {"clause": f"Close > SMA{cfg['sma_len']} (ending yesterday)",
-         "ok": cl > row["sma_prev"],
-         "detail": f"{cl:.2f} vs {row['sma_prev']:.2f}"},
-        {"clause": f"Open > prev Close x {cfg['gap_min']}",
-         "ok": op > lo_gap,
-         "detail": f"{op:.2f} vs {lo_gap:.2f}  (gap {gap_pct:+.2f}%)"},
-        {"clause": f"Open < prev Close x {cfg['gap_max']}",
-         "ok": op < hi_gap,
-         "detail": f"{op:.2f} vs {hi_gap:.2f}"},
-    ]
+    if short:
+        out = [
+            {"clause": f"Close < SMA{cfg['sma_len']} (ending yesterday)",
+             "ok": cl < row["sma_prev"],
+             "detail": f"{cl:.2f} vs {row['sma_prev']:.2f}"},
+            {"clause": f"Open < prev Close x {gmin:.3f}",
+             "ok": op < near_gap,
+             "detail": f"{op:.2f} vs {near_gap:.2f}  (gap {gap_pct:+.2f}%)"},
+            {"clause": f"Open > prev Close x {gmax:.3f}",
+             "ok": op > far_gap,
+             "detail": f"{op:.2f} vs {far_gap:.2f}"},
+        ]
+    else:
+        out = [
+            {"clause": f"Close > SMA{cfg['sma_len']} (ending yesterday)",
+             "ok": cl > row["sma_prev"],
+             "detail": f"{cl:.2f} vs {row['sma_prev']:.2f}"},
+            {"clause": f"Open > prev Close x {gmin}",
+             "ok": op > near_gap,
+             "detail": f"{op:.2f} vs {near_gap:.2f}  (gap {gap_pct:+.2f}%)"},
+            {"clause": f"Open < prev Close x {gmax}",
+             "ok": op < far_gap,
+             "detail": f"{op:.2f} vs {far_gap:.2f}"},
+        ]
     if cfg["use_intraday_gate"]:
-        # [0] 15 minute Close > Daily Open - the latest intraday bar, not the day's close.
+        # [0] 15 minute Close vs Daily Open - the latest intraday bar, not the day's close.
         # Unknown is never a pass: with no intraday bar this clause FAILS rather than
         # being skipped, because "I could not check" and "it checked out" are not the
         # same claim and only one of them should let a name through.
+        have = last_intraday is not None
+        ok = have and (float(last_intraday) < op if short else float(last_intraday) > op)
         out.append({
-            "clause": "[0] 15-min Close > Daily Open",
-            "ok": last_intraday is not None and float(last_intraday) > op,
-            "detail": (f"{float(last_intraday):.2f} vs {op:.2f}"
-                       if last_intraday is not None else "no intraday bar — not checked"),
+            "clause": f"[0] 15-min Close {'<' if short else '>'} Daily Open",
+            "ok": ok,
+            "detail": (f"{float(last_intraday):.2f} vs {op:.2f}" if have
+                       else "no intraday bar — not checked"),
         })
     return all(c["ok"] for c in out), out
 
 
-def scan(daily_bars, points=None, cfg=None, last_intraday=None, quotes=None):
+def scan(daily_bars, points=None, cfg=None, last_intraday=None, quotes=None,
+         side="LONG"):
     """Every F&O name against the filter. Returns rows for the ones that pass.
 
     daily_bars:    {symbol: [daily candles]}
@@ -178,7 +213,7 @@ def scan(daily_bars, points=None, cfg=None, last_intraday=None, quotes=None):
     rows = []
     for sym, bars in (daily_bars or {}).items():
         row = daily_row(bars, cfg["sma_len"], (quotes or {}).get(sym))
-        ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym))
+        ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym), side)
         if not ok:
             continue
         p = by_sym.get(sym) or {}
@@ -206,7 +241,7 @@ def scan(daily_bars, points=None, cfg=None, last_intraday=None, quotes=None):
 
 
 def near_misses(daily_bars, points=None, cfg=None, last_intraday=None, top=8,
-                quotes=None):
+                quotes=None, side="LONG"):
     """Names that failed EXACTLY ONE clause, and which one.
 
     This is the answer to "why is your list different from Chartink's". Two screens with
@@ -226,7 +261,7 @@ def near_misses(daily_bars, points=None, cfg=None, last_intraday=None, top=8,
         row = daily_row(bars, cfg["sma_len"], (quotes or {}).get(sym))
         if not row:
             continue
-        ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym))
+        ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym), side)
         if ok:
             continue
         failed = [c for c in clauses if not c["ok"]]

@@ -40,6 +40,48 @@ def bars(closes, last_open=None):
     return b
 
 
+def test_short_mirror():
+    """The missing half: 'buying side OR selling side'. The workspace is gap-up only, so
+    every falling name was never looked at - not rejected, invisible."""
+    import gapup as G
+    print("\n  SHORT MIRROR")
+
+    def row(close, open_, prev_close, sma):
+        return {"close": close, "open": open_, "prev_close": prev_close,
+                "sma_prev": sma, "bars": 30}
+
+    # A clean gap DOWN: opens 1.5% below yesterday, and below its own 20-SMA.
+    down = row(close=98.5, open_=98.5, prev_close=100.0, sma=105.0)
+    ok, cl = G.passes(down, side="SHORT")
+    check("a clean gap-down passes the short screen", ok,
+           "; ".join(f"{c['clause']}={c['ok']}" for c in cl))
+    ok_long, _ = G.passes(down, side="LONG")
+    check("and the same name fails the long screen", not ok_long)
+
+    # THE BAND MUST FLIP WITH THE SIDE. If the short screen still tested (1.01, 1.02),
+    # a gap UP would pass it - a screen returning names that gapped the wrong way, while
+    # looking like it worked.
+    up = row(close=101.5, open_=101.5, prev_close=100.0, sma=95.0)
+    ok_wrong, _ = G.passes(up, side="SHORT")
+    check("a gap-UP never passes the short screen", not ok_wrong)
+
+    # Too far is still too far, mirrored: 3% down is the runaway gap the band exists to
+    # avoid, exactly as 3% up is on the long side.
+    far = row(close=97.0, open_=97.0, prev_close=100.0, sma=105.0)
+    ok_far, _ = G.passes(far, side="SHORT")
+    check("an overextended gap-down is refused, like its long-side twin", not ok_far)
+
+    # The intraday gate flips too, and unknown still fails rather than being skipped.
+    cfg = {**G.DEFAULTS, "use_intraday_gate": True}
+    ok_c, _ = G.passes(down, cfg, last_intraday=97.0, side="SHORT")
+    check("15-min below the open confirms a short", ok_c)
+    ok_x, _ = G.passes(down, cfg, last_intraday=99.9, side="SHORT")
+    check("15-min back above the open kills it", not ok_x)
+    ok_n, cl_n = G.passes(down, cfg, last_intraday=None, side="SHORT")
+    check("and no intraday bar FAILS - not checked is not passed", not ok_n,
+           cl_n[-1]["detail"])
+
+
 def main():
     print("\n  GAP-UP SCREEN")
     print("  " + "-" * 62)
@@ -215,12 +257,13 @@ def main():
     check("None -> empty list", G.scan(None, None) == [])
 
     print("  " + "-" * 62)
+    test_short_mirror()
+
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")
         return 1
     print("  all good - the screen means here what it means on Chartink\n")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
