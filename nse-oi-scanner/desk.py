@@ -451,6 +451,20 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
 
 
 @st.dialog("Chart", width="large")
+def _chart(fig, **kw):
+    """Render a figure and the line that says what it does not know.
+
+    make_fig() attaches the bubble legend and this renders it. Computing that count and
+    dropping it is the same failure the vega work had just fixed one layer up: without it
+    a chart with six coloured candles out of two hundred reads as one where the other
+    hundred and ninety-four were judged neutral.
+    """
+    st.plotly_chart(fig, **kw)
+    note = getattr(fig, "_bubble_legend", None)
+    if note:
+        st.caption(f"volume · OI bubbles — {note}")
+
+
 def chart_window(name):
     """The floating window. Opens over whatever you were reading, on any name, anywhere.
 
@@ -492,9 +506,8 @@ def chart_window(name):
         st.caption("No OHLCV bars for this name — close line only. "
                    "The levels are still real.")
     try:
-        st.plotly_chart(make_fig(name, _PRICES.get(sym, []), b, _DATES, f, plan,
-                                 height=300),
-                        use_container_width=True)
+        _chart(make_fig(name, _PRICES.get(sym, []), b, _DATES, f, plan, height=300),
+               use_container_width=True)
     except Exception as e:      # noqa
         st.caption(f"chart failed: {e}")
 
@@ -1472,8 +1485,8 @@ with T_CHART:
                             ("T2", card["stock"]["t2"], T["up"])]
                 if not BARS:
                     st.caption("No OHLCV bars — close line only. The levels are still real.")
-                st.plotly_chart(make_fig(pick, prices.get(SYM, []), BARS, dates, F, plan),
-                                use_container_width=True)
+                _chart(make_fig(pick, prices.get(SYM, []), BARS, dates, F, plan),
+                       use_container_width=True)
             except Exception as e:      # noqa
                 st.caption(f"chart failed: {e}")
 

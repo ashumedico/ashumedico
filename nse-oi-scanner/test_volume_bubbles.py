@@ -31,6 +31,20 @@ def bar(day, hh, mm, v, c=100.0):
     return {"t": t.timestamp(), "o": c, "h": c + 1, "l": c - 1, "c": c, "v": v}
 
 
+def test_legend_reaches_the_page():
+    """The count is the honesty mechanism. Computing it and dropping it is the same
+    failure as computing vega and discarding it - which is exactly what happened here
+    one commit after that one was fixed."""
+    src = open(os.path.join(HERE, "desk.py"), encoding="utf-8").read()
+    check("the chart legend is rendered, not just attached to the figure",
+          "_bubble_legend" in src and src.count("_chart(make_fig") >= 2
+          and "st.caption(f\"volume · OI bubbles" in src)
+    check("and no chart is drawn by a path that skips it",
+          "st.plotly_chart(make_fig" not in src,
+          "a direct plotly_chart(make_fig(...)) call would render the figure "
+          "without its legend")
+
+
 def main():
     import volume_bubbles as VB
     import oi_history as OH
@@ -133,6 +147,8 @@ def main():
           sessions == 2 and first == d0.isoformat() and not err,
           f"{sessions} {first}..{last}")
 
+    test_legend_reaches_the_page()
+
     print("  " + "-" * 62)
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")
@@ -140,6 +156,9 @@ def main():
     print("  all good - it draws what it measured, and counts what it did not\n")
     return 0
 
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 if __name__ == "__main__":
     raise SystemExit(main())
