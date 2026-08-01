@@ -13,9 +13,11 @@ screen. A tab that scrolls is not a failure of taste, it is the thing he asked n
 happen: the ticket he is about to press BUY on and the evidence for it have to be visible
 together, or the decision gets made from memory.
 
-The DEMO and config banners are subtracted, because they exist only on a machine with no
-token and no intraday config - neither is true on his. That subtraction is stated in the
-output rather than hidden, so the raw number is always visible next to the adjusted one.
+Banners that exist only because THIS machine is unconfigured are subtracted - no token,
+no intraday config, no risk limits, no option gates, the demo-contract note. Every one of
+them disappears on his desk after `0 - UPDATE`. The subtraction is stated in the output
+and the raw number printed beside the adjusted one, because an adjustment that hides
+itself is the same lie as a wrong number.
 
     python test_layout.py          (SKIPs cleanly if playwright or chromium is absent)
 """
@@ -103,11 +105,19 @@ def measure(port):
                 return {content: el ? el.scrollHeight : -1,
                         view: s ? s.clientHeight : window.innerHeight};
             }""")
+            # Banners that exist ONLY because this machine is unconfigured: no token, no
+            # intraday config, no risk limits, no option gates. Every one of them is gone
+            # on his desk after `0 - UPDATE`. They are subtracted, and the raw number is
+            # printed beside the adjusted one - an adjustment that hides itself is the
+            # same lie as a wrong number.
             demo = pg.evaluate("""() => {
                 let t = 0;
-                for (const a of document.querySelectorAll('[data-testid="stAlert"]')) {
+                const marks = ["DEMO data", "BAR_MINUTES", "option gates are NOT enforced",
+                               "Not enforced:", "Demo contract"];
+                const sel = '[data-testid="stAlert"], [data-testid="stCaptionContainer"]';
+                for (const a of document.querySelectorAll(sel)) {
                     const s = a.innerText || "";
-                    if (s.includes("DEMO data") || s.includes("BAR_MINUTES"))
+                    if (marks.some(m => s.includes(m)))
                         t += a.getBoundingClientRect().height + 8;
                 }
                 return Math.round(t);
@@ -152,7 +162,7 @@ def main():
             check(f"{name} fits one screen",
                   over <= SLACK,
                   (f"OVER by {over}px" if over > SLACK else "fits")
-                  + (f"  (raw {a}px, demo-only banners {b}px)" if b else f"  (raw {a}px)"))
+                  + (f"  (raw {a}px, unconfigured-only banners {b}px)" if b else f"  (raw {a}px)"))
 
     print("  " + "-" * 62)
     if FAILED:
