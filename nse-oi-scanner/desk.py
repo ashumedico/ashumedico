@@ -270,6 +270,45 @@ def make_fig(name, closes, bars_, dates_, feat, plan=None, height=330):
         c = closes or []
         fig.add_scatter(x=list(range(len(c))), y=c, name=name,
                         line=dict(color=T["accent"]))
+    # VOLUME BUBBLES, coloured by who was positioning. Size is the bar's volume against
+    # what THAT BAR OF THE DAY normally does - the 9:15 candle is the busiest of every
+    # session, so a flat average would mark every morning as extraordinary. Colour is the
+    # recorded OI buildup state, and only for sessions where one was actually recorded:
+    # buildup comes from live quotes against a day-open baseline and does not exist
+    # retrospectively, so the alternative to leaving old candles uncoloured is inventing
+    # their colour. The caption below counts what is uncoloured rather than letting it
+    # read as neutral.
+    if bars_ and name:
+        try:
+            import volume_bubbles as VB, oi_history as OH
+            rows = [{"t": (dates_ or [None] * len(bars_))[i], "o": r[1], "h": r[2],
+                     "l": r[3], "c": r[4], "v": (r[5] if len(r) > 5 else None)}
+                    for i, r in enumerate(bars_)]
+            res = VB.bubbles(rows, OH.states_for(name), intraday=False)
+            if res["bubbles"]:
+                # BUILDUP means a position was opened; COVERING and UNWINDING are the
+                # same price direction produced by positions closing. That distinction is
+                # the entire reason this layer is OI-coloured and not volume-coloured, so
+                # it is what the marker shape carries.
+                col = {"LONG BUILDUP": T["up"], "SHORT COVERING": T["up_soft"],
+                       "SHORT BUILDUP": T["down"], "LONG UNWINDING": T["down_soft"]}
+                fig.add_scatter(
+                    x=[b["index"] for b in res["bubbles"]],
+                    y=[b["low"] for b in res["bubbles"]],
+                    mode="markers", name="volume · OI",
+                    marker=dict(
+                        size=[b["size"] for b in res["bubbles"]],
+                        color=[col.get(b["state"], T["muted"]) for b in res["bubbles"]],
+                        symbol=["circle" if b["opening"] else "circle-open"
+                                for b in res["bubbles"]],
+                        line=dict(width=1, color=T["line"])),
+                    text=[f'{b["ratio"]}x volume · {b["state"] or "OI not recorded"}'
+                          for b in res["bubbles"]],
+                    hoverinfo="text")
+                fig._bubble_legend = VB.legend(res)
+        except Exception:      # noqa - a missing overlay must never cost him the chart
+            pass
+
     atr = feat.get("atr")
     for nm, lvl, col in (("R2", feat.get("r2"), T["down"]),
                          ("R1", feat.get("r1"), T["down"]),
