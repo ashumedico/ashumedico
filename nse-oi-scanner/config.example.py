@@ -105,3 +105,9 @@ MIN_OPTION_VOLUME   = 100    # contracts traded today at that strike. OI without
 MAX_IV_TO_REALISED  = 2.0    # refuse when implied vol is this many times what the stock
                              # has actually been doing - paying for a move bigger than the
                              # one being forecast. None disables the gate.
+
+# Results blackout (events.py). Implied vol rises into a results date and collapses after
+# it, so a long option bought inside this window pays for a jump it then loses to the
+# crush - the stock can move exactly as predicted and the trade still loses.
+EVENT_BLACKOUT_BEFORE = 2    # trading days before the event
+EVENT_BLACKOUT_AFTER  = 1    # and after, while IV is still resetting

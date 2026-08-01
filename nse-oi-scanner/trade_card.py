@@ -181,6 +181,28 @@ def option_quality(row, spot, days_to_expiry, kind, closes=None, cfg=None):
     return m, fails
 
 
+def event_check(name, cfg=None):
+    """(state, note) — is this name sitting on a results date?
+
+    The one gate on this ticket that is about neither the stock nor the contract, but
+    about the calendar. Implied vol rises into results because the market knows a jump is
+    coming; the buyer pays for that jump in the premium, the result prints, and IV
+    collapses. The stock can move exactly as predicted and the option still loses.
+
+    Three states, and the third is the point: 'unchecked' when no calendar is loaded.
+    Collapsing that into 'clear' would put a green tick on a ticket the day before
+    results, which is the single worst day of the quarter to buy that option.
+    """
+    cfg = cfg or config
+    try:
+        import events as EV
+        return EV.blackout(name,
+                           before=getattr(cfg, "EVENT_BLACKOUT_BEFORE", None),
+                           after=getattr(cfg, "EVENT_BLACKOUT_AFTER", None))
+    except Exception as e:      # noqa
+        return "unchecked", f"event calendar unavailable ({str(e)[:80]})"
+
+
 def _bars_per_year():
     """Annualisation factor matching the bar size the closes are on.
 
@@ -409,14 +431,25 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         # Judge the contract. Only possible on a real chain row - an estimated premium has
         # no bid, no ask, no open interest and no traded volume, so its gates cannot be
         # evaluated and are reported as not evaluated rather than as passed.
+        # The calendar gate runs whether or not a chain row exists - it is about the
+        # date, not the quote, and a name sitting on results is a bad buy at any premium.
+        ev_state, ev_note = event_check(point.get("name"))
+        card["option"]["event_state"] = ev_state
+        card["option"]["event_note"] = ev_note
+
         if ch_row:
             q, qfails = option_quality(ch_row, spot, days_to_expiry,
                                        card["option"]["type"], closes)
+            if ev_state == "blackout":
+                qfails = list(qfails) + [f"results blackout — {ev_note}"]
             card["option"]["quality"] = q
             card["option"]["quality_fails"] = qfails
             # theta in rupees is added once the lot is known, further down
         else:
-            card["option"]["quality_fails"] = []
+            # No chain row: the contract gates cannot run. The CALENDAR gate still can,
+            # and a blackout is a reason to refuse regardless of what the quote says.
+            card["option"]["quality_fails"] = (
+                [f"results blackout — {ev_note}"] if ev_state == "blackout" else [])
             card["option"]["quality_note"] = (
                 "no live chain row — spread, open interest, volume and implied vol could "
                 "not be checked. Not checked is not the same as passed.")

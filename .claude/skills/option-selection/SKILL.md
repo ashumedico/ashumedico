@@ -19,7 +19,7 @@ on RELIANCE. Delta was `0.50`, typed in.
 
 ---
 
-## THE SIX GATES, in the order they kill trades
+## THE SEVEN GATES, in the order they kill trades
 
 ### 1. IMPLIED vs REALISED — are you paying for a bigger move than you are forecasting?
 
@@ -67,10 +67,32 @@ nothing, and ₹2,625 across a weekend"** decides whether a two-day hold is wort
 Delta is both the participation rate and the rough probability of finishing in the money.
 Compute it. A hardcoded 0.50 is right only for the strike it was typed for.
 
-### 6. EXPIRY FIT — the hold must be shorter than the option's life
+### 6. EVENT RISK — the gate that is about neither the stock nor the contract
+
+Implied vol **rises into a results date** because the market knows a jump is coming. Buy
+then and the premium already contains the move; the result prints, the uncertainty
+resolves, and IV collapses — often 30–50% in one session. The stock can do exactly what
+was predicted and the option still loses. It is the most reliable way to be right about a
+company and wrong about the trade.
+
+Black out **both sides**: a couple of days before (paying for the jump) and at least a
+day after (holding through the crush).
+
+**The answer has three states, not two.** A boolean collapses "no event near this name"
+and "no calendar has ever been loaded" into the same `False` — and `False` renders as a
+green tick, possibly one day before results. So: `clear` / `blackout` / **`unchecked`**,
+and `unchecked` is printed as loudly as `blackout`. *An empty calendar cannot clear a
+name; it can only fail to find one.*
+
+Practical note: there is no dependable free NSE results feed — endpoints move, rate-limit
+and block server IPs. Build for a small local calendar he controls, with a best-effort
+fetch layered on top that **fails loudly and changes nothing**. A refresh that silently
+leaves the calendar empty is how "no event found" starts meaning "not checked".
+
+### 7. EXPIRY FIT — the hold must be shorter than the option's life
 
 **A hold longer than the expiry is not a pessimistic trade, it is an incoherent one.**
-Discovered here by arithmetic: the validated setup was *positional* (a 20-day hold) while
+Found here by arithmetic: the validated setup was *positional* (a 20-day hold) while
 the option config was *intraday* (15-day expiry). The translation produced a 100% theta
 charge and kept going, printing an "average return" for a contract that expired mid-trade.
 The honest output is not a bad number, it is **"these two do not fit — fix the cadence or
@@ -98,7 +120,7 @@ Three ways this goes wrong, all of which did:
    real cost of a 15-day ATM option, which **doubled** the leverage and doubled the
    apparent edge. Price it: Black-Scholes ATM, at the volatility the universe actually
    ran, for the expiry actually bought.
-3. **Silent incoherence.** See gate 6.
+3. **Silent incoherence.** See gate 7.
 
 Report it beside the stock headline, always, and label it a **model** — average premium,
 average delta, average spread, not the chain that existed on each day. Directionally

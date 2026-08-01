@@ -1302,7 +1302,16 @@ with T_SIG:
                     oi_txt = f'{int(q["oi"]):,}' if q.get("oi") else "—"
                     theta = o.get("theta_rs_day")
                     theta_txt = f'₹{theta:,}' if theta is not None else "—"
+                    # The calendar. 'unchecked' is printed as loudly as 'blackout',
+                    # because an empty calendar cannot clear a name and a green tick the
+                    # day before results is the worst output this ticket can produce.
+                    ev = o.get("event_state") or "unchecked"
+                    ecol = {"clear": "#5CF2FF", "blackout": "#FF2D8A"}.get(ev, "#39FF14")
+                    etxt = {"clear": "clear", "blackout": "RESULTS",
+                            "unchecked": "NOT CHECKED"}.get(ev, ev)
                     qcells = (
+                        f'<div><b>Event risk</b>'
+                        f'<span style="color:{ecol}">{etxt}</span></div>'
                         f'<div><b>IV vs realised</b><span style="color:{vcol}">'
                         f'{ratio} {vv.get("verdict", "")}</span></div>'
                         f'<div><b>Theta / day</b>'
