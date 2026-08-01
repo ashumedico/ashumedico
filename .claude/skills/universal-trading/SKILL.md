@@ -314,6 +314,48 @@ recurs, and recognising the shape is faster than rediscovering the bug.
     website and any MLR/UCPMP content stay English. A half-translated screen reads as
     careless.
 
+25. **A guard firing on every single item is not a guard, it is a missing input.** Every
+    order button on every ticket was permanently greyed out, and the guard was right:
+    there was no contract to send. The desk called `build_card()` with **no chain at
+    all**, so `option_from_chain()` searched nothing and the tradeable symbol came back
+    None - for every name, always. Three buttons x twelve tickets of correct behaviour
+    over a hole. When a check never passes for anything, stop auditing the check and go
+    find what was never supplied.
+
+26. **A disabled control has to say which of its reasons it is.** Kill switch on, no
+    token, no F&O series, absurd quantity - four different problems, four different
+    fixes, and one identical grey button. The button now carries the reason it is dead.
+
+27. **Fetch the chain and the lot size comes with it.** The live option chain carries the
+    exchange's own lot - the one number the symbol-master parser keeps confusing with
+    freeze quantity. Fetching contracts for the ticket fixed the quantity as a side
+    effect, which is what happens when data comes from where it is authoritative.
+
+28. **Screens are sized in screens, not in pixels.** A 21-inch desktop is ~1900x950. The
+    page was capped at 1500px wide and ran 6000px tall: a fifth of the width thrown away
+    and paid for in scroll, so the ticket and the evidence for it could never be visible
+    together. Five tabs, each measured against 940px of viewport in the browser, full
+    width, margins shrunk - and the type size left alone. On a trading screen you shrink
+    the margins, never the numbers.
+
+29. **A "row" of Streamlit metrics beside tall HTML is not a row.** Six `st.metric`s next
+    to a 2rem wordmark stacked, grew the row to the tallest child, and pushed the scan
+    button off the right edge. Things that must sit on one line belong in one element
+    whose CSS knows they are on a line together. The screenshot found it; the code
+    review before it did not.
+
+30. **Measure the layout, do not eyeball it.** "Looks about right" cost three rounds.
+    Printing each tab's `scrollHeight` against the viewport turned it into arithmetic:
+    signals 2124 → 1537 → 1242 → 1143 → fits, and at each step the number said which
+    change had actually paid. `test_layout.py` keeps it honest, and it subtracts the
+    demo-only banners **out loud** rather than quietly - an adjusted number that hides
+    its adjustment is the same lie as a wrong one.
+
+31. **Ask the DOM which element is expensive.** Guessing which block to cut wasted two
+    rounds; enumerating every child's height took one query and found a three-line
+    caption costing 45px on a tab that was 29px over. The most expensive thing on the
+    page is rarely the thing that looks big.
+
 ---
 
 ## REFERENCES

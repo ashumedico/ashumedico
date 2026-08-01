@@ -40,8 +40,37 @@ st.markdown("""
         linear-gradient(rgba(57,255,20,.030) 1px, transparent 1px),
         linear-gradient(90deg, rgba(57,255,20,.030) 1px, transparent 1px);
       background-size: 44px 44px;}
-  .block-container {padding-top: 1rem; padding-bottom: 4.5rem; max-width: 1500px;
+  /* ONE LANDSCAPE PAGE, 21 inches.
+     The cap was 1500px, so a 1920 screen threw away a fifth of its width and then made
+     up for it by scrolling - the worst trade available. Full width, tight vertical
+     rhythm, and the type size left alone: on a trading screen you shrink the margins,
+     never the numbers. */
+  .block-container {padding: .55rem 1.1rem 3.2rem 1.1rem; max-width: 100%;
                     position:relative; z-index:1;}
+  /* Streamlit's own toolbar is a FIXED bar ~45px tall, and the default top padding of
+     the container exists to clear it. Cutting that padding without removing the bar put
+     the wordmark and the scan button underneath it - a screenshot showed a blank strip
+     where the header should be, while AppTest happily reported both elements present.
+     Rendered and visible are different claims. The toolbar carries Deploy and a menu
+     neither of which this desk uses, so it goes, and its 45px go to the page. */
+  [data-testid="stHeader"] {display:none;}
+  [data-testid="stToolbar"] {display:none;}
+  /* Streamlit's default gaps are generous for documents and wasteful for a desk */
+  [data-testid="stVerticalBlock"] {gap: .32rem;}
+  [data-testid="stHorizontalBlock"] {gap: .55rem;}
+  [data-testid="stElementContainer"]:has(> .stMarkdown p:empty) {display:none;}
+  hr {margin: .45rem 0;}
+
+  /* tabs: the five screens. Each one is meant to fit without scrolling. */
+  [data-testid="stTabs"] [data-baseweb="tab-list"] {gap:2px; background:#080C12;
+      border:1px solid #14202C; border-radius:5px; padding:3px;}
+  [data-testid="stTabs"] [data-baseweb="tab"] {height:30px; background:transparent;
+      color:#4E6072; font-family: ui-monospace, Consolas, monospace; font-size:.7rem;
+      font-weight:800; letter-spacing:1.3px; border-radius:3px; padding:0 14px;}
+  [data-testid="stTabs"] [aria-selected="true"] {background:#00222B; color:#00E5FF;
+      box-shadow:0 0 14px rgba(0,229,255,.25);}
+  [data-testid="stTabs"] [data-baseweb="tab-highlight"],
+  [data-testid="stTabs"] [data-baseweb="tab-border"] {display:none;}
 
   /* numbers are monospace everywhere - a price that shifts width as it     */
   /* ticks is harder to read at a glance than one that does not.            */
@@ -58,8 +87,11 @@ st.markdown("""
 
   /* buttons read as terminal keys, and light up on hover */
   .stButton > button {background:#080C12; color:#5CF2FF; border:1px solid #0A6675;
-      border-radius:4px; font-weight:700; letter-spacing:.6px; font-size:.78rem;
-      text-transform:uppercase; transition:all .12s ease;}
+      border-radius:4px; font-weight:700; letter-spacing:.6px; font-size:.74rem;
+      text-transform:uppercase; transition:all .12s ease;
+      /* a live ticket stacks three button rows; the default height put two tickets a
+         side past one screen on their own */
+      padding:.18rem .55rem; min-height:0; line-height:1.5;}
   .stButton > button:hover {border-color:#39FF14; color:#39FF14;
       box-shadow:0 0 12px rgba(57,255,20,.35); background:#0A0E14;}
   .stButton > button[kind="primary"] {background:#00222B; color:#00E5FF;
@@ -105,7 +137,7 @@ st.markdown("""
          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
 
   .sec {font-size:.72rem; letter-spacing:2px; text-transform:uppercase; color:#39FF14;
-        border-bottom:1px solid #14202C; padding-bottom:5px; margin:1.4rem 0 .7rem 0;
+        border-bottom:1px solid #14202C; padding-bottom:4px; margin:.5rem 0 .45rem 0;
         font-family: ui-monospace, Consolas, monospace;
         text-shadow:0 0 12px rgba(57,255,20,.40);}
   .sec::before {content:"> "; color:#1E6610;}
@@ -136,20 +168,26 @@ st.markdown("""
      secondary and quiet. Roomy on purpose - a confirm sheet that has to be readable
      cannot live in a crushed column. */
   .ticket {background:#080C12; border:1px solid #14202C; border-radius:6px;
-           padding:16px 18px 14px; margin-bottom:10px;}
-  .tk-head {display:flex; align-items:center; gap:12px; margin-bottom:10px;}
-  .tk-name {font-size:1.15rem; font-weight:800; color:#D5E6F2; letter-spacing:1.6px;
+           padding:8px 12px 7px; margin-bottom:4px;}
+  .tk-head {display:flex; align-items:center; gap:10px; margin-bottom:5px;}
+  .tk-name {font-size:1.02rem; font-weight:800; color:#D5E6F2; letter-spacing:1.4px;
             font-family: ui-monospace, Consolas, monospace;}
-  .tk-grade {font-size:.72rem; font-weight:800; color:#7CFF5E; margin-left:auto;
+  .tk-grade {font-size:.7rem; font-weight:800; color:#7CFF5E; margin-left:auto;
              font-family: ui-monospace, Consolas, monospace;}
-  .tk-big {font-size:2.1rem; font-weight:800; letter-spacing:1px; line-height:1.35;
-           font-family: ui-monospace, Consolas, monospace; padding:2px 0 6px;
+  /* the verdict was a grid cell, and "WAIT FOR PULLBACK" wrapped to two lines and grew
+     every ticket by a row. It is one chip in the head now, and it does not wrap. */
+  .tk-act {font-size:.6rem; font-weight:800; letter-spacing:1px; padding:2px 7px;
+           border-radius:3px; background:#0A0E14; color:#7CFF5E; border:1px solid #1E6610;
+           white-space:nowrap; font-family: ui-monospace, Consolas, monospace;}
+  .tk-big {font-size:1.6rem; font-weight:800; letter-spacing:1px; line-height:1.25;
+           font-family: ui-monospace, Consolas, monospace; padding:0 0 3px;
            text-shadow:0 0 18px currentColor;}
-  .tk-sub {font-size:.78rem; font-weight:600; color:#4E6072; letter-spacing:.4px;
+  .tk-sub {font-size:.7rem; font-weight:600; color:#4E6072; letter-spacing:.3px;
            text-shadow:none;}
-  .tk-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px 18px;
-            margin-top:8px; font-family: ui-monospace, Consolas, monospace;
-            font-size:.86rem; color:#D5E6F2;}
+  /* six across: the whole plan - entry, stop, three targets, R - on two tight rows */
+  .tk-grid {display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:5px 10px;
+            margin-top:5px; font-family: ui-monospace, Consolas, monospace;
+            font-size:.78rem; color:#D5E6F2;}
   .tk-grid b {display:block; color:#3E5060; font-weight:600; font-size:.62rem;
               letter-spacing:.8px; text-transform:uppercase; margin-bottom:1px;}
 
@@ -174,9 +212,9 @@ st.markdown("""
      need vertical room of their own - the container will happily clip whatever sticks
      out. line-height does that; padding alone did not, because the line box itself was
      still only as tall as the text. */
-  .mark {display:flex; align-items:baseline; gap:12px; margin:.2rem 0 .35rem 0;
-         padding:.45rem 0 .25rem 0; overflow:visible;}
-  .mark-name {font-size:2.0rem; font-weight:800; letter-spacing:6px;
+  .mark {display:flex; align-items:baseline; gap:10px; margin:0; padding:2px 0;
+         overflow:visible;}
+  .mark-name {font-size:1.5rem; font-weight:800; letter-spacing:5px;
               font-family: ui-monospace, Consolas, monospace; color:#39FF14;
               line-height:1.5; display:inline-block; padding:2px 0;
               /* the RGB split stays horizontal; the soft halo is kept tight so it does
@@ -214,6 +252,22 @@ st.markdown("""
   .hud::after  {bottom:0; left:0; border-bottom:2px solid #39FF14; border-left:2px solid #39FF14;}
 
   /* the radar block on the scan strip */
+  /* the status strip: one line, pills, no wrapping. Scrolls sideways rather than
+     growing a second row - a header that changes height moves the whole page. */
+  .strip {display:flex; align-items:center; gap:7px; overflow-x:auto; padding:3px 0;
+          font-family: ui-monospace, Consolas, monospace; white-space:nowrap;}
+  .strip > span {display:inline-flex; align-items:baseline; gap:6px; padding:4px 10px;
+          border:1px solid #14202C; border-radius:3px; background:#080C12;}
+  .strip i {font-style:normal; font-size:.6rem; letter-spacing:1.2px; color:#3E5060;}
+  .strip b {font-size:.82rem; font-weight:800; color:#5CF2FF; letter-spacing:.6px;}
+  .strip .radar-dish {flex:none; display:inline-block; width:18px; height:18px;}
+  /* the verdict, folded into the same line as the numbers that justify it */
+  .verdict {font-size:.72rem; font-weight:800; letter-spacing:.6px; padding:5px 12px;
+            border-radius:3px; font-family: ui-monospace, Consolas, monospace;}
+  .verdict.banner-ok  {background:#00222B; color:#5CF2FF; border:1px solid #00E5FF;}
+  .verdict.banner-mid {background:#0A2B05; color:#7CFF5E; border:1px solid #39FF14;}
+  .verdict.banner-bad {background:#2B0016; color:#FF6BB0; border:1px solid #FF2D8A;}
+
   .radar {display:flex; align-items:center; gap:10px; padding:6px 12px;
           border:1px solid #14202C; border-radius:3px; background:#080C12;
           font-family: ui-monospace, Consolas, monospace; font-size:.68rem;
@@ -317,6 +371,35 @@ def load(demo):
     return pts, prices, bench, E.LAST_BARS, E.LAST_DATES
 
 
+@st.cache_data(ttl=180, show_spinner=False)
+def chain_for(symbol, min_days):
+    """(chain, expiry_label, days, lot, error) for one underlying.
+
+    THIS IS WHY EVERY ORDER BUTTON WAS DEAD. The tickets called build_card() with no
+    chain at all, so option_from_chain() had nothing to search, tradingsymbol came back
+    None, and order_button's own guard greyed out all three buttons on every card - BUY,
+    SET STOP and EXIT - for every name, always. The guard was right; there genuinely was
+    no contract to send. Nobody had ever fetched one.
+
+    Fetching it here also fixes the quantity: the live chain carries the real lot size,
+    which is the one number the symbol-master parser keeps confusing with freeze quantity.
+
+    The error is returned, not swallowed. "No contract" and "your token expired" and
+    "this name has no F&O series" are three different problems with three different
+    fixes, and a button that greys out identically for all three teaches nothing.
+    """
+    if DEMO:
+        return None, None, None, None, "no token — DEMO data cannot produce a real contract"
+    try:
+        import option_chain as OC
+        ch, lbl, days, lot = OC.tradeable_chain(symbol, min_days)
+        if not ch:
+            return None, None, None, None, "chain came back empty for this symbol"
+        return ch, lbl, days, lot, None
+    except Exception as e:      # noqa
+        return None, None, None, None, str(e)[:160]
+
+
 @st.cache_data(ttl=3600)
 def watch_map():
     """{SYMBOL: (trigger, guidance)} for the F&O-tradeable watchlist names. Display only -
@@ -328,6 +411,42 @@ def watch_map():
                 for r in W.resolve() if r["fno"]}
     except Exception:
         return {}
+
+
+@st.cache_data(ttl=1800, show_spinner="Working out sector membership...")
+def sector_map(_prices):
+    import sectors as _S
+    return _S.constituents(_prices)
+
+
+# A name has to actually track the sector before its move can be called the sector's
+# doing. Weighting the move by r is NOT enough on its own - a test caught exactly that:
+# 9% at r=0.30 scores 2.7 and outranks 3% at r=0.85, so the loosest-tracking name leads
+# the list precisely when it has a big idiosyncratic day. That is the opposite of what
+# the column is for. So r is a gate first and a weight second.
+DRIVER_MIN_R = 0.50
+
+
+def drivers(sec_name, direction, cmap, by_name, top=4):
+    """Names that track this sector and moved furthest WITH it, biggest first."""
+    out = []
+    for m in (cmap.get(sec_name) or []):
+        r = float(m.get("corr") or 0)
+        if r < DRIVER_MIN_R:
+            continue                       # does not track it - not this sector's story
+        p = by_name.get(m["name"])
+        if not p or p.get("abs_pct") is None:
+            continue
+        pct = float(p["abs_pct"])
+        if direction > 0 and pct <= 0:
+            continue
+        if direction < 0 and pct >= 0:
+            continue
+        out.append({"name": m["name"], "pct": pct, "r": m["corr"],
+                    "drive": abs(pct) * r})
+    out.sort(key=lambda x: x["drive"], reverse=True)
+    return out[:top]
+# --- end of sector helpers ---
 
 
 # --------------------------------------------------------------- charting --
@@ -361,7 +480,7 @@ def touches(bars, level, atr):
     return sum(1 for b in bars if b[3] - tol <= level <= b[2] + tol)
 
 
-def make_fig(name, closes, bars_, dates_, feat, plan=None, height=440):
+def make_fig(name, closes, bars_, dates_, feat, plan=None, height=330):
     """One chart builder, used by the page and by the floating window alike.
 
     Two copies of this would drift - the inline one would get the trade levels and the
@@ -447,7 +566,7 @@ def _armed_key(k):
 
 
 def order_button(label, key, payload, fire, blocked=None, explain=True,
-                 colour="#00E5FF"):
+                 colour="#00E5FF", no_contract_why=None):
     """Two-press order control. Returns nothing; renders its own result.
 
     payload is shown verbatim before anything is sent - the numbers on the button and the
@@ -476,9 +595,8 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
         # Once per ticket, not once per button: the same sentence three times reads as
         # three problems and buries the one that matters.
         if explain:
-            st.caption("The chain did not supply a tradeable symbol, so there is nothing "
-                       "to send. An order assembled by hand from strike and expiry is one "
-                       "typo from a different contract.")
+            st.caption(f"**No contract:** "
+                       f"{no_contract_why or 'the chain returned no tradeable symbol'}.")
         return
     if blocked:
         st.button(f"{label} · BLOCKED", key=key, disabled=True, use_container_width=True)
@@ -552,7 +670,7 @@ def chart_window(name):
                    "The levels are still real.")
     try:
         st.plotly_chart(make_fig(name, _PRICES.get(sym, []), b, _DATES, f, plan,
-                                 height=380),
+                                 height=300),
                         use_container_width=True)
     except Exception as e:      # noqa
         st.caption(f"chart failed: {e}")
@@ -617,26 +735,27 @@ with st.sidebar:
                f"{int(getattr(config, 'LOTS_PER_TRADE', 1) or 1)} lot fixed · ATM only")
 
 # ------------------------------------------------------------------- header --
-st.markdown('<div class="mark"><span class="mark-name">AASHISH</span>'
-            '<span class="mark-sub">Trading Desk · Chart Action</span></div>',
-            unsafe_allow_html=True)
-st.caption("Support/resistance · price action · volume · buildup — one page, "
-           "computed live, nothing illustrative.")
-
-# --- scanner strip: clock, status, universe, and the button that refetches ----------
+# The wordmark and the scanner strip share ONE row. They used to take three rows between
+# them - a title, a subtitle, and a strip of metrics - which is a hundred and forty pixels
+# of a nine-hundred-pixel screen spent on saying whose desk this is.
 from datetime import datetime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30))
 if "last_scan" not in st.session_state:
     st.session_state.last_scan = None
-sc = st.columns([1, 1, 1, 1, 1.4])
-sc[0].metric("IST", f"{datetime.now(IST):%H:%M:%S}")
-sc[1].markdown(
-    f'<div class="radar"><div class="radar-dish"></div>'
-    f'<div>SCAN<br><b>{"ARMED" if not DEMO else "DEMO"}</b></div></div>',
-    unsafe_allow_html=True)
-sc[2].metric("Last scan", st.session_state.last_scan or "—")
-if sc[4].button("⟳  RUN SCAN NOW", use_container_width=True, type="primary"):
+#
+# Six columns of st.metric next to a 2rem wordmark do not share a row: the metrics stack
+# label-over-value, the row grows to the tallest of them, and the button gets pushed off
+# the right edge - which is exactly what a screenshot showed. So the status is ONE strip
+# of pills, laid out by CSS that knows they are on a line together, and the only widget in
+# the row is the button.
+sc = st.columns([2.5, 6.1, 1.4], vertical_alignment="center")
+sc[0].markdown('<div class="mark"><span class="mark-name">AASHISH</span>'
+               '<span class="mark-sub">Trading Desk</span></div>',
+               unsafe_allow_html=True)
+# filled after the data loads - the universe size is not known yet
+STRIP = sc[1].empty()
+if sc[2].button("⟳  RUN SCAN NOW", use_container_width=True, type="primary"):
     st.cache_data.clear()
     st.session_state.last_scan = f"{datetime.now(IST):%H:%M:%S}"
     st.rerun()
@@ -674,7 +793,16 @@ import rrg_strategy as S, trade_card as TC
 rule, params, _ = S.load_best()
 sel = S.select(pts, rule, params, max_pos=8, prices=prices)
 longs = sel["longs"]
-sc[3].metric("Universe", len(pts), "F&O names")
+STRIP.markdown(
+    f'<div class="strip">'
+    f'<span class="radar-dish"></span>'
+    f'<span><i>SCAN</i><b>{"ARMED" if not DEMO else "DEMO"}</b></span>'
+    f'<span><i>IST</i><b>{datetime.now(IST):%H:%M:%S}</b></span>'
+    f'<span><i>LAST SCAN</i><b>{st.session_state.last_scan or "—"}</b></span>'
+    f'<span><i>UNIVERSE</i><b>{len(pts)}</b></span>'
+    f'<span><i>PASSING</i><b>{len(longs)}</b></span>'
+    f'<span><i>BAR</i><b>{int(getattr(config, "BAR_MINUTES", 375))}min</b></span>'
+    f'</div>', unsafe_allow_html=True)
 if sel.get("band"):
     b = sel["band"]
     st.info(f"Price band ON: Rs {b['min']:.0f}–{b['max']:.0f} — {b['dropped']} names fell "
@@ -706,689 +834,670 @@ else:
     cls, msg = "banner-bad", f"{regime_state} · {pick or '—'} — No trend. Not taking one is also a position."
 if F.get("feature_error"):
     cls, msg = "banner-bad", f"Feature calculation fail: {F['feature_error']}"
-st.markdown(f'<div class="banner hud {cls}">{msg}</div>', unsafe_allow_html=True)
 
 # ================================================================== ribbon ==
+# The verdict and the numbers behind it used to be two stacked blocks - a 45px banner and
+# a 70px ribbon - repeated above all five tabs. That is 115px of every screen spent twice.
+# One line of pills carries the same eight facts in 37px, and the verdict is the pill on
+# the left, colour-coded exactly as the banner was. Nothing was dropped; it was folded.
 if P:
     px = P.get("close", 0)
     chg = P.get("abs_pct")
     rv = F.get("rvol")
     vw = F.get("above_vwap")
     cells = [
-        ("Name", f'<span class="reticle">{pick}</span>'),
-        ("Spot", f"{px:,.2f}"),
-        ("Trend", f'<span class="{"up" if (chg or 0) >= 0 else "dn"}">{chg:+.2f}%</span>'
+        ("SPOT", f"{px:,.2f}"),
+        ("TREND", f'<span class="{"up" if (chg or 0) >= 0 else "dn"}">{chg:+.2f}%</span>'
          if chg is not None else "—"),
-        ("vs VWAP", f'<span class="{"up" if vw else "dn"}">{"ABOVE" if vw else "BELOW"}</span>'
+        ("VS VWAP", f'<span class="{"up" if vw else "dn"}">{"ABOVE" if vw else "BELOW"}</span>'
          if F else "—"),
         ("RVOL", f"{rv:.2f}x" if rv else "—"),
         ("ATR", F.get("atr", "—")),
-        ("Squeeze", f'{F.get("squeeze","—")}{" · COILED" if F.get("coiled") else ""}'),
-        ("Expansion", '<span class="up">YES</span>' if F.get("expanding") else "no"),
+        ("SQUEEZE", f'{F.get("squeeze","—")}{" · COILED" if F.get("coiled") else ""}'),
+        ("EXPANSION", '<span class="up">YES</span>' if F.get("expanding") else "no"),
     ]
-    st.markdown('<div class="ribbon hud">' + "".join(
-        f'<div><div class="rb-k">{k}</div><div class="rb-v">{v}</div></div>'
-        for k, v in cells) + '</div>', unsafe_allow_html=True)
-
-# =========================================================== command deck ==
-# The reference calls this the Intraday Command Deck. Everything in it is context - where
-# the money is today and which names just turned. None of it is a trigger, and none of it
-# has been walk-forward tested (there is no sector-index history here to test against).
-st.markdown('<div class="sec">Command deck — where the money is today</div>',
-            unsafe_allow_html=True)
-
-engine_bits = []
-try:
-    import paper as _P
-    _bk = _P.load()
-    engine_bits.append(f"{len(_bk.get('open', []))} open")
-    engine_bits.append(f"{len(_bk.get('closed', []))} closed")
-except Exception:
-    pass
-mkt = "market open" if 915 <= int(f"{datetime.now(IST):%H%M}") <= 1530 else "market closed"
-try:
-    import broker as _B
-    live_txt = ("HALTED - kill switch" if _B.killed()
-                else "LIVE ARMED" if _B.armed() else "paper only")
-except Exception:
-    live_txt = "paper only"
-if "HALTED" in live_txt:
-    st.markdown(f'<div class="hazard">⚠ KILL SWITCH ON — nothing will be ordered. '
-                f'{mkt} · {" · ".join(engine_bits) or "paper book empty"}</div>',
-                unsafe_allow_html=True)
-else:
     st.markdown(
-        f'<div class="scen">ENGINE — {mkt} · monitoring · '
-        f'{" · ".join(engine_bits) or "paper book empty"} · {live_txt}</div>',
-        unsafe_allow_html=True)
+        f'<div class="strip hud"><span class="verdict {cls}">{msg}</span>'
+        f'<span><i>NAME</i><b class="reticle">{pick}</b></span>'
+        + "".join(f'<span><i>{k}</i><b>{v}</b></span>' for k, v in cells)
+        + '</div>', unsafe_allow_html=True)
+else:
+    st.markdown(f'<div class="strip hud"><span class="verdict {cls}">{msg}</span></div>',
+                unsafe_allow_html=True)
 
-# ---- momentum radar -------------------------------------------------------
-try:
-    import sectors as SEC
-    rad = SEC.radar(pts, bars, dates)
-    cls = {"UPTREND": "b-up", "DOWNTREND": "b-dn", "DAY-HIGH REVERSAL": "b-turn",
-           "BOUNCING OFF LOW": "b-bnc", "FLAT": "b-none"}
-    chips = []
-    for state in ("DAY-HIGH REVERSAL", "BOUNCING OFF LOW", "UPTREND", "DOWNTREND", "FLAT"):
-        n = rad["counts"].get(state, 0)
-        if not n:
-            continue
-        ex = rad["examples"].get(state)
-        who = f' &nbsp;<span style="opacity:.75">{ex[0]}</span>' if ex else ""
-        chips.append(f'<span class="badge {cls[state]}">{state} {n}{who}</span>')
-    st.markdown('<div class="callsign">// MOMENTUM RADAR</div>', unsafe_allow_html=True)
-    if chips:
-        st.markdown(" ".join(chips), unsafe_allow_html=True)
-    if rad["unjudged"]:
-        st.caption(f"{rad['unjudged']} names could not be judged — day-high reversal "
-                   f"and bounce need intraday bars. On a daily candle that question has "
-                   f"no answer, so it is left empty rather than filled with a zero.")
-except Exception as e:      # noqa
-    st.caption(f"radar failed: {e}")
-
-# ---- sector heatmap: two columns, advancing and declining ------------------
-# Vertical, split by direction, with the names driving each sector beside it.
+# ===================================================================== tabs ==
+# ONE LANDSCAPE PAGE
 #
-# ON THE WORD "DRIVERS"
-# A true index contribution needs free-float weights, and this system has none. So these
-# are NOT contributions - they are the names that (a) actually track this sector, by
-# measured correlation, and (b) moved furthest in the sector's direction today. That is a
-# defensible answer to "who is behind this move"; "RELIANCE contributed 43 bps" is not,
-# and printing it would be inventing a number.
-st.markdown('<div class="callsign">// SECTOR SCAN &nbsp;·&nbsp; ADVANCING / DECLINING &nbsp;·&nbsp; DRIVERS</div>', unsafe_allow_html=True)
+# A 21-inch screen is about 1900x950 of usable browser. The page used to run past six
+# thousand pixels of scroll, which meant the ticket he is about to press BUY on and the
+# heatmap that justifies it could never be on screen together - and a decision made by
+# scrolling back and forth is a decision made from memory.
+#
+# So: five tabs, each sized to fit one screen without scrolling, plus a status strip that
+# stays above all of them. Tabs rather than a smaller font, because shrinking type on a
+# trading screen is how a 5418 gets read as a 5413.
+T_DECK, T_SIG, T_CHART, T_SCREEN, T_SCORE = st.tabs(
+    ["◈  COMMAND DECK", "◈  SIGNALS & TICKETS", "◈  CHART", "◈  SCREENER", "◈  SCORE"])
 
-
-@st.cache_data(ttl=1800, show_spinner="Working out sector membership...")
-def sector_map(_prices):
-    import sectors as _S
-    return _S.constituents(_prices)
-
-
-# A name has to actually track the sector before its move can be called the sector's
-# doing. Weighting the move by r is NOT enough on its own - a test caught exactly that:
-# 9% at r=0.30 scores 2.7 and outranks 3% at r=0.85, so the loosest-tracking name leads
-# the list precisely when it has a big idiosyncratic day. That is the opposite of what
-# the column is for. So r is a gate first and a weight second.
-DRIVER_MIN_R = 0.50
-
-
-def drivers(sec_name, direction, cmap, by_name, top=4):
-    """Names that track this sector and moved furthest WITH it, biggest first."""
-    out = []
-    for m in (cmap.get(sec_name) or []):
-        r = float(m.get("corr") or 0)
-        if r < DRIVER_MIN_R:
-            continue                       # does not track it - not this sector's story
-        p = by_name.get(m["name"])
-        if not p or p.get("abs_pct") is None:
-            continue
-        pct = float(p["abs_pct"])
-        if direction > 0 and pct <= 0:
-            continue
-        if direction < 0 and pct >= 0:
-            continue
-        out.append({"name": m["name"], "pct": pct, "r": m["corr"],
-                    "drive": abs(pct) * r})
-    out.sort(key=lambda x: x["drive"], reverse=True)
-    return out[:top]
-
-
-try:
-    hm = SEC.heatmap()
-    if not hm:
-        miss = SEC.unresolved()
-        st.caption("Nothing came back from the sector feed (no token / market closed). "
-                   "Showing it empty — filling it with zeros would be a lie, because "
-                   "0.00% means 'did not move', not 'do not know'."
-                   + (f"  Did not resolve: {', '.join(miss)}." if miss else ""))
-    else:
-        try:
-            cmap, _unclear = sector_map(prices)
-        except Exception:
-            cmap = {}
-        by_name = {p["name"]: p for p in pts}
-        span = max(abs(r["pct"]) for r in hm) or 1.0
-        up = [r for r in hm if r["pct"] >= 0]
-        dn = [r for r in hm if r["pct"] < 0]
-
-        def render_col(rows, direction, title, colour):
-            st.markdown(f'<div style="color:{colour};font-family:ui-monospace,Consolas,'
-                        f'monospace;font-size:.72rem;letter-spacing:2px;font-weight:800;'
-                        f'text-shadow:0 0 10px currentColor;margin-bottom:6px">'
-                        f'{title} · {len(rows)}</div>', unsafe_allow_html=True)
-            if not rows:
-                st.caption("none")
-                return
-            for r in rows:
-                f = min(1.0, abs(r["pct"]) / span)
-                if direction > 0:
-                    bg, fg = f"rgba(0,229,255,{0.06 + 0.24*f})", "#5CF2FF"
-                else:
-                    bg, fg = f"rgba(255,45,138,{0.06 + 0.24*f})", "#FF6BB0"
-                dr = drivers(r["name"], direction, cmap, by_name)
-                chips = "".join(
-                    f'<span style="display:inline-block;margin:3px 6px 0 0;padding:1px 6px;'
-                    f'border:1px solid {fg}44;border-radius:3px;font-size:.66rem;'
-                    f'color:{fg};font-family:ui-monospace,Consolas,monospace">'
-                    f'{d["name"]} {d["pct"]:+.1f}% <span style="color:#3E5060">r{d["r"]}'
-                    f'</span></span>' for d in dr)
-                if not chips:
-                    chips = ('<span style="font-size:.66rem;color:#3E5060;'
-                             'font-family:ui-monospace,Consolas,monospace">'
-                             'no tracked name moved this way</span>')
-                tag = (f'<span class="hm-t" style="color:{fg};margin-left:8px">'
-                       f'{r["tag"]}</span>' if r["tag"] else "")
-                st.markdown(
-                    f'<div class="hm" style="background:{bg}">'
-                    f'<div class="hm-r">#{r["rank"]}</div>'
-                    f'<div style="display:flex;align-items:baseline;gap:10px">'
-                    f'<span class="hm-p" style="color:{fg};font-size:1.15rem">'
-                    f'{r["pct"]:+.2f}%</span>'
-                    f'<span class="hm-n">{r["name"]}</span>{tag}</div>'
-                    f'<div style="margin-top:2px">{chips}</div>'
-                    f'</div>', unsafe_allow_html=True)
-                if st.button(f"{r['name']} names  →", key=f"sec_{r['name']}",
-                             use_container_width=True):
-                    st.session_state.sector = r["name"]
-
-        cu, cd = st.columns(2)
-        with cu:
-            render_col(up, +1, "ADVANCING", "#00E5FF")
-        with cd:
-            render_col(dn, -1, "DECLINING", "#FF2D8A")
-
-        if SEC.unresolved():
-            st.caption("These sectors did not resolve and are not on the heatmap: "
-                       + ", ".join(SEC.unresolved()))
-    st.caption("The names beside each sector are the ones that **track** it (measured "
-               "correlation, shown as r) and moved furthest **with** it today, largest "
-               "first. They are NOT index contributions — that needs free-float weights, "
-               "which this system does not have, so it is not claimed. Sector strength is "
-               "context, not a signal, and none of it is backtested. Click a sector for "
-               "its full ranked list.")
-except Exception as e:      # noqa
-    st.caption(f"heatmap failed: {e}")
-
-
-# ---- click a sector -> its names, best first -------------------------------
-if st.session_state.get("sector"):
-    sec = st.session_state.sector
-    hl, hr = st.columns([4, 1])
-    hl.markdown(f'<div class="sec">{sec} — which name first</div>',
+with T_DECK:
+    # =========================================================== command deck ==
+    # The reference calls this the Intraday Command Deck. Everything in it is context - where
+    # the money is today and which names just turned. None of it is a trigger, and none of it
+    # has been walk-forward tested (there is no sector-index history here to test against).
+    st.markdown('<div class="sec">Command deck — where the money is today</div>',
                 unsafe_allow_html=True)
-    if hr.button("close", use_container_width=True):
-        st.session_state.sector = None
-        st.rerun()
+
+    engine_bits = []
     try:
-        import scorecard as SC
-        cmap, unclear = sector_map(prices)
-        members = cmap.get(sec) or []
-        if not members:
-            st.caption(f"No name correlates strongly with {sec} (or the index history did not "
-                       f"arrive). So it is empty — empty beats filling it with the "
-                       f"wrong names.")
+        import paper as _P
+        _bk = _P.load()
+        engine_bits.append(f"{len(_bk.get('open', []))} open")
+        engine_bits.append(f"{len(_bk.get('closed', []))} closed")
+    except Exception:
+        pass
+    mkt = "market open" if 915 <= int(f"{datetime.now(IST):%H%M}") <= 1530 else "market closed"
+    try:
+        import broker as _B
+        live_txt = ("HALTED - kill switch" if _B.killed()
+                    else "LIVE ARMED" if _B.armed() else "paper only")
+    except Exception:
+        live_txt = "paper only"
+    if "HALTED" in live_txt:
+        st.markdown(f'<div class="hazard">⚠ KILL SWITCH ON — nothing will be ordered. '
+                    f'{mkt} · {" · ".join(engine_bits) or "paper book empty"}</div>',
+                    unsafe_allow_html=True)
+    else:
+        st.markdown(
+            f'<div class="scen">ENGINE — {mkt} · monitoring · '
+            f'{" · ".join(engine_bits) or "paper book empty"} · {live_txt}</div>',
+            unsafe_allow_html=True)
+
+    # ---- momentum radar -------------------------------------------------------
+    try:
+        import sectors as SEC
+        rad = SEC.radar(pts, bars, dates)
+        cls = {"UPTREND": "b-up", "DOWNTREND": "b-dn", "DAY-HIGH REVERSAL": "b-turn",
+               "BOUNCING OFF LOW": "b-bnc", "FLAT": "b-none"}
+        chips = []
+        for state in ("DAY-HIGH REVERSAL", "BOUNCING OFF LOW", "UPTREND", "DOWNTREND", "FLAT"):
+            n = rad["counts"].get(state, 0)
+            if not n:
+                continue
+            ex = rad["examples"].get(state)
+            who = f' &nbsp;<span style="opacity:.75">{ex[0]}</span>' if ex else ""
+            chips.append(f'<span class="badge {cls[state]}">{state} {n}{who}</span>')
+        st.markdown('<div class="callsign">// MOMENTUM RADAR</div>', unsafe_allow_html=True)
+        if chips:
+            st.markdown(" ".join(chips), unsafe_allow_html=True)
+        if rad["unjudged"]:
+            st.caption(f"{rad['unjudged']} names could not be judged — day-high reversal "
+                       f"and bounce need intraday bars. On a daily candle that question has "
+                       f"no answer, so it is left empty rather than filled with a zero.")
+    except Exception as e:      # noqa
+        st.caption(f"radar failed: {e}")
+
+    # ---- sector heatmap: two columns, advancing and declining ------------------
+    # Vertical, split by direction, with the names driving each sector beside it.
+    #
+    # ON THE WORD "DRIVERS"
+    # A true index contribution needs free-float weights, and this system has none. So these
+    # are NOT contributions - they are the names that (a) actually track this sector, by
+    # measured correlation, and (b) moved furthest in the sector's direction today. That is a
+    # defensible answer to "who is behind this move"; "RELIANCE contributed 43 bps" is not,
+    # and printing it would be inventing a number.
+    st.markdown('<div class="callsign">// SECTOR SCAN &nbsp;·&nbsp; ADVANCING / DECLINING &nbsp;·&nbsp; DRIVERS</div>', unsafe_allow_html=True)
+
+
+    try:
+        hm = SEC.heatmap()
+        if not hm:
+            miss = SEC.unresolved()
+            st.caption("Nothing came back from the sector feed (no token / market closed). "
+                       "Showing it empty — filling it with zeros would be a lie, because "
+                       "0.00% means 'did not move', not 'do not know'."
+                       + (f"  Did not resolve: {', '.join(miss)}." if miss else ""))
         else:
+            try:
+                cmap, _unclear = sector_map(prices)
+            except Exception:
+                cmap = {}
             by_name = {p["name"]: p for p in pts}
-            rows = []
-            for m in members:
-                p = by_name.get(m["name"])
-                if not p:
-                    continue
-                s = SC.score(p)
-                f = p.get("feat") or {}
-                # Which side this name suits, from the same tested conditions. Not a
-                # separate opinion - a reading of the score that already exists.
-                lean = ("BUY CE" if s["total"] >= 6 else
-                        "BUY PE" if (s["of"] - s["total"]) >= 6 else "—")
-                rows.append({
-                    "#": 0, "names": m["name"],
-                    "LTP": round(p.get("close", 0), 2),
-                    "trend %": p.get("abs_pct"),
-                    "score": s["total"], "of": s["of"],
-                    "lean": lean,
-                    "VWAP": ("upar" if f.get("above_vwap") else "neeche") if f else "—",
-                    "RVOL": f.get("rvol", "—"),
-                    "expansion": ("YES" if f.get("expanding") else "no") if f else "—",
-                    "sector fit (r)": m["corr"],
-                })
-            # Rank by the score first, then by how hard the name is moving. The sector
-            # decides WHERE to look; the tested gates still decide WHICH name.
-            rows.sort(key=lambda r: (r["score"], abs(r["trend %"] or 0)), reverse=True)
-            for i, r_ in enumerate(rows):
-                r_["#"] = i + 1
-            clickable(rows, key="sec_rows")
-            top = rows[0] if rows else None
-            if top:
-                st.success(
-                    f"**First pick in {sec}: {top['name']}** — score "
-                    f"{top['score']}/{top['of']}, trend {top['trend %']}%, "
-                    f"{top['lean']}. This is the best SETUP in the sector, not the best "
-                    f"company — those are different questions.")
-            st.caption(
-                "**Sector fit (r)** = that name's correlation with the index, **measured** over "
-                "the last ~120 bars — not written from memory. A low r means the name does "
-                "not move with its sector, so reading the sector's move onto it is wrong. "
-                "Ranking comes from the tested gates; the sector only says **where to look**."
-                + (f"  {len(unclear)} names do not track any sector strongly — none of them were "
-                   f"forced into a bucket." if unclear else ""))
+            span = max(abs(r["pct"]) for r in hm) or 1.0
+            up = [r for r in hm if r["pct"] >= 0]
+            dn = [r for r in hm if r["pct"] < 0]
+
+            def render_col(rows, direction, title, colour):
+                st.markdown(f'<div style="color:{colour};font-family:ui-monospace,Consolas,'
+                            f'monospace;font-size:.72rem;letter-spacing:2px;font-weight:800;'
+                            f'text-shadow:0 0 10px currentColor;margin-bottom:6px">'
+                            f'{title} · {len(rows)}</div>', unsafe_allow_html=True)
+                if not rows:
+                    st.caption("none")
+                    return
+                for r in rows:
+                    f = min(1.0, abs(r["pct"]) / span)
+                    if direction > 0:
+                        bg, fg = f"rgba(0,229,255,{0.06 + 0.24*f})", "#5CF2FF"
+                    else:
+                        bg, fg = f"rgba(255,45,138,{0.06 + 0.24*f})", "#FF6BB0"
+                    dr = drivers(r["name"], direction, cmap, by_name)
+                    chips = "".join(
+                        f'<span style="display:inline-block;margin:3px 6px 0 0;padding:1px 6px;'
+                        f'border:1px solid {fg}44;border-radius:3px;font-size:.66rem;'
+                        f'color:{fg};font-family:ui-monospace,Consolas,monospace">'
+                        f'{d["name"]} {d["pct"]:+.1f}% <span style="color:#3E5060">r{d["r"]}'
+                        f'</span></span>' for d in dr)
+                    if not chips:
+                        chips = ('<span style="font-size:.66rem;color:#3E5060;'
+                                 'font-family:ui-monospace,Consolas,monospace">'
+                                 'no tracked name moved this way</span>')
+                    tag = (f'<span class="hm-t" style="color:{fg};margin-left:8px">'
+                           f'{r["tag"]}</span>' if r["tag"] else "")
+                    st.markdown(
+                        f'<div class="hm" style="background:{bg}">'
+                        f'<div class="hm-r">#{r["rank"]}</div>'
+                        f'<div style="display:flex;align-items:baseline;gap:10px">'
+                        f'<span class="hm-p" style="color:{fg};font-size:1.15rem">'
+                        f'{r["pct"]:+.2f}%</span>'
+                        f'<span class="hm-n">{r["name"]}</span>{tag}</div>'
+                        f'<div style="margin-top:2px">{chips}</div>'
+                        f'</div>', unsafe_allow_html=True)
+                    if st.button(f"{r['name']} names  →", key=f"sec_{r['name']}",
+                                 use_container_width=True):
+                        st.session_state.sector = r["name"]
+
+            cu, cd = st.columns(2)
+            with cu:
+                render_col(up, +1, "ADVANCING", "#00E5FF")
+            with cd:
+                render_col(dn, -1, "DECLINING", "#FF2D8A")
+
+            if SEC.unresolved():
+                st.caption("These sectors did not resolve and are not on the heatmap: "
+                           + ", ".join(SEC.unresolved()))
+        st.caption("The names beside each sector are the ones that **track** it (measured "
+                   "correlation, shown as r) and moved furthest **with** it today, largest "
+                   "first. They are NOT index contributions — that needs free-float weights, "
+                   "which this system does not have, so it is not claimed. Sector strength is "
+                   "context, not a signal, and none of it is backtested. Click a sector for "
+                   "its full ranked list.")
     except Exception as e:      # noqa
-        st.caption(f"sector list failed: {e}")
+        st.caption(f"heatmap failed: {e}")
 
-# ================================================================== maahol ==
-st.markdown('<div class="sec">Market — is the tape worth trading</div>', unsafe_allow_html=True)
-if reg:
-    cols = st.columns(5)
-    cols[0].metric("Regime", reg["state"], f"{reg['passed']}/{reg['of']} checks")
-    if reg.get("breadth") is not None:
-        cols[1].metric("Breadth", f"{reg['breadth']*100:.0f}%", "names trending")
-    if reg.get("drawdown") is not None:
-        cols[2].metric("Index", f"-{reg['drawdown']*100:.1f}%", "off its high")
-    if reg.get("vol_ratio"):
-        cols[3].metric("Vol", f"{reg['vol_ratio']:.2f}x", "of normal")
-    cols[4].metric("Universe", len(pts), "names")
-    if reg["state"] == "RISK-OFF":
-        st.markdown('<div class="hazard">⚠ RISK-OFF — TAPE IS POOR. The trade below '
-                    'still shows; size it down or skip it.</div>',
+
+    # ---- click a sector -> its names, best first -------------------------------
+    if st.session_state.get("sector"):
+        sec = st.session_state.sector
+        hl, hr = st.columns([4, 1])
+        hl.markdown(f'<div class="sec">{sec} — which name first</div>',
                     unsafe_allow_html=True)
-
-# ============================================================ aaj ka trade ==
-st.markdown('<div class="sec">Today\'s trade — the ticket</div>', unsafe_allow_html=True)
-card = None
-if not longs:
-    st.info("No name passes the setup. Not taking one is also a position.")
-else:
-    top = longs[0]
-    closes = prices.get(top["symbol"]) or [top["close"]]
-    card = TC.build_card(top, closes, expiry_label="—",
-                         days_to_expiry=TC.min_days_for_thesis(),
-                         capital=float(getattr(config, "CAPITAL", 200000)))
-    o = card.get("option") or {}
-    s = card["size"]
-    k = st.columns([1.4, 1, 1, 1, 1, 1])
-    k[0].metric(card["name"], f"{o.get('strike','?')} {o.get('type','')}",
-                f"spot {card['spot']}")
-    k[1].metric("Premium", o.get("premium", "?"), o.get("premium_source", ""))
-    k[2].metric("Qty", s["qty"], f"{s['lots']} lot x {s['lot']}")
-    k[3].metric("Cost", f"Rs {s.get('cost_per_lot', 0) * s['lots']:,.0f}",
-                f"{s.get('cost_pct', 0)}% capital")
-    k[4].metric("Stop", card["stock"]["stop"])
-    k[5].metric("T1 / T2 / T3", f"{card['stock']['t1']}",
-                f"T2 {card['stock']['t2']} · T3 {card['stock']['t3']}")
-    for w in (o.get("premium_reject"), o.get("expiry_warning"),
-              s.get("lot_warning"), s.get("cost_warning"), s.get("afford_note")):
-        if w:
-            st.warning(w)
-    st.caption(card["entry_note"])
-
-# ------------------------------------------------------------- trade cards --
-# The reference lists every candidate as a card: side, grade, E / SL / T1 / T2 / T3, and
-# the running points. Two deliberate differences.
-#   SIDE   is LONG only. This system buys CE on tested long momentum. A SHORT card would
-#          mean buying PE on a rule that was never walk-forward tested, and a card is an
-#          instruction - printing one for an untested side is how it gets taken.
-#   T3     is 2R, computed from THIS card's own risk (entry - stop), not a fixed number.
-if longs:
-    st.markdown('<div class="sec">Trade cards — every candidate, the whole plan</div>',
-                unsafe_allow_html=True)
-    try:
-        import scorecard as SC
-
-        def grade(total):
-            return ("A+" if total >= 9 else "A" if total >= 7
-                    else "B" if total >= 5 else "C")
-
-        def render(p, is_short):
-            c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
-                              expiry_label="—",
-                              days_to_expiry=TC.min_days_for_thesis(),
-                              capital=float(getattr(config, "CAPITAL", 200000)),
-                              side="SHORT" if is_short else "LONG")
-            stk = c["stock"]
-            e, sl = stk.get("entry") or c["spot"], stk["stop"]
-            # R is a distance. Signing it would make the short's T3 land above entry.
-            r = max(0.01, abs(e - sl))
-            t3 = round(e - 2 * r, 2) if is_short else round(e + 2 * r, 2)
-            now_px = p.get("close") or e
-            pts_now = (e - now_px) if is_short else (now_px - e)
-            s = SC.score(p)
-            # The scorecard is built from LONG conditions. On a short the same total means
-            # the opposite thing, so it is inverted rather than reused - a short showing
-            # "9/10 STRONG" because the stock is strong is the worst kind of wrong.
-            total = (s["of"] - s["total"]) if is_short else s["total"]
-            g = grade(total)
-            gcol = {"A+": "#00E5FF", "A": "#5CF2FF", "B": "#39FF14"}.get(g, "#4E6072")
-            pcol = "#5CF2FF" if pts_now >= 0 else "#FF6BB0"
-            _CARDS[c["name"]] = c
-            side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
-            side_bg = ("background:#2B0016;color:#FF6BB0" if is_short
-                       else "background:#00222B;color:#5CF2FF")
-            st.markdown(
-                f'<div class="card" style="border-left-color:{gcol}">'
-                f'<div class="card-h"><span class="side" style="{side_bg}">{side_txt}</span>'
-                f'<span class="card-n">{c["name"]}</span>'
-                f'<span class="grade" style="color:{gcol}">★ {g} &nbsp;'
-                f'{total}/{s["of"]}</span></div>'
-                f'<div class="lv">'
-                f'<div><b>E</b>{e}</div>'
-                f'<div><b>SL</b><span style="color:#FF6BB0">{sl}</span></div>'
-                f'<div><b>T1</b><span style="color:#5CF2FF">{stk["t1"]}</span></div>'
-                f'<div><b>T2</b><span style="color:#5CF2FF">{stk["t2"]}</span></div>'
-                f'<div><b>T3 · 2R</b><span style="color:#5CF2FF">{t3}</span></div>'
-                f'<div><b>R</b>{r:.2f}</div>'
-                f'<div><b>Pts now</b><span style="color:{pcol}">{pts_now:+.2f}</span></div>'
-                f'</div></div>', unsafe_allow_html=True)
-
-        def signal_block(p, is_short):
-            """One position ticket, laid out the way a broker app lays one out.
-
-            Robinhood's lesson is not the colour, it is the hierarchy: ONE number you are
-            about to pay, ONE primary action, and everything else quieter and out of the
-            way. The old version put three equal buttons in a narrow half-width column, so
-            "CANCEL" wrapped to three lines and the confirm sheet was unreadable at the
-            moment it mattered most. Full width, one action, the rest secondary.
-            """
-            c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
-                              expiry_label="—",
-                              days_to_expiry=TC.min_days_for_thesis(),
-                              capital=float(getattr(config, "CAPITAL", 200000)),
-                              side="SHORT" if is_short else "LONG")
-            _CARDS[c["name"]] = c
-            o = c.get("option") or {}
-            stk, sz = c["stock"], c["size"]
-            # Take these from the card. Recomputing R and a third target here is exactly
-            # how the two halves drifted before: the card measured from spot, the desk
-            # measured from entry, and the R:R on screen belonged to neither.
-            e, sl = stk["entry_px"], stk["stop"]
-            r, t3 = stk["risk_pts"], stk["t3"]
-            prem, qty = o.get("premium"), sz["qty"]
-            sym = o.get("tradingsymbol")
-            outlay = (prem or 0) * qty
-
+        if hr.button("close", use_container_width=True):
+            st.session_state.sector = None
+            st.rerun()
+        try:
             import scorecard as SC
-            sc_ = SC.score(p)
-            total = (sc_["of"] - sc_["total"]) if is_short else sc_["total"]
-            g = grade(total)
-            side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
-            acc = "#FF2D8A" if is_short else "#00E5FF"
+            cmap, unclear = sector_map(prices)
+            members = cmap.get(sec) or []
+            if not members:
+                st.caption(f"No name correlates strongly with {sec} (or the index history did not "
+                           f"arrive). So it is empty — empty beats filling it with the "
+                           f"wrong names.")
+            else:
+                by_name = {p["name"]: p for p in pts}
+                rows = []
+                for m in members:
+                    p = by_name.get(m["name"])
+                    if not p:
+                        continue
+                    s = SC.score(p)
+                    f = p.get("feat") or {}
+                    # Which side this name suits, from the same tested conditions. Not a
+                    # separate opinion - a reading of the score that already exists.
+                    lean = ("BUY CE" if s["total"] >= 6 else
+                            "BUY PE" if (s["of"] - s["total"]) >= 6 else "—")
+                    rows.append({
+                        "#": 0, "names": m["name"],
+                        "LTP": round(p.get("close", 0), 2),
+                        "trend %": p.get("abs_pct"),
+                        "score": s["total"], "of": s["of"],
+                        "lean": lean,
+                        "VWAP": ("upar" if f.get("above_vwap") else "neeche") if f else "—",
+                        "RVOL": f.get("rvol", "—"),
+                        "expansion": ("YES" if f.get("expanding") else "no") if f else "—",
+                        "sector fit (r)": m["corr"],
+                    })
+                # Rank by the score first, then by how hard the name is moving. The sector
+                # decides WHERE to look; the tested gates still decide WHICH name.
+                rows.sort(key=lambda r: (r["score"], abs(r["trend %"] or 0)), reverse=True)
+                for i, r_ in enumerate(rows):
+                    r_["#"] = i + 1
+                clickable(rows, key="sec_rows")
+                top = rows[0] if rows else None
+                if top:
+                    st.success(
+                        f"**First pick in {sec}: {top['name']}** — score "
+                        f"{top['score']}/{top['of']}, trend {top['trend %']}%, "
+                        f"{top['lean']}. This is the best SETUP in the sector, not the best "
+                        f"company — those are different questions.")
+                st.caption(
+                    "**Sector fit (r)** = that name's correlation with the index, **measured** over "
+                    "the last ~120 bars — not written from memory. A low r means the name does "
+                    "not move with its sector, so reading the sector's move onto it is wrong. "
+                    "Ranking comes from the tested gates; the sector only says **where to look**."
+                    + (f"  {len(unclear)} names do not track any sector strongly — none of them were "
+                       f"forced into a bucket." if unclear else ""))
+        except Exception as e:      # noqa
+            st.caption(f"sector list failed: {e}")
 
-            # A lot that implies an absurd contract value is not a display problem, it is
-            # a wrong quantity - and a wrong quantity one confirm away from the exchange.
-            blocked = None
-            if sz.get("lot_absurd"):
-                blocked = (f"Quantity refused. {sz['lot_warning']}  "
-                           f"Fix with Tools → Lot Audit before ordering this name.")
+    # ================================================================== maahol ==
+    st.markdown('<div class="sec">Market — is the tape worth trading</div>', unsafe_allow_html=True)
+    if reg:
+        cols = st.columns(5)
+        cols[0].metric("Regime", reg["state"], f"{reg['passed']}/{reg['of']} checks")
+        if reg.get("breadth") is not None:
+            cols[1].metric("Breadth", f"{reg['breadth']*100:.0f}%", "names trending")
+        if reg.get("drawdown") is not None:
+            cols[2].metric("Index", f"-{reg['drawdown']*100:.1f}%", "off its high")
+        if reg.get("vol_ratio"):
+            cols[3].metric("Vol", f"{reg['vol_ratio']:.2f}x", "of normal")
+        cols[4].metric("Universe", len(pts), "names")
+        if reg["state"] == "RISK-OFF":
+            st.markdown('<div class="hazard">⚠ RISK-OFF — TAPE IS POOR. The trade below '
+                        'still shows; size it down or skip it.</div>',
+                        unsafe_allow_html=True)
 
+with T_SIG:
+    # ============================================================ aaj ka trade ==
+    # The top pick's card is still built here - the chart tab draws its stop and targets,
+    # and `card` is what it reads. What is NOT drawn any more is the metric row that used
+    # to sit above the tickets: name, strike, premium, qty, cost, stop, targets. Every one
+    # of those numbers is on the first LONG ticket below, in more detail and with the
+    # buttons attached, so the row was three hundred pixels of a nine-hundred-pixel screen
+    # spent saying the same thing twice. Its warnings print on that ticket too.
+    card = None
+    if not longs:
+        st.info("No name passes the setup. Not taking one is also a position.")
+    else:
+        top = longs[0]
+        closes = prices.get(top["symbol"]) or [top["close"]]
+        card = TC.build_card(top, closes, expiry_label="—",
+                             days_to_expiry=TC.min_days_for_thesis(),
+                             capital=float(getattr(config, "CAPITAL", 200000)))
+
+    # ------------------------------------------------------------- trade cards --
+    # Every candidate as a ticket: side, grade, entry / stop / TP1 / TP2 / TP3, the option leg,
+    # and three order buttons.
+    #   SIDE   LONG buys CE, SHORT buys PE. Short tickets are drawn but the engine will not
+    #          trade them until the short book's edge is measured - a card is an instruction,
+    #          so the untested side says so on its face.
+    #   LEVELS all come off the card, and the card measures every one of them from the ENTRY.
+    #          TP1/TP2/TP3 are 1.5R / 3R / 4R. Nothing here recomputes them; recomputing is
+    #          exactly how the desk and the card drifted apart before.
+    if longs:
+        try:
+            import scorecard as SC
+
+            def grade(total):
+                return ("A+" if total >= 9 else "A" if total >= 7
+                        else "B" if total >= 5 else "C")
+
+            def signal_block(p, is_short):
+                """One position ticket, laid out the way a broker app lays one out.
+
+                Robinhood's lesson is not the colour, it is the hierarchy: ONE number you are
+                about to pay, ONE primary action, and everything else quieter and out of the
+                way. The old version put three equal buttons in a narrow half-width column, so
+                "CANCEL" wrapped to three lines and the confirm sheet was unreadable at the
+                moment it mattered most. Full width, one action, the rest secondary.
+                """
+                need = TC.min_days_for_thesis()
+                ch, lbl, days, chlot, cherr = chain_for(p["symbol"], need)
+                c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
+                                  chain=ch,
+                                  expiry_label=lbl or "—",
+                                  days_to_expiry=days if days is not None else need,
+                                  lot=chlot,
+                                  capital=float(getattr(config, "CAPITAL", 200000)),
+                                  side="SHORT" if is_short else "LONG")
+                _CARDS[c["name"]] = c
+                o = c.get("option") or {}
+                stk, sz = c["stock"], c["size"]
+                # Take these from the card. Recomputing R and a third target here is exactly
+                # how the two halves drifted before: the card measured from spot, the desk
+                # measured from entry, and the R:R on screen belonged to neither.
+                e, sl = stk["entry_px"], stk["stop"]
+                r, t3 = stk["risk_pts"], stk["t3"]
+                prem, qty = o.get("premium"), sz["qty"]
+                sym = o.get("tradingsymbol")
+                outlay = (prem or 0) * qty
+
+                import scorecard as SC
+                sc_ = SC.score(p)
+                total = (sc_["of"] - sc_["total"]) if is_short else sc_["total"]
+                g = grade(total)
+                side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
+                acc = "#FF2D8A" if is_short else "#00E5FF"
+
+                # A lot that implies an absurd contract value is not a display problem, it is
+                # a wrong quantity - and a wrong quantity one confirm away from the exchange.
+                blocked = None
+                if sz.get("lot_absurd"):
+                    blocked = (f"Quantity refused. {sz['lot_warning']}  "
+                               f"Fix with Tools → Lot Audit before ordering this name.")
+
+                st.markdown(
+                    f'<div class="ticket hud">'
+                    f'<div class="tk-head">'
+                    f'<span class="side" style="background:{acc}22;color:{acc}">{side_txt}</span>'
+                    f'<span class="tk-name">{c["name"]}</span>'
+                    f'<span class="tk-act">{c["action"]}</span>'
+                    f'<span class="tk-grade">★ {g} &nbsp;{total}/{sc_["of"]}</span></div>'
+                    f'<div class="tk-big" style="color:{acc}">₹{prem if prem is not None else "—"}'
+                    f'<span class="tk-sub">&nbsp;per unit &nbsp;·&nbsp; {o.get("strike","?")} '
+                    f'{o.get("type","")} {o.get("expiry","")} &nbsp;·&nbsp; '
+                    f'{"LIVE CHAIN" if o.get("premium_source") == "live chain" else "ESTIMATED"}'
+                    f' &nbsp;·&nbsp; {qty} qty &nbsp;·&nbsp; '
+                    f'<b style="color:#D5E6F2">₹{outlay:,.0f} to buy</b></span></div>'
+                    f'<div class="tk-grid">'
+                    f'<div><b>Stock entry</b>{e}</div>'
+                    f'<div><b>Stock SL</b><span style="color:#FF6BB0">{sl}</span></div>'
+                    f'<div><b>TP1 · {stk["rr1"]}R</b>{stk["t1"]}</div>'
+                    f'<div><b>TP2 · {stk["rr2"]}R</b>{stk["t2"]}</div>'
+                    f'<div><b>TP3 · {stk["rr3"]}R</b>{t3}</div>'
+                    f'<div><b>Option SL</b><span style="color:#FF6BB0">{o.get("stop","—")}</span></div>'
+                    f'<div><b>Option TP1</b>{o.get("t1","—")}</div>'
+                    f'<div><b>Option TP2</b>{o.get("t2","—")}</div>'
+                    f'<div><b>Option TP3</b>{o.get("t3","—")}</div>'
+                    f'<div><b>R (points)</b>{r}</div>'
+                    f'<div><b>R:R at TP1</b>{stk["rr1"]} : 1</div>'
+                    f'</div></div>', unsafe_allow_html=True)
+
+                for w in (o.get("premium_reject"), o.get("expiry_warning"),
+                          sz.get("cost_warning"), c.get("afford_note")):
+                    if w:
+                        st.warning(w)
+                # "extended 2.9x vol above its 10-day mean - don't chase". It used to
+                # print only for the top pick; it is per-card, so it belongs per card.
+                if c.get("entry_note"):
+                    st.caption(c["entry_note"])
+
+                nm = c["name"]
+                order_button(
+                    f"BUY {qty} @ market  ·  ₹{outlay:,.0f}", f"buy_{nm}",
+                    {"symbol": sym, "side": "BUY", "qty": qty, "type": "MARKET",
+                     "premium~": prem, "outlay~": round(outlay)},
+                    lambda sym=sym, qty=qty, nm=nm: __import__("broker").buy(
+                        sym, qty, tag=f"desk:buy:{nm}"),
+                    blocked=blocked, no_contract_why=cherr)
+                b1, b2 = st.columns(2)
+                with b1:
+                    trig = o.get("stop")
+                    order_button(
+                        f"Set stop @ {trig}", f"sl_{nm}",
+                        {"symbol": sym, "side": "SELL", "qty": qty, "type": "SL-M",
+                         "trigger": trig},
+                        lambda sym=sym, qty=qty, trig=trig, nm=nm:
+                            __import__("broker").stop_loss(sym, qty, trig,
+                                                           tag=f"desk:sl:{nm}"),
+                        blocked=blocked, explain=False, no_contract_why=cherr)
+                with b2:
+                    order_button(
+                        f"Exit {qty} @ market", f"exit_{nm}",
+                        {"symbol": sym, "side": "SELL", "qty": qty, "type": "MARKET"},
+                        lambda sym=sym, qty=qty, nm=nm: __import__("broker").sell(
+                            sym, qty, tag=f"desk:exit:{nm}"),
+                        blocked=blocked, explain=False, no_contract_why=cherr)
+                if st.button(f"Chart — {nm}", key=f"ch_{nm}", use_container_width=True):
+                    chart_window(nm)
+                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+            # LONG on the left, SHORT on the right - the two sides of the book side by
+            # side, three deep each, so the whole tradeable set is on one landscape screen
+            # instead of twelve tickets deep in a scroll.
+            #
+            # This is NOT the layout that crushed the confirm sheet. That one put three
+            # equal buttons inside a half-width column of a 1500px page - 250px each, and
+            # "CANCEL" wrapped to three lines. The page is now full-width, so a column here
+            # is ~900px and the confirm sheet has more room than the old single column had
+            # buttons. The rule was never "one column", it was "the confirm sheet has to be
+            # readable"; width is what that needs, and width is what it now has.
+            TICKETS_PER_SIDE = 2
+            shorts = sel.get("shorts") or []
+            L, R = st.columns(2, gap="medium")
+            with L:
+                st.markdown('<div class="callsign">// LONG — BUY CE</div>',
+                            unsafe_allow_html=True)
+                if not longs:
+                    st.caption("No name passes the long rule right now.")
+                for p in longs[:TICKETS_PER_SIDE]:
+                    signal_block(p, False)
+                if len(longs) > TICKETS_PER_SIDE:
+                    # one line, not three: this caption was 45px of a tab that was 29px
+                    # over, which made it the most expensive sentence on the page
+                    st.caption(f"+{len(longs) - TICKETS_PER_SIDE} more longs — see **SCREENER**.")
+            with R:
+                st.markdown('<div class="callsign">// SHORT — BUY PE</div>',
+                            unsafe_allow_html=True)
+                if not shorts:
+                    st.caption("No name passes the short rule today.")
+                for p in shorts[:TICKETS_PER_SIDE]:
+                    signal_block(p, True)
+                if len(shorts) > TICKETS_PER_SIDE:
+                    st.caption(f"+{len(shorts) - TICKETS_PER_SIDE} more shorts — see **SCREENER**.")
+
+            # Two hundred pixels of prose he has already read, on the tab where space is
+            # scarcest. Collapsed, not deleted - the caveats are the reason the buttons
+            # are safe to press, so they stay one click away rather than gone.
+            with st.expander("How to read this tab — stops, shorts, and what the numbers mean"):
+                st.caption("**SET STOP rests at the exchange.** That is the difference "
+                           "between it and the trailing stop in the session loop: the "
+                           "trail ratchets but dies with the window, this one survives a "
+                           "closed laptop and cannot trail. Place both — the trail for "
+                           "when you are watching, the resting stop for when you are not.")
+                if not bool(getattr(config, "TRADE_SHORTS", False)):
+                    st.warning(
+                        "**SHORT tickets are shown, but the engine will not trade them.** "
+                        "The short book is mirrored and tested — stop above, PE, put "
+                        "intrinsic, weakest-first ranking — but its *edge* has not been "
+                        "measured on your data yet. Run `Tools → Short book test`; if the "
+                        "number holds up I will set `TRADE_SHORTS = True`. Looking at "
+                        "something and funding it are different decisions.")
+                st.caption("The score is inverted for shorts: a strong stock makes a poor "
+                           "short. TP1/TP2/TP3 are 1.5R / 3R / 4R measured from the entry "
+                           "on the ticket, and R is that ticket's own entry-to-stop "
+                           "distance.")
+        except Exception as e:      # noqa
+            st.caption(f"cards failed: {e}")
+
+with T_CHART:
+    # =================================================================== chart ==
+    # The chart is the tall element on the page, so nothing else may sit under it -
+    # the list and the links go beside it, in the width that was being wasted.
+    CH_L, CH_R = st.columns([3.1, 1.15], gap="medium")
+    CHART_SIDE = CH_R
+    with CH_L:
+        st.markdown('<div class="sec">Chart — levels, and how often they held</div>',
+                   unsafe_allow_html=True)
+        if P:
+            try:
+                plan = []
+                if card and card["name"] == pick:
+                    plan = [("STOP", card["stock"]["stop"], "#FF6BB0"),
+                            ("T1", card["stock"]["t1"], "#5CF2FF"),
+                            ("T2", card["stock"]["t2"], "#5CF2FF")]
+                if not BARS:
+                    st.caption("No OHLCV bars — close line only. The levels are still real.")
+                st.plotly_chart(make_fig(pick, prices.get(SYM, []), BARS, dates, F, plan),
+                                use_container_width=True)
+            except Exception as e:      # noqa
+                st.caption(f"chart failed: {e}")
+
+            # ------------------------------------------------------------ scenarios --
             st.markdown(
-                f'<div class="ticket hud">'
-                f'<div class="tk-head">'
-                f'<span class="side" style="background:{acc}22;color:{acc}">{side_txt}</span>'
-                f'<span class="tk-name">{c["name"]}</span>'
-                f'<span class="tk-grade">★ {g} &nbsp;{total}/{sc_["of"]}</span></div>'
-                f'<div class="tk-big" style="color:{acc}">₹{prem if prem is not None else "—"}'
-                f'<span class="tk-sub">&nbsp;per unit &nbsp;·&nbsp; {o.get("strike","?")} '
-                f'{o.get("type","")} &nbsp;·&nbsp; {qty} qty &nbsp;·&nbsp; '
-                f'<b style="color:#D5E6F2">₹{outlay:,.0f} to buy</b></span></div>'
-                f'<div class="tk-grid">'
-                f'<div><b>Stock entry</b>{e}</div>'
-                f'<div><b>Stock SL</b><span style="color:#FF6BB0">{sl}</span></div>'
-                f'<div><b>TP1 · {stk["rr1"]}R</b>{stk["t1"]}</div>'
-                f'<div><b>TP2 · {stk["rr2"]}R</b>{stk["t2"]}</div>'
-                f'<div><b>TP3 · {stk["rr3"]}R</b>{t3}</div>'
-                f'<div><b>Option SL</b><span style="color:#FF6BB0">{o.get("stop","—")}</span></div>'
-                f'<div><b>Option TP1</b>{o.get("t1","—")}</div>'
-                f'<div><b>Option TP2</b>{o.get("t2","—")}</div>'
-                f'<div><b>Option TP3</b>{o.get("t3","—")}</div>'
-                f'<div><b>R (points)</b>{r}</div>'
-                f'<div><b>R:R at TP1</b>{stk["rr1"]} : 1</div>'
-                f'<div><b>Action</b>{c["action"]}</div>'
-                f'</div></div>', unsafe_allow_html=True)
-
-            for w in (o.get("premium_reject"), o.get("expiry_warning"),
-                      sz.get("cost_warning"), c.get("afford_note")):
-                if w:
-                    st.warning(w)
-
-            nm = c["name"]
-            order_button(
-                f"BUY {qty} @ market  ·  ₹{outlay:,.0f}", f"buy_{nm}",
-                {"symbol": sym, "side": "BUY", "qty": qty, "type": "MARKET",
-                 "premium~": prem, "outlay~": round(outlay)},
-                lambda sym=sym, qty=qty, nm=nm: __import__("broker").buy(
-                    sym, qty, tag=f"desk:buy:{nm}"),
-                blocked=blocked)
-            b1, b2 = st.columns(2)
-            with b1:
-                trig = o.get("stop")
-                order_button(
-                    f"Set stop @ {trig}", f"sl_{nm}",
-                    {"symbol": sym, "side": "SELL", "qty": qty, "type": "SL-M",
-                     "trigger": trig},
-                    lambda sym=sym, qty=qty, trig=trig, nm=nm:
-                        __import__("broker").stop_loss(sym, qty, trig,
-                                                       tag=f"desk:sl:{nm}"),
-                    blocked=blocked, explain=False)
-            with b2:
-                order_button(
-                    f"Exit {qty} @ market", f"exit_{nm}",
-                    {"symbol": sym, "side": "SELL", "qty": qty, "type": "MARKET"},
-                    lambda sym=sym, qty=qty, nm=nm: __import__("broker").sell(
-                        sym, qty, tag=f"desk:exit:{nm}"),
-                    blocked=blocked, explain=False)
-            if st.button(f"Chart — {nm}", key=f"ch_{nm}", use_container_width=True):
-                chart_window(nm)
-            st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-
-        # ONE column. Two half-width columns is what crushed the confirm sheet into three
-        # wrapped lines - and the confirm sheet is the one thing that has to be readable.
-        st.markdown('<div class="callsign">// LONG — BUY CE</div>',
-                    unsafe_allow_html=True)
-        if not longs:
-            st.caption("No name passes the long rule right now.")
-        for p in longs[:6]:
-            signal_block(p, False)
-
-        st.markdown('<div class="callsign">// SHORT — BUY PE</div>',
-                    unsafe_allow_html=True)
-        shorts = sel.get("shorts") or []
-        if not shorts:
-            st.caption("No name passes the short rule today.")
-        for p in shorts[:6]:
-            signal_block(p, True)
-
-        st.caption("**SET SL rests at the exchange.** That is the difference between it "
-                   "and the trailing stop in the session loop: the trail ratchets but "
-                   "dies with the window, this one survives a closed laptop and cannot "
-                   "trail. Place both — the trail for when you are watching, the resting "
-                   "SL for when you are not.")
-
-        if not bool(getattr(config, "TRADE_SHORTS", False)):
-            st.warning(
-                "**SHORT cards are shown, but the engine will not trade them.** "
-                "The short book is mirrored and tested — stop above, PE, put intrinsic, "
-                "weakest-first ranking — but its *edge* has not been measured on your "
-                "data yet. Run `Tools → Short book test`; if the number holds up I will "
-                "set `TRADE_SHORTS = True`. Looking at something and funding it are "
-                "different decisions.")
-        st.caption("**Pts now** = distance of spot from entry, in that trade's direction — not the "
-                   "premium. The score is inverted for shorts: a strong stock makes a "
-                   "poor short.")
-    except Exception as e:      # noqa
-        st.caption(f"cards failed: {e}")
-
-# =================================================================== chart ==
-st.markdown('<div class="sec">Chart — levels, and how often they held</div>',
-            unsafe_allow_html=True)
-if P:
-    try:
-        plan = []
-        if card and card["name"] == pick:
-            plan = [("STOP", card["stock"]["stop"], "#FF6BB0"),
-                    ("T1", card["stock"]["t1"], "#5CF2FF"),
-                    ("T2", card["stock"]["t2"], "#5CF2FF")]
-        if not BARS:
-            st.caption("No OHLCV bars — close line only. The levels are still real.")
-        st.plotly_chart(make_fig(pick, prices.get(SYM, []), BARS, dates, F, plan),
-                        use_container_width=True)
-    except Exception as e:      # noqa
-        st.caption(f"chart failed: {e}")
-
-    # ------------------------------------------------------------ scenarios --
-    st.markdown(
-        f'<div class="scen">SCENARIO ANALYSIS [{pick} · NSE F&O] — support/resistance '
-        f'+ 3-5 candle continuation + 60% body breakout rule</div>',
-        unsafe_allow_html=True)
-
-    r1, r2, s1, s2 = F.get("r1"), F.get("r2"), F.get("s1"), F.get("s2")
-    if not (r1 and s1):
-        st.caption("No levels — too little history for this name. No scenario either.")
-    else:
-        which = st.radio("Scenario", ["Bullish", "Sideways", "Bearish"],
-                         horizontal=True, label_visibility="collapsed")
-        cont = f"{F.get('cont_up', 0)}/5 up-candles"
-        if which == "Bullish":
-            st.success(
-                f"**If** {pick} closes above {r1} on a **60%-body candle** with RVOL "
-                f"{F.get('rvol','—')}x → **target {r2}**, **invalidation {s1}** "
-                f"(below that the thesis is dead — flatten). Right now: {cont}, "
-                f"{'expansion bar YES' if F.get('expanding') else 'no expansion bar yet'}."
-                + ("" if F.get("room_up") else
-                   f"  ⚠ R1 is only {F.get('to_resistance_atr')} ATR away — little room above."))
-        elif which == "Bearish":
-            st.error(
-                f"**If** {pick} breaks {s1} on a 60% body → **target {s2}**, "
-                f"**invalidation {r1}**. This system is long-only — this scenario is an "
-                f"exit, not a trade. If a position is open, the stop is "
-                f"{card['stock']['stop'] if card and card['name']==pick else s1}.")
-        else:
-            st.info(
-                f"**If** {pick} stays between {s1}–{r1} → no trade. "
-                f"Squeeze {F.get('squeeze','—')}"
-                f"{' (COILED — waiting for the expansion bar)' if F.get('coiled') else ''}. "
-                f"In a range, theta eats the premium; for a buyer this is the most "
-                f"expensive scenario of the three.")
-        st.caption("This is 'if X then Y', not a prediction. The levels come from the "
-                   "bars, and the invalidation is written before the trade.")
-
-# =================================================================== mauke ==
-st.markdown('<div class="sec">Opportunities — names that pass the rule</div>', unsafe_allow_html=True)
-st.caption("An empty feature means too little history for that name — and empty is never "
-           "read as yes. **thesis** = the Q1 watchlist's fundamental trigger, if the name "
-           "is on that list. It is a bias, not a signal, and none of it is backtested.")
-WM = watch_map()
-rows = []
-for p in longs:
-    f = p.get("feat") or {}
-    rows.append({
-        "names": p["name"],
-        "thesis": (WM.get(p["name"]) or ("", ""))[0] or "—",
-        "close": round(p.get("close", 0), 2),
-        "trend %": p.get("abs_pct"),
-        "VWAP": ("upar" if f.get("above_vwap") else "neeche") if f else "—",
-        "RVOL": f.get("rvol", "—"),
-        "squeeze": f.get("squeeze", "—"),
-        "expansion": ("YES" if f.get("expanding") else "no") if f else "—",
-        "structure": f.get("trend_struct", "—"),
-        "R1 tak (ATR)": f.get("to_resistance_atr", "—"),
-        "room": ("yes" if f.get("room_up") else "no") if f else "—",
-        "OI": p.get("signal") or "—",
-        "freshness": p.get("freshness"),
-    })
-if rows:
-    clickable(rows, key="mauke")
-else:
-    st.caption("no names")
-
-# =============================================================== scorecard ==
-st.markdown('<div class="sec">Scorecard — 10-point conviction, every point named</div>',
-            unsafe_allow_html=True)
-try:
-    import scorecard as SC
-    ranked = sorted(pts, key=lambda p: SC.score(p)["total"], reverse=True)[:15]
-    clickable(
-        [{"names": p["name"], "LTP": round(p.get("close", 0), 2),
-          "score": f"{SC.score(p)['total']}/{SC.MAX}",
-          "verdict": SC.label(SC.score(p)["total"]),
-          "what fired": ", ".join(h["label"] for h in SC.score(p)["hits"] if h["got"])
-                          or "nothing"}
-         for p in ranked], key="scorecard")
-    st.caption("Every point is a gate that survived the walk-forward. **The weighting "
-               "between them is not tested** — 10/10 is not a probability, and the size is "
-               "still one lot. A missing feature scores nothing: unknown is never a yes.")
-
-    shock = SC.volume_shock(pts, mult=float(getattr(config, "SHOCK_RVOL", 2.5)))
-    st.markdown('<div class="sec">Volume shock — multiples of a name\'s own norm</div>',
+                f'<div class="scen">SCENARIO ANALYSIS [{pick} · NSE F&O] — support/resistance '
+                f'+ 3-5 candle continuation + 60% body breakout rule</div>',
                 unsafe_allow_html=True)
-    if shock:
-        clickable([{"names": r["name"], "RVOL": f"{r['rvol']:.2f}x",
-                    "LTP": round(r["close"] or 0, 2), "trend %": r["pct"],
-                    "VWAP": r["vwap"],
-                    "expansion": "YES" if r["expanding"] else "no"}
-                   for r in shock], key="shock")
-    else:
-        st.caption("No name is running that far above its own norm today. Silence is "
-                   "an answer too.")
-except Exception as e:      # noqa
-    st.caption(f"scorecard failed: {e}")
 
-# ========================================================== chart list ==
-st.markdown('<div class="sec">Chart list — names passing right now</div>',
-            unsafe_allow_html=True)
-st.caption("The 20 symbols in the Pine screener were picked by hand — those are the "
-           "wrong 20. These came out of today's scan. Paste them into a TradingView "
-           "watchlist and click through the names.")
-try:
-    import pine_export as PX
-    picks = ([(p, "LONG") for p in longs] +
-             [(p, "SHORT") for p in (sel.get("shorts") or [])])
-    tv, seen = [], set()
-    for p, sd in picks:
-        t = PX.tv_symbol(p.get("symbol"))
-        if t and t not in seen:
-            seen.add(t)
-            tv.append(t)
-    if tv:
-        st.code("\n".join(tv[:20]), language=None)
-        st.caption(f"{len(tv[:20])} names · this scan. It is a **snapshot** — the next "
-                   f"candle can change it. To write the Pine file: "
-                   f"`python pine_export.py` (Tools → Chart list).")
-    else:
-        st.caption("Nothing passes right now. An empty list is an answer too — leaving "
-                   "yesterday's list on the chart is worse, because it looks current.")
-except Exception as e:      # noqa
-    st.caption(f"list failed: {e}")
+            r1, r2, s1, s2 = F.get("r1"), F.get("r2"), F.get("s1"), F.get("s2")
+            if not (r1 and s1):
+                st.caption("No levels — too little history for this name. No scenario either.")
+            else:
+                which = st.radio("Scenario", ["Bullish", "Sideways", "Bearish"],
+                                 horizontal=True, label_visibility="collapsed")
+                cont = f"{F.get('cont_up', 0)}/5 up-candles"
+                if which == "Bullish":
+                    st.success(
+                        f"**If** {pick} closes above {r1} on a **60%-body candle** with RVOL "
+                        f"{F.get('rvol','—')}x → **target {r2}**, **invalidation {s1}** "
+                        f"(below that the thesis is dead — flatten). Right now: {cont}, "
+                        f"{'expansion bar YES' if F.get('expanding') else 'no expansion bar yet'}."
+                        + ("" if F.get("room_up") else
+                           f"  ⚠ R1 is only {F.get('to_resistance_atr')} ATR away — little room above."))
+                elif which == "Bearish":
+                    st.error(
+                        f"**If** {pick} breaks {s1} on a 60% body → **target {s2}**, "
+                        f"**invalidation {r1}**. This system is long-only — this scenario is an "
+                        f"exit, not a trade. If a position is open, the stop is "
+                        f"{card['stock']['stop'] if card and card['name']==pick else s1}.")
+                else:
+                    st.info(
+                        f"**If** {pick} stays between {s1}–{r1} → no trade. "
+                        f"Squeeze {F.get('squeeze','—')}"
+                        f"{' (COILED — waiting for the expansion bar)' if F.get('coiled') else ''}. "
+                        f"In a range, theta eats the premium; for a buyer this is the most "
+                        f"expensive scenario of the three.")
+                st.caption("This is 'if X then Y', not a prediction. The levels come from the "
+                           "bars, and the invalidation is written before the trade.")
 
-# =================================================================== score ==
-st.markdown('<div class="sec">Score — paper vs what the backtest claimed</div>',
-            unsafe_allow_html=True)
-try:
-    import paper as PB
-    bk = PB.load()
-    closed, open_ = bk.get("closed", []), bk.get("open", [])
-    if not closed and not open_:
-        st.caption("The paper book is empty. Run the '4 - PAPER LIVE' icon.")
-    else:
-        wins = [t for t in closed if t.get("pnl", 0) > 0]
-        pnl = sum(t.get("pnl", 0) for t in closed)
-        cap = float(getattr(config, "CAPITAL", 200000))
-        m = st.columns(4)
-        m[0].metric("Open", len(open_))
-        m[1].metric("Closed", len(closed),
-                    f"{100*len(wins)/len(closed):.0f}% won" if closed else "")
-        m[2].metric("P&L", f"Rs {pnl:+,.0f}", f"{pnl/cap*100:+.1f}% capital")
-        exp = PB.expectation()
-        if exp and closed:
-            band = PB.binomial_band(len(closed), exp["win_rate"] / 100.0)
-            m[3].metric("Backtest claimed", f"{exp['win_rate']}%",
-                        f"{band[0]:.0f}-{band[1]:.0f} wins expected")
-            if band[0] <= len(wins) <= band[1]:
-                st.caption("Inside the normal range — neither proof nor problem. Keep going.")
-        if closed:
-            st.dataframe([{k: t.get(k) for k in
-                           ("name", "premium_in", "premium_out", "reason", "pnl")}
-                          for t in closed[-15:]],
-                         use_container_width=True, hide_index=True)
-except Exception as e:      # noqa
-    st.caption(f"paper book not found: {e}")
+with T_SCREEN:
+    # =================================================================== mauke ==
+    # Two tables stacked ran the page 455px past one screen. Side by side they fit, and
+    # the comparison they invite - who passes vs who scores - is the reason to look at
+    # both at once anyway.
+    SC_L, SC_R = st.columns([1.55, 1], gap="medium")
+    with SC_L:
+        st.markdown('<div class="sec">Opportunities — names that pass the rule</div>', unsafe_allow_html=True)
+        st.caption("An empty feature means too little history for that name — and empty is never "
+                  "read as yes. **thesis** = the Q1 watchlist's fundamental trigger, if the name "
+                  "is on that list. It is a bias, not a signal, and none of it is backtested.")
+        WM = watch_map()
+        rows = []
+        for p in longs:
+           f = p.get("feat") or {}
+           rows.append({
+               "names": p["name"],
+               "thesis": (WM.get(p["name"]) or ("", ""))[0] or "—",
+               "close": round(p.get("close", 0), 2),
+               "trend %": p.get("abs_pct"),
+               "VWAP": ("upar" if f.get("above_vwap") else "neeche") if f else "—",
+               "RVOL": f.get("rvol", "—"),
+               "squeeze": f.get("squeeze", "—"),
+               "expansion": ("YES" if f.get("expanding") else "no") if f else "—",
+               "structure": f.get("trend_struct", "—"),
+               "R1 tak (ATR)": f.get("to_resistance_atr", "—"),
+               "room": ("yes" if f.get("room_up") else "no") if f else "—",
+               "OI": p.get("signal") or "—",
+               "freshness": p.get("freshness"),
+           })
+        if rows:
+           clickable(rows, key="mauke")
+        else:
+           st.caption("no names")
+
+    with SC_R:
+        # =============================================================== scorecard ==
+        st.markdown('<div class="sec">Scorecard — 10-point conviction, every point named</div>',
+                   unsafe_allow_html=True)
+        try:
+           import scorecard as SC
+           ranked = sorted(pts, key=lambda p: SC.score(p)["total"], reverse=True)[:15]
+           clickable(
+               [{"names": p["name"], "LTP": round(p.get("close", 0), 2),
+                 "score": f"{SC.score(p)['total']}/{SC.MAX}",
+                 "verdict": SC.label(SC.score(p)["total"]),
+                 "what fired": ", ".join(h["label"] for h in SC.score(p)["hits"] if h["got"])
+                                 or "nothing"}
+                for p in ranked], key="scorecard")
+           st.caption("Every point is a gate that survived the walk-forward. **The weighting "
+                      "between them is not tested** — 10/10 is not a probability, and the size is "
+                      "still one lot. A missing feature scores nothing: unknown is never a yes.")
+
+           shock = SC.volume_shock(pts, mult=float(getattr(config, "SHOCK_RVOL", 2.5)))
+           st.markdown('<div class="sec">Volume shock — multiples of a name\'s own norm</div>',
+                       unsafe_allow_html=True)
+           if shock:
+               clickable([{"names": r["name"], "RVOL": f"{r['rvol']:.2f}x",
+                           "LTP": round(r["close"] or 0, 2), "trend %": r["pct"],
+                           "VWAP": r["vwap"],
+                           "expansion": "YES" if r["expanding"] else "no"}
+                          for r in shock], key="shock")
+           else:
+               st.caption("No name is running that far above its own norm today. Silence is "
+                          "an answer too.")
+        except Exception as e:      # noqa
+           st.caption(f"scorecard failed: {e}")
+
+with CHART_SIDE:
+    # ========================================================== chart list ==
+    st.markdown('<div class="sec">Chart list — names passing right now</div>',
+                unsafe_allow_html=True)
+    st.caption("The 20 symbols in the Pine screener were picked by hand — those are the "
+               "wrong 20. These came out of today's scan. Paste them into a TradingView "
+               "watchlist and click through the names.")
+    try:
+        import pine_export as PX
+        picks = ([(p, "LONG") for p in longs] +
+                 [(p, "SHORT") for p in (sel.get("shorts") or [])])
+        tv, seen = [], set()
+        for p, sd in picks:
+            t = PX.tv_symbol(p.get("symbol"))
+            if t and t not in seen:
+                seen.add(t)
+                tv.append(t)
+        if tv:
+            st.code("\n".join(tv[:20]), language=None)
+            st.caption(f"{len(tv[:20])} names · this scan. It is a **snapshot** — the next "
+                       f"candle can change it. To write the Pine file: "
+                       f"`python pine_export.py` (Tools → Chart list).")
+        else:
+            st.caption("Nothing passes right now. An empty list is an answer too — leaving "
+                       "yesterday's list on the chart is worse, because it looks current.")
+    except Exception as e:      # noqa
+        st.caption(f"list failed: {e}")
+
+with T_SCORE:
+    # =================================================================== score ==
+    st.markdown('<div class="sec">Score — paper vs what the backtest claimed</div>',
+                unsafe_allow_html=True)
+    try:
+        import paper as PB
+        bk = PB.load()
+        closed, open_ = bk.get("closed", []), bk.get("open", [])
+        if not closed and not open_:
+            st.caption("The paper book is empty. Run the '4 - PAPER LIVE' icon.")
+        else:
+            wins = [t for t in closed if t.get("pnl", 0) > 0]
+            pnl = sum(t.get("pnl", 0) for t in closed)
+            cap = float(getattr(config, "CAPITAL", 200000))
+            m = st.columns(4)
+            m[0].metric("Open", len(open_))
+            m[1].metric("Closed", len(closed),
+                        f"{100*len(wins)/len(closed):.0f}% won" if closed else "")
+            m[2].metric("P&L", f"Rs {pnl:+,.0f}", f"{pnl/cap*100:+.1f}% capital")
+            exp = PB.expectation()
+            if exp and closed:
+                band = PB.binomial_band(len(closed), exp["win_rate"] / 100.0)
+                m[3].metric("Backtest claimed", f"{exp['win_rate']}%",
+                            f"{band[0]:.0f}-{band[1]:.0f} wins expected")
+                if band[0] <= len(wins) <= band[1]:
+                    st.caption("Inside the normal range — neither proof nor problem. Keep going.")
+            if closed:
+                st.dataframe([{k: t.get(k) for k in
+                               ("name", "premium_in", "premium_out", "reason", "pnl")}
+                              for t in closed[-15:]],
+                             use_container_width=True, hide_index=True)
+    except Exception as e:      # noqa
+        st.caption(f"paper book not found: {e}")
 
 st.markdown(
     '<div class="disclaim">NOT FINANCIAL ADVICE — signals are inputs, the decision is yours. '

@@ -43,9 +43,19 @@ Nothing on it is illustrative. Every level and premium is computed from bars tha
 fetched; with no token it says **DEMO DATA** in three places and still renders end to end,
 because a demo that cannot show the page working cannot prove the page works.
 
+The page is **five tabs** — Command deck, Signals & tickets, Chart, Screener, Score — each
+sized to fit one landscape screen at 1920×940 without scrolling. The verdict and the
+numbers behind it sit on one status line above all five, so whatever tab is open, the tape
+and the selected name are still on screen.
+
 `python test_desk.py` runs the page through Streamlit's own AppTest and asserts on what
-reached it — banner, ribbon, levels, all three scenario branches, disclaimer. Icon:
-**Tools → Desk render test**.
+reached it — verdict strip, levels, all three scenario branches, disclaimer, and that a
+ticket is built from a live option chain. Icon: **Tools → Desk render test**.
+
+`python test_layout.py` is the one test that asks whether you can **see** it: a real
+browser at 1920×940, every tab clicked, every overflow measured. AppTest cannot catch a
+header that rendered correctly *underneath* Streamlit's own toolbar; this does. Icon:
+**Tools → Screen fit test**.
 
 ## On the chart — `tradingview/`
 | File | What it is |

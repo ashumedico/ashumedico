@@ -52,15 +52,15 @@ def main():
     check("demo mode is announced",
           any("DEMO" in w.value for w in at.warning))
 
-    b = html(at, 'class="banner')
-    check("status banner rendered", bool(b), b[0][:90] if b else "missing")
-    check("banner states a verdict",
-          bool(b) and ("Trend Identified" in b[0] or "No trend" in b[0]
-                       or "Partial" in b[0]))
-
-    r = html(at, 'class="ribbon')
-    check("ribbon rendered with the name", bool(r) and "Spot" in r[0])
-    check("HUD frame is on the ribbon", bool(r) and "hud" in r[0])
+    # The banner and the ribbon are ONE line now - a verdict pill followed by the numbers
+    # that justify it. Two stacked blocks cost 115px above every one of the five tabs.
+    r = html(at, 'class="verdict')
+    check("status verdict rendered", bool(r), r[0][:90] if r else "missing")
+    check("the verdict is a verdict, not a label",
+          bool(r) and ("Trend Identified" in r[0] or "No trend" in r[0]
+                       or "Partial" in r[0]))
+    check("the numbers behind it are on the same line", bool(r) and "SPOT" in r[0])
+    check("HUD frame is on the strip", bool(r) and "hud" in r[0])
     check("selected name carries a targeting reticle", bool(r) and "reticle" in r[0])
 
     s = html(at, "SCENARIO ANALYSIS")
@@ -163,7 +163,7 @@ def main():
     ns2 = {"st": None, "__name__": "_deskfns2"}
     # slice from the CONSTANT, not the def - drivers() reads DRIVER_MIN_R, and starting
     # at "def" leaves it undefined in the exec namespace
-    exec(compile(src[src.index("DRIVER_MIN_R ="):src.index("try:\n    hm = SEC.heatmap()")],
+    exec(compile(src[src.index("DRIVER_MIN_R ="):src.index("# --- end of sector helpers ---")],
                  DESK, "exec"), ns2, ns2)
     cmap = {"NIFTY IT": [{"name": "A", "corr": 0.9}, {"name": "B", "corr": 0.3},
                          {"name": "C", "corr": 0.8}, {"name": "D", "corr": 0.85}]}
@@ -210,6 +210,22 @@ def main():
           "EXTERNAL_CHARTS = [" in src and "stockcharts" not in links_block)
     check("external links are offered for what we cannot draw",
           "tradingview.com" in src.lower())
+
+    # ---- the dead-button bug -------------------------------------------------
+    # Every order button on every ticket was permanently greyed out, and the cause was
+    # not in the button: the ticket called build_card() with NO CHAIN, so there was no
+    # tradeable symbol to send and the guard did its job on nothing. A ticket that can
+    # be ordered has to be built from a chain.
+    tickets = src.split("def signal_block", 1)[-1]
+    check("the ticket builds its card from a live option chain",
+          "chain=ch" in tickets and "chain_for(" in tickets)
+    check("the ticket takes the real lot size from that chain", "lot=chlot" in tickets)
+    check("a dead button says WHY it is dead", "no_contract_why" in src)
+    # and the disabled state must be reachable rather than theoretical: DEMO has no token
+    caps = [c.value for c in at.caption]
+    check("in DEMO the buttons explain the missing token, not just 'no contract'",
+          any("No contract" in c and "token" in c for c in caps),
+          next((c[:90] for c in caps if "No contract" in c), "no such caption"))
 
     print("  " + "-" * 62)
     if FAILED:
