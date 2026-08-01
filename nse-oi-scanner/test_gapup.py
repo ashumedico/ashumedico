@@ -151,7 +151,50 @@ def main():
     check("failing two clauses is not a near miss", two_bad == [],
           "below the mean AND outside the band — that is not 'nearly'")
 
-    # ---- 9. an empty universe is an answer, not a crash ----------------------
+    # ---- 9. the exchange quote decides, and a conflict is never hidden -------
+    # Three of the four clauses are two numbers: today's OPEN and YESTERDAY'S CLOSE. A
+    # daily candle is a derived view of both, and two paise on prev_close moves a name
+    # across a 1% threshold. So the published quote wins - and when it disagrees with the
+    # candle by more than rounding, that is a corporate action, not noise, and it has to
+    # be said rather than silently resolved.
+    cand = bars([100.0] * 25 + [101.6], last_open=100.5)      # candle: gap 0.50% -> fails
+    q = {"prev_close": 100.0, "open": 101.5, "ltp": 101.6}    # quote:  gap 1.50% -> passes
+    plain = G.daily_row(cand)
+    withq = G.daily_row(cand, quote=q)
+    check("without a quote the candle is used",
+          plain["open"] == 100.5 and plain["source"] == "daily candles")
+    check("with a quote, the exchange's open and prev close win",
+          withq["open"] == 101.5 and withq["prev_close"] == 100.0
+          and withq["source"] == "exchange quote")
+    check("and that flips the verdict, which is the whole point",
+          G.passes(plain)[0] is False and G.passes(withq)[0] is True)
+    check("the mean still comes from the candles — there is no quote for an average",
+          abs(withq["sma_prev"] - plain["sma_prev"]) < 1e-9)
+    check("no conflict flagged when the two agree", withq["prev_close_conflict"] is None,
+          "candle prev close is 100.0 and so is the quote")
+
+    split = G.daily_row(bars([200.0] * 25 + [101.6], last_open=100.5),
+                        quote={"prev_close": 100.0, "open": 101.5, "ltp": 101.6})
+    check("a prev close the two feeds disagree about is reported, not resolved quietly",
+          bool(split["prev_close_conflict"]),
+          (split["prev_close_conflict"] or "")[:70])
+    check("and the conflict names both numbers",
+          "100.00" in (split["prev_close_conflict"] or "")
+          and "200.00" in (split["prev_close_conflict"] or ""))
+
+    # a quote with no prev_close is not a quote for this purpose
+    half = G.daily_row(cand, quote={"open": 101.5, "ltp": 101.6})
+    check("a quote missing prev_close is ignored rather than half-applied",
+          half["open"] == 100.5 and half["source"] == "daily candles",
+          "using its open with the candle's prev close would invent a third gap")
+
+    # and it must flow all the way through scan()
+    sc = G.scan({"NSE:Q-EQ": cand}, [], None, None, {"NSE:Q-EQ": q})
+    check("scan() applies quotes too", len(sc) == 1 and sc[0]["src"] == "exchange quote",
+          str([r["name"] for r in sc]))
+    check("scan() without quotes leaves the name out", G.scan({"NSE:Q-EQ": cand}, []) == [])
+
+    # ---- 10. an empty universe is an answer, not a crash ---------------------
     check("no bars at all -> empty list", G.scan({}, []) == [])
     check("None -> empty list", G.scan(None, None) == [])
 

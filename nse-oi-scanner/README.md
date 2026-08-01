@@ -81,13 +81,22 @@ two numbers that decided it, so the screen can be argued with rather than believ
 test_gapup.py` pins the parts that silently drift: the SMA window, the strict `>` at the
 band edges, and a clause that cannot be evaluated failing rather than being skipped.
 
-### When this list differs from Chartink's
-It usually will, and usually at the **band edges**: a 0.98% gap and a 1.02% gap are the
-same event on opposite sides of a threshold, and two feeds do not agree to the paisa on
-yesterday's close — corporate-action adjustments land on different days. So the tab has a
-**Near misses** panel listing every name that failed *exactly one* clause and by how much,
-measured on the clause that actually failed. A name Chartink shows and this does not is
-almost always near the top of it.
+### Where the numbers come from
+Three of the four clauses are decided by exactly two figures — **today's open** and
+**yesterday's close** — so those are read from the **exchange quote**, not from a derived
+daily candle. That is the same open and previous close every other screener reads, and it
+is the single biggest reason two screens with identical rules return different names. The
+20-day mean still comes from daily candles; there is no quote for an average.
+
+If the quote and the candle disagree about the previous close by more than 0.25%, that is
+a corporate action one feed has applied and the other has not. It is shown in red on the
+tab, never resolved quietly — every clause hangs off that number.
+
+### When this list still differs from Chartink's
+It can, and usually at the **band edges**: a 0.98% gap and a 1.02% gap are the same event
+on opposite sides of a threshold. So the tab has a **Near misses** panel listing every
+name that failed *exactly one* clause and by how much, measured on the clause that
+actually failed. A name Chartink shows and this does not is almost always near the top.
 
 To settle a specific disagreement, ask for the numbers:
 ```bash

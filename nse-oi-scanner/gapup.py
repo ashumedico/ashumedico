@@ -49,18 +49,31 @@ def sma(values, n):
     return sum(tail) / float(n)
 
 
-def daily_row(bars, sma_len=20):
-    """One name's numbers for today, from its DAILY candles.
+# A quote and a candle disagreeing by more than this on the previous close is not
+# rounding - it is a corporate action one source has applied and the other has not, and
+# every clause below hangs off that number. It gets said out loud rather than resolved.
+PREV_CLOSE_TOLERANCE = 0.0025          # 0.25%
 
-    bars: [[epoch, open, high, low, close, volume], ...] oldest first. Fyers' last daily
-    candle during market hours is the running session - its open is final, its close is
-    the LTP - which is exactly what "Daily Close" means on a live screener.
+
+def daily_row(bars, sma_len=20, quote=None):
+    """One name's numbers for today.
+
+    THREE of the four clauses are decided by exactly two numbers - today's OPEN and
+    YESTERDAY'S CLOSE - and a daily candle is a derived view of both. So when a live
+    quote is available its open / prev close / LTP win, because those are the exchange's
+    own published figures and the ones every other screener (his Chartink included) is
+    reading. The candles are still what the 20-day mean is built from; there is no quote
+    for an average.
+
+    When the two sources disagree on the previous close by more than a rounding error,
+    that is recorded and surfaced instead of being silently resolved. A screen that
+    quietly picks one of two conflicting inputs is how a wrong list looks right.
     """
     if not bars or len(bars) < sma_len + 2:
         return None
     closes = [float(b[4]) for b in bars]
     today, prev = bars[-1], bars[-2]
-    return {
+    row = {
         "open": float(today[1]),
         "close": float(today[4]),
         "high": float(today[2]),
@@ -69,7 +82,29 @@ def daily_row(bars, sma_len=20):
         # the average ENDING YESTERDAY - today is not in its own benchmark
         "sma_prev": sma(closes[:-1], sma_len),
         "bars": len(bars),
+        "source": "daily candles",
+        "prev_close_conflict": None,
     }
+    if quote and quote.get("prev_close"):
+        candle_pc = row["prev_close"]
+        row["prev_close"] = float(quote["prev_close"])
+        if quote.get("open"):
+            row["open"] = float(quote["open"])
+        if quote.get("ltp"):
+            row["close"] = float(quote["ltp"])
+        if quote.get("high"):
+            row["high"] = float(quote["high"])
+        if quote.get("low"):
+            row["low"] = float(quote["low"])
+        row["source"] = "exchange quote"
+        if candle_pc and abs(row["prev_close"] / candle_pc - 1.0) > PREV_CLOSE_TOLERANCE:
+            row["prev_close_conflict"] = (
+                f"quote says prev close {row['prev_close']:.2f}, the daily candle says "
+                f"{candle_pc:.2f} ({(row['prev_close']/candle_pc - 1)*100:+.2f}%) — "
+                f"likely a corporate action one feed has applied and the other has not. "
+                f"The quote is used; the 20-day mean still comes from the candles, so "
+                f"treat this name's SMA clause as unreliable today.")
+    return row
 
 
 def passes(row, cfg=None, last_intraday=None):
@@ -113,18 +148,20 @@ def passes(row, cfg=None, last_intraday=None):
     return all(c["ok"] for c in out), out
 
 
-def scan(daily_bars, points=None, cfg=None, last_intraday=None):
+def scan(daily_bars, points=None, cfg=None, last_intraday=None, quotes=None):
     """Every F&O name against the filter. Returns rows for the ones that pass.
 
     daily_bars:    {symbol: [daily candles]}
     points:        the scan's own points, for the name and today's percent move
     last_intraday: {symbol: latest 15-minute close}, only read when the gate is on
+    quotes:        {symbol: {open, prev_close, ltp}} from the exchange - preferred over
+                   the candle for the three numbers that decide the filter
     """
     cfg = {**DEFAULTS, **(cfg or {})}
     by_sym = {p["symbol"]: p for p in (points or [])}
     rows = []
     for sym, bars in (daily_bars or {}).items():
-        row = daily_row(bars, cfg["sma_len"])
+        row = daily_row(bars, cfg["sma_len"], (quotes or {}).get(sym))
         ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym))
         if not ok:
             continue
@@ -141,7 +178,10 @@ def scan(daily_bars, points=None, cfg=None, last_intraday=None):
                              if row["open"] else None,
             f"sma{cfg['sma_len']}": round(row["sma_prev"], 2),
             "above_sma_pct": round((row["close"] / row["sma_prev"] - 1.0) * 100.0, 2),
+            # which feed decided this row, so a disagreement has somewhere to start
+            "src": row["source"],
             "clauses": clauses,
+            "conflict": row.get("prev_close_conflict"),
         })
     # Held the gap best first. The gap is the entry condition; what the name did with it
     # afterwards is the only new information the morning has produced.
@@ -149,7 +189,8 @@ def scan(daily_bars, points=None, cfg=None, last_intraday=None):
     return rows
 
 
-def near_misses(daily_bars, points=None, cfg=None, last_intraday=None, top=8):
+def near_misses(daily_bars, points=None, cfg=None, last_intraday=None, top=8,
+                quotes=None):
     """Names that failed EXACTLY ONE clause, and which one.
 
     This is the answer to "why is your list different from Chartink's". Two screens with
@@ -166,7 +207,7 @@ def near_misses(daily_bars, points=None, cfg=None, last_intraday=None, top=8):
     by_sym = {p["symbol"]: p for p in (points or [])}
     out = []
     for sym, bars in (daily_bars or {}).items():
-        row = daily_row(bars, cfg["sma_len"])
+        row = daily_row(bars, cfg["sma_len"], (quotes or {}).get(sym))
         if not row:
             continue
         ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym))
@@ -214,6 +255,11 @@ def explain(symbols, cfg=None, days=90):
     syms = [s if ":" in s else f"NSE:{s.upper()}-EQ" for s in symbols]
     E.fetch_history(syms, resolution="D", days=days)
     bars = E.LAST_BARS or {}
+    try:
+        qs = E.live_ohlc(syms)
+    except Exception as err:      # noqa
+        print(f"  (no live quotes: {err} — falling back to daily candles)")
+        qs = {}
     print(f"\n  GAP-UP, clause by clause  (SMA{cfg['sma_len']}, band "
           f"{cfg['gap_min']:g}-{cfg['gap_max']:g})")
     print("  " + "-" * 70)
@@ -223,7 +269,7 @@ def explain(symbols, cfg=None, days=90):
         if not b:
             print(f"  {nm:14s} no daily bars came back for this symbol")
             continue
-        row = daily_row(b, cfg["sma_len"])
+        row = daily_row(b, cfg["sma_len"], qs.get(s))
         if not row:
             print(f"  {nm:14s} only {len(b)} daily bars - needs {cfg['sma_len'] + 2}")
             continue
@@ -231,9 +277,11 @@ def explain(symbols, cfg=None, days=90):
         gap = (row["open"] / row["prev_close"] - 1) * 100
         print(f"  {nm:14s} {'PASS' if ok else 'fail'}   prev close {row['prev_close']:.2f}"
               f" · open {row['open']:.2f} (gap {gap:+.2f}%) · close {row['close']:.2f}"
-              f" · sma {row['sma_prev']:.2f}")
+              f" · sma {row['sma_prev']:.2f}   [{row['source']}]")
         for c in clauses:
             print(f"       {'ok ' if c['ok'] else '>> '} {c['clause']:44s} {c['detail']}")
+        if row.get("prev_close_conflict"):
+            print(f"       !! {row['prev_close_conflict']}")
     print()
 
 

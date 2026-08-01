@@ -422,6 +422,25 @@ def daily_bars(symbols, need):
         return {"__error__": str(e)[:200]}
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def exchange_quotes(symbols):
+    """The exchange's own open / prev close / LTP, which is what decides this screen.
+
+    Three of the four clauses are two numbers - today's OPEN and YESTERDAY'S CLOSE - and
+    reading them off a derived daily candle instead of the published quote is the single
+    biggest reason two screeners with identical rules return different names.
+
+    Short TTL because the LTP inside it is "Daily Close" while the session runs.
+    """
+    if DEMO:
+        return {}
+    try:
+        import rrg_engine as E
+        return E.live_ohlc(list(symbols))
+    except Exception:      # noqa - the caller falls back to candles and says so
+        return {}
+
+
 @st.cache_data(ttl=3600)
 def watch_map():
     """{SYMBOL: (trigger, guidance)} for the F&O-tradeable watchlist names. Display only -
@@ -1393,12 +1412,32 @@ with T_GAP:
         # the [0] 15-minute clause reads the desk's own intraday closes
         last_i = {p["symbol"]: (prices.get(p["symbol"]) or [None])[-1] for p in pts} \
             if GAP_GATE else None
-        rows = GU.scan(db, pts, GAP_CFG, last_i)
+        qs = exchange_quotes(tuple(syms))
+        rows = GU.scan(db, pts, GAP_CFG, last_i, qs)
+
+        # WHICH FEED DECIDED THIS. Not decoration: a screen that silently swaps its
+        # input source between runs produces two different lists from one rule and gives
+        # no way to tell which run was which.
+        src_txt = ("exchange quotes — the same open and previous close every other "
+                   "screener reads" if qs else
+                   "daily candles — no live quote feed, so open and previous close are "
+                   "taken off the last candle and may differ from Chartink's by a few "
+                   "paise at the band edge")
+        st.caption(f"Prices from **{src_txt}**. The {GAP_SMA}-day mean always comes from "
+                   f"daily candles — there is no quote for an average.")
+
+        # A prev close that two feeds disagree about is a corporate action one of them
+        # has applied. Every clause hangs off that number, so it is never resolved
+        # quietly.
+        clashes = [r for r in rows if r.get("conflict")]
+        for r in clashes:
+            st.error(f"**{r['name']}** — {r['conflict']}")
 
         g1, g2 = st.columns([2.1, 1], gap="medium")
         with g1:
             if rows:
-                clickable([{k: v for k, v in r.items() if k != "clauses"} for r in rows],
+                clickable([{k: v for k, v in r.items()
+                            if k not in ("clauses", "conflict")} for r in rows],
                           key="gapup")
                 st.caption(f"{len(rows)} of {len(db)} names pass · sorted by how much of "
                            f"the gap they have **held** since the open — the gap is the "
@@ -1446,7 +1485,7 @@ with T_GAP:
         # near-misses turns "the lists are different" into "this figure is different".
         with st.expander("Near misses — names that failed exactly one clause "
                          "(this is usually where a Chartink disagreement lives)"):
-            nm_rows = GU.near_misses(db, pts, GAP_CFG, last_i)
+            nm_rows = GU.near_misses(db, pts, GAP_CFG, last_i, quotes=qs)
             if nm_rows:
                 st.dataframe(nm_rows, use_container_width=True, hide_index=True)
                 st.caption("`missed_by_pct` is measured on the clause that actually "

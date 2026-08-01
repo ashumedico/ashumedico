@@ -358,6 +358,46 @@ def live_quote(symbols):
     return out
 
 
+def live_ohlc(symbols, chunk=50):
+    """{symbol: {open, prev_close, ltp, high, low, volume}} — the EXCHANGE's own numbers.
+
+    Why this exists rather than reading the last daily candle: a screen whose clauses are
+    "Daily Open > previous Close x 1.01" is decided entirely by two numbers, and a daily
+    candle is a *derived* view of them. During a running session its open is usually the
+    session open but its close is the LTP, and its history may or may not be adjusted for
+    a corporate action on the same day the quote feed adjusts. Two paise of disagreement
+    on prev_close moves a name across a 1% threshold, which is the difference between a
+    name appearing on the screen and not.
+
+    The quote fields are what the exchange publishes and what every other screener reads,
+    so this is the version most likely to agree with his Chartink. Returns {} rather than
+    raising when there is no feed - the caller falls back to candles and SAYS it did.
+    """
+    if not symbols:
+        return {}
+    out = {}
+    fy = _fy()
+    syms = list(symbols)
+    for i in range(0, len(syms), chunk):
+        r = fy.quotes({"symbols": ",".join(syms[i:i + chunk])})
+        for d in (r.get("d", []) if isinstance(r, dict) else []):
+            v = d.get("v", {}) or {}
+            # prev_close_price is the one that matters most; without it the row is
+            # useless for this purpose, so it is not filled in with a guess
+            pc = v.get("prev_close_price")
+            if not pc:
+                continue
+            out[d.get("n")] = {
+                "open": float(v.get("open_price") or 0) or None,
+                "prev_close": float(pc),
+                "ltp": float(v.get("lp") or 0) or None,
+                "high": float(v.get("high_price") or 0) or None,
+                "low": float(v.get("low_price") or 0) or None,
+                "volume": v.get("volume"),
+            }
+    return out
+
+
 def entry_check(card, ltp):
     """Compare the live price against the card's plan and give a plain verdict.
 

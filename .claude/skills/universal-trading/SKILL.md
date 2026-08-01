@@ -387,6 +387,20 @@ recurs, and recognising the shape is faster than rediscovering the bug.
     name that failed the SMA test by how far its GAP was from the band - a number with
     nothing to do with the rejection. It looked like an answer and sorted by noise.
 
+37. **Read the authoritative number, do not derive it.** The gap screen is decided by
+    two figures - today's OPEN and YESTERDAY'S CLOSE - and taking them off a daily candle
+    is a *derived* view of what the exchange publishes in the quote. Two paise on
+    prev_close moves a name across a 1% threshold. Quote first, candles only for the
+    average, and the source named on screen. "He wants no mistakes" is answered by
+    removing the differences that are mine, not by promising there are none.
+
+38. **Never resolve conflicting inputs silently.** When the quote and the candle disagree
+    on prev close by more than a rounding error, that is a corporate action one feed has
+    applied - it goes on screen in red, with both numbers. Picking one quietly is how a
+    wrong list looks right. And a partial quote (open but no prev close) is ignored
+    entirely rather than half-applied, which would invent a third gap belonging to
+    neither feed.
+
 ---
 
 ## REFERENCES
