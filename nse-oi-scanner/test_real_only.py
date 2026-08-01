@@ -146,6 +146,32 @@ def main():
     check("and never becomes a fill in the book",
           out.startswith("True") and "estimated" in out, out)
 
+    # THE EXCEPTION, pinned down. A backtest over 900 days has no chain to quote from, so
+    # every premium in it is modelled by construction and refusing them returns zero
+    # trades instead of an honest result - which is exactly what the first version of the
+    # check above did. It runs on its own in-memory dict and never opens the live book.
+    # Pinned here so the exception cannot quietly widen past the one caller that needs it.
+    out = run(
+        "import paper\n"
+        "bk = {'open': [], 'closed': []}\n"
+        "card = {'name': 'X', 'option': {'premium_source': 'estimated', 'premium': 9.9}}\n"
+        # The stub card has no spot/size/stock, so getting PAST the gate means take()
+        # goes on to fail building the record. That failure is the proof: what matters is
+        # that it is not the estimated-premium refusal.
+        "try:\n"
+        "    t, why = paper.take(bk, card, {}, modelled_ok=True)\n"
+        "    print('PASSED_GATE:', why is None or 'estimated' not in str(why))\n"
+        "except Exception as e:\n"
+        "    print('PASSED_GATE:', 'estimated' not in str(e))")
+    check("the backtest may still model a premium", "PASSED_GATE: True" in out, out)
+
+    callers = subprocess.run(
+        ["grep", "-rln", "modelled_ok=True", "--include=*.py", "."],
+        cwd=HERE, capture_output=True, text=True).stdout.split()
+    check("and it is the only caller allowed to",
+          sorted(callers) == ["./backtest_cards.py", "./test_real_only.py"],
+          " ".join(sorted(callers)))
+
     print("  " + "-" * 62)
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")

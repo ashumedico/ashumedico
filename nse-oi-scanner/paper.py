@@ -73,7 +73,7 @@ def save(bk, synthetic=False):
 
 
 # ---------------- taking a trade ----------------
-def take(bk, card, point, max_pos=None):
+def take(bk, card, point, max_pos=None, modelled_ok=False):
     """Record the ticket exactly as the check-in printed it - same size, same stop, same
     targets. A paper book that improves on the ticket is measuring a different strategy.
 
@@ -94,7 +94,14 @@ def take(bk, card, point, max_pos=None):
     # result downstream - win rate, average trade, the comparison against the backtest -
     # a measurement of the model rather than of the market, and there is no way to tell
     # afterwards which rows were which. The book stays clean or it is not evidence.
-    if (o.get("premium_source") or "") == "estimated":
+    #
+    # modelled_ok is for the BACKTEST, and only for it. A backtest over 900 days has no
+    # chain to quote from - historical option chains do not exist - so every premium in it
+    # is modelled by construction, and refusing them returns zero trades rather than an
+    # honest result. It runs on its own in-memory dict and never opens paper_trades.json,
+    # so nothing it models can reach the live record. The first version of this check
+    # missed that and silently emptied the backtest.
+    if (o.get("premium_source") or "") == "estimated" and not modelled_ok:
         return None, (f"{card['name']}: premium estimated, chain se koi quote nahi - "
                       f"book mein nahi daal raha")
     t = {

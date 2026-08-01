@@ -199,7 +199,8 @@ def run(prices, bench, dates, bars_by_symbol, rule, params, side="long",
                         "lots": int(getattr(config, "LOTS_PER_TRADE", 1) or 1),
                         "cost_per_lot": o["premium"] * lot}
         card["symbol"] = p["symbol"]
-        tr, why = P.take(book, card, p, max_pos=max_pos)
+        # A backtest has no chain to quote from, so every premium in it is modelled.
+        tr, why = P.take(book, card, p, max_pos=max_pos, modelled_ok=True)
         if tr is None:
             continue
         tr["lot_source"] = "pinned" if p["name"] in lot_cfg else "default"
