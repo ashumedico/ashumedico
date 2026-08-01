@@ -312,6 +312,15 @@ def _armed_key(k):
     return True
 
 
+# One cause, one sentence. When the lot table is wrong every ticket on the board is
+# refused for the identical reason, and the board printed that reason four times - four
+# lines of a 940px screen saying one thing, which reads as four problems. Streamlit reruns
+# the script top-to-bottom but does not re-import the module, so this survives the rerun
+# and has to be cleared at the top of one. Deduped on the exact sentence: two genuinely
+# different refusals still each get their line.
+_REFUSED_SAID = set()
+
+
 def order_button(label, key, payload, fire, blocked=None, explain=True,
                  colour=T["up"], no_contract_why=None):
     """Two-press order control. Returns nothing; renders its own result.
@@ -347,10 +356,11 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
         return
     if blocked:
         st.button(f"{label} · BLOCKED", key=key, disabled=True, use_container_width=True)
-        if explain:
+        if explain and blocked not in _REFUSED_SAID:
             # A compact line, not an alert box. st.error carries ~24px of padding, and
             # four refused tickets turned that into 100px of a 940px screen for text
             # that is one sentence long. The colour already says "refused".
+            _REFUSED_SAID.add(blocked)
             st.markdown(f'<div class="refuse">{blocked}</div>', unsafe_allow_html=True)
         return
 
@@ -521,6 +531,8 @@ IST = timezone(timedelta(hours=5, minutes=30))
 if "last_scan" not in st.session_state:
     st.session_state.last_scan = None
 #
+_REFUSED_SAID.clear()          # a new render of the page; say each refusal again, once
+
 # Six columns of st.metric next to a 2rem wordmark do not share a row: the metrics stack
 # label-over-value, the row grows to the tallest of them, and the button gets pushed off
 # the right edge - which is exactly what a screenshot showed. So the status is ONE strip
@@ -1029,33 +1041,17 @@ with T_SIG:
                         q["iv_rank"], q["iv_rank_note"] = rk, rk_note
                     except Exception:      # noqa - never let bookkeeping break a ticket
                         pass
-                qcells = ""
-                if q:
-                    vv = q.get("vol") or {}
-                    ratio = f'{vv["ratio"]}x' if vv.get("ratio") else "—"
-                    vcol = T["down"] if vv.get("verdict") == "EXPENSIVE" else T["up"]
-                    spread = (f'{q["spread_pct"] * 100:.1f}%'
-                              if q.get("spread_pct") else "—")
-                    oi_txt = f'{int(q["oi"]):,}' if q.get("oi") else "—"
-                    theta = o.get("theta_rs_day")
-                    theta_txt = f'₹{theta:,}' if theta is not None else "—"
-                    # The calendar. 'unchecked' is printed as loudly as 'blackout',
-                    # because an empty calendar cannot clear a name and a green tick the
-                    # day before results is the worst output this ticket can produce.
-                    ev = o.get("event_state") or "unchecked"
-                    ecol = {"clear": T["up"], "blackout": T["down"]}.get(ev, T["accent"])
-                    etxt = {"clear": "clear", "blackout": "RESULTS",
-                            "unchecked": "NOT CHECKED"}.get(ev, ev)
-                    qcells = (
-                        f'<div><b>Event risk</b>'
-                        f'<span style="color:{ecol}">{etxt}</span></div>'
-                        f'<div><b>IV vs realised</b><span style="color:{vcol}">'
-                        f'{ratio} {vv.get("verdict", "")}</span></div>'
-                        f'<div><b>Theta / day</b>'
-                        f'<span style="color:{T["down"]}">{theta_txt}</span></div>'
-                        f'<div><b>Delta</b>{q.get("delta", "—")}</div>'
-                        f'<div><b>Spread</b>{spread}</div>'
-                        f'<div><b>Strike OI</b>{oi_txt}</div>')
+                # The calendar. 'unchecked' is printed as loudly as 'blackout', because an
+                # empty calendar cannot clear a name, and a green tick the day before
+                # results is the worst output this ticket can produce.
+                #
+                # Read OUTSIDE the `if q` on purpose. The why-line below reads it for
+                # every ticket, option metrics or not; scoped to `if q` it would carry the
+                # PREVIOUS name's event state onto a name that was never checked - the
+                # loop variable survives the iteration, so the bug is silent.
+                ev = o.get("event_state") or "unchecked"
+                etxt = {"clear": "clear", "blackout": "RESULTS",
+                        "unchecked": "NOT CHECKED"}.get(ev, ev)
 
                 # THREE numbers decide the press: what it costs, where the stop is, and
                 # where the first target is. Everything else - TP2, TP3, all four option
