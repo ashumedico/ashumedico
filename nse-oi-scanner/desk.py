@@ -1157,7 +1157,7 @@ with T_SIG:
                         st.caption(f"Event risk — {o['event_note']}")
                     if c.get("entry_note"):
                         st.caption(c["entry_note"])
-                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
 
             # LONG on the left, SHORT on the right - the two sides of the book side by
             # side, three deep each, so the whole tradeable set is on one landscape screen

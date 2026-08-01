@@ -114,7 +114,7 @@ def css(T):
      left alone. On a trading screen you shrink the margins, never the numbers. */
   .block-container {{padding:.55rem 1.2rem 3.2rem 1.2rem; max-width:100%;
                     position:relative; z-index:1;}}
-  [data-testid="stVerticalBlock"] {{gap:.34rem;}}
+  [data-testid="stVerticalBlock"] {{gap:.26rem;}}
   [data-testid="stHorizontalBlock"] {{gap:.6rem;}}
   hr {{margin:.45rem 0; border-color:{T['line']};}}
   /* Streamlit's toolbar is a FIXED bar the default top padding exists to clear.
@@ -196,7 +196,7 @@ def css(T):
   /* ---- the order ticket. ONE number dominates (what you pay), ONE primary
      action, everything else quieter and out of the way. ---- */
   .ticket {{background:{T['panel']}; border:1px solid {T['line']}; border-radius:12px;
-           padding:11px 14px 9px; margin-bottom:6px;}}
+           padding:10px 14px 8px; margin-bottom:3px;}}
   .tk-head {{display:flex; align-items:center; gap:10px; margin-bottom:5px;}}
   .tk-name {{font-size:1.05rem; font-weight:700; color:{T['ink']}; letter-spacing:.2px;}}
   .tk-grade {{font-size:.72rem; font-weight:700; color:{T['muted']}; margin-left:auto;
