@@ -402,16 +402,21 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             expiry_warning = (f"expiry only {days_to_expiry}d away but this thesis needs "
                               f"~{need_days}d - roll to the next series")
         # Delta follows the strike actually chosen: ~0.5 at the money, ~0.6 one strike in.
+        # THIS IS THE ASSUMPTION, used only until the chain can be asked. It is replaced
+        # below with the delta computed from the real quote - see the note there.
         delta = 0.50 if getattr(config, "MONEYNESS", "ATM") == "ATM" else 0.60
         # Distances, not signed differences: the premium of a put rises as the stock
         # falls, so the same formula serves both sides once the direction is taken out.
         # Measured from the ENTRY, like every stock level above. Using spot here would
         # reintroduce the same mismatch on the option leg: a premium stop derived from a
         # price he is not entering at.
-        opt_stop = round(max(premium - delta * abs(entry_px - stop_px), premium * 0.55), 1)
-        opt_t1   = round(premium + delta * abs(t1_px - entry_px), 1)
-        opt_t2   = round(premium + delta * abs(t2_px - entry_px), 1)
-        opt_t3   = round(premium + delta * abs(t3_px - entry_px), 1)
+        def _levels(d):
+            return (round(max(premium - d * abs(entry_px - stop_px), premium * 0.55), 1),
+                    round(premium + d * abs(t1_px - entry_px), 1),
+                    round(premium + d * abs(t2_px - entry_px), 1),
+                    round(premium + d * abs(t3_px - entry_px), 1))
+
+        opt_stop, opt_t1, opt_t2, opt_t3 = _levels(delta)
         card["option"] = {
             "type": "CE" if direction == "BULLISH" else "PE",
             "strike": strike, "expiry": expiry_label or "current",
@@ -444,6 +449,30 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
                 qfails = list(qfails) + [f"results blackout — {ev_note}"]
             card["option"]["quality"] = q
             card["option"]["quality_fails"] = qfails
+
+            # TWO DELTAS USED TO LIVE IN THE SAME CARD. The option stop and all three
+            # option targets were derived from the ASSUMED 0.50, while the ticket
+            # displayed the delta actually computed from the quote - so a card could show
+            # delta 0.38 and quote an option stop built on 0.50. The displayed one is the
+            # correct one, and it is the levels that get acted on, so the levels are
+            # rebuilt on it. Sign is dropped: a put's delta is negative and the formula
+            # measures distance, not direction.
+            d_real = q.get("delta")
+            try:
+                d_real = abs(float(d_real)) if d_real is not None else None
+            except (TypeError, ValueError):
+                d_real = None
+            # A delta outside this band is not a slightly-ITM option - it is a bad solve
+            # or the wrong strike, and rebuilding levels on it would be worse than the
+            # assumption it replaces.
+            if d_real is not None and 0.10 <= d_real <= 0.95:
+                (card["option"]["stop"], card["option"]["t1"],
+                 card["option"]["t2"], card["option"]["t3"]) = _levels(d_real)
+                card["option"]["max_loss_per_unit"] = round(
+                    premium - card["option"]["stop"], 1)
+            card["option"]["delta_used"] = round(d_real if d_real is not None else delta, 2)
+            card["option"]["delta_src"] = ("chain" if d_real is not None
+                                           else "assumed ATM")
             # theta in rupees is added once the lot is known, further down
         else:
             # No chain row: the contract gates cannot run. The CALENDAR gate still can,

@@ -90,6 +90,13 @@ def take(bk, card, point, max_pos=None):
     o = card.get("option") or {}
     if not o:
         return None, "option leg nahi bana"
+    # A modelled premium is not a fill. Recording one as the entry price makes every
+    # result downstream - win rate, average trade, the comparison against the backtest -
+    # a measurement of the model rather than of the market, and there is no way to tell
+    # afterwards which rows were which. The book stays clean or it is not evidence.
+    if (o.get("premium_source") or "") == "estimated":
+        return None, (f"{card['name']}: premium estimated, chain se koi quote nahi - "
+                      f"book mein nahi daal raha")
     t = {
         "name": card["name"], "symbol": card.get("symbol"),
         "opened": now().isoformat(),

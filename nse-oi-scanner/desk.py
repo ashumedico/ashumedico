@@ -1025,7 +1025,23 @@ with T_SIG:
                 # A lot that implies an absurd contract value is not a display problem, it is
                 # a wrong quantity - and a wrong quantity one confirm away from the exchange.
                 blocked = None
-                if sz.get("lot_absurd"):
+                # AN ESTIMATED PREMIUM IS A FABRICATED PRICE, and it lived in the LIVE
+                # path: when the chain has no LTP for the chosen strike, or quotes one the
+                # sanity gate rejects, trade_card falls back to a model price. It then
+                # drives the big number, the outlay, the option stop and all three option
+                # targets. In the rejected-quote case the tradeable symbol still exists, so
+                # the BUY armed - a pressable order at a price nobody quoted, with a
+                # warning printed beside it. That warning is exactly the banner this desk
+                # just stopped relying on.
+                #
+                # No quote means no market to buy at. The right move is to skip the name,
+                # not to guess what it would have cost. The estimate itself stays - the
+                # backtest needs a modelled premium because historical chains do not
+                # exist - but it may not reach an order.
+                if (o.get("premium_source") or "") == "estimated":
+                    blocked = ("Premium is estimated, not quoted — no live price for this "
+                               "strike. Nothing to buy at.")
+                elif sz.get("lot_absurd"):
                     blocked = f"Quantity refused — {sz['lot_warning']}. Tools → Lot Audit."
                 # MAX_LOSS is an absolute cap, so it BLOCKS the ticket rather than
                 # printing beside it. A cap that only warns is not a cap.
@@ -1153,7 +1169,10 @@ with T_SIG:
                             ("Option TP2", o.get("t2", "—")),
                             ("Option TP3", o.get("t3", "—"))]
                     if q:
-                        rows += [("Delta", q.get("delta", "—")),
+                        # Say WHICH delta built the option levels above. The card used to
+                        # display one and compute on another.
+                        rows += [("Delta", f'{o.get("delta_used", q.get("delta", "—"))}'
+                                           f' ({o.get("delta_src", "—")})'),
                                  ("Spread", f'{q["spread_pct"]*100:.1f}%'
                                             if q.get("spread_pct") else "—"),
                                  ("Strike OI", f'{int(q["oi"]):,}' if q.get("oi") else "—"),

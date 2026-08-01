@@ -128,6 +128,24 @@ def main():
     check("the real book is never the synthetic book",
           out.split()[0] != out.split()[-1] and "synthetic" in out.split()[-1], out)
 
+    # ---- the fabrication that survived inside the LIVE path -----------------
+    # trade_card falls back to a model price when the chain has no LTP for the strike, or
+    # quotes one the sanity gate rejects. In the rejected case the tradeable symbol still
+    # exists, so the BUY armed: a pressable order at a price nobody quoted, with a warning
+    # printed beside it. Both doors are shut here - the order and the record.
+    check("an estimated premium blocks the order",
+          'o.get("premium_source") or "") == "estimated"' in src
+          and "Premium is estimated, not quoted" in src)
+
+    out = run(
+        "import paper\n"
+        "bk = {'open': [], 'closed': []}\n"
+        "card = {'name': 'X', 'option': {'premium_source': 'estimated', 'premium': 9.9}}\n"
+        "t, why = paper.take(bk, card, {})\n"
+        "print(t is None, why)")
+    check("and never becomes a fill in the book",
+          out.startswith("True") and "estimated" in out, out)
+
     print("  " + "-" * 62)
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")
