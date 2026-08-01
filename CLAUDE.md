@@ -67,6 +67,12 @@ Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR con
 Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and
 option-chain analytics. Invoke for any market task; pairs with `@edge-seeker`. Not financial advice.
 
+## Factor admission → `.claude/skills/factor-admission/`
+`/factor-admission` — how a new idea (R-Factor, a gap screen, news catalysts, anything from another
+platform) **earns** a place, and how to refuse one without refusing to build it. The six-rung ladder
+from idea to live, and why an arm must change exactly one thing. *RRG went live on plausibility and
+cost −6.3% after costs — that is the whole reason for the ladder.*
+
 ## Option selection → `.claude/skills/option-selection/`
 `/option-selection` — what makes an option worth **buying**, as opposed to what makes a stock worth
 trading. IV vs realised, measured spread, liquidity, theta in rupees, delta, expiry fit, and how to

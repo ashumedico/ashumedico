@@ -234,6 +234,49 @@ def r_factor(closes, t, k=10, win=20):
     return move / (sd * (k ** 0.5))
 
 
+def r_factor_full(bars, t, k=10, win=20):
+    """R-factor with the two things the price-only version leaves out: VOLUME and RANGE.
+
+    Definedge describe their R-Factor as measuring the intensity of momentum AND
+    volatility - today's activity against the name's own last ~20 days. `r_factor` above
+    reads only close-to-close, so a 2-sigma move on half the usual volume and a 2-sigma
+    move on triple volume with a range three times normal score identically. For an option
+    BUYER that distinction is the trade: premium is paid for movement, and a move without
+    participation or range expansion is the one that stalls and bleeds theta.
+
+    The multiplier is bounded and CENTRED ON 1.0 - at normal volume and normal range it
+    reduces exactly to `r_factor`. That is deliberate: the two arms then differ only where
+    activity is abnormal, so the ablation measures the addition itself rather than two
+    unrelated rankings. Each ratio is capped at 3x so one freak print cannot dominate a
+    ranking across the whole universe.
+
+    NOT ENABLED. It exists to be measured against the price-only version by
+    `hypothesis.py`. A factor that has not been walk-forward tested does not go in the
+    live selector - that is exactly how RRG cost -6.3% after costs.
+    """
+    if not bars or t is None or t < win + k + 2 or len(bars) < t:
+        return 0.0
+    h = bars[:t]
+    closes = [b[4] for b in h]
+    base = r_factor(closes, len(closes), k=k, win=win)
+    if base == 0.0:
+        return 0.0
+
+    vols = [float(b[5] or 0) for b in h[-win:]]
+    mean_v = sum(vols) / len(vols) if vols else 0.0
+    v_ratio = (float(h[-1][5] or 0) / mean_v) if mean_v > 0 else 1.0
+
+    trs = []
+    for i in range(len(h) - win, len(h)):
+        hi, lo, pc = float(h[i][2]), float(h[i][3]), float(h[i - 1][4])
+        trs.append(max(hi - lo, abs(hi - pc), abs(lo - pc)))
+    mean_tr = sum(trs) / len(trs) if trs else 0.0
+    r_ratio = (trs[-1] / mean_tr) if mean_tr > 0 else 1.0
+
+    mult = 0.5 + 0.25 * min(v_ratio, 3.0) + 0.25 * min(r_ratio, 3.0)
+    return base * mult
+
+
 def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
              hold_min=5, cost_bps=15, tail=3, win=10, mom_win=5, side=None):
     """Equal-weight rotation. Rebalance every `step` bars.
@@ -292,7 +335,12 @@ def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
         if regime_ctx is not None:
             regime_ok = regime_ok and regime_ctx.tradeable(t, params["regime"])
         usable = lambda p: p["name"] not in held and p["name"] in by_name and len(by_name[p["name"]]) > t
-        if params.get("rank") == "rfactor":
+        if params.get("rank") == "rfactor_full":
+            # the composite needs OHLCV, which the backtest already threads through
+            _b = params.get("_bars") or {}
+            _bysym = {s.split(":")[-1].replace("-EQ", ""): v for s, v in _b.items()}
+            rank = lambda p: r_factor_full(_bysym.get(p["name"]), t, k=mom_win * 2)
+        elif params.get("rank") == "rfactor":
             rank = lambda p: r_factor(by_name[p["name"]], t, k=mom_win * 2)
         else:
             rank = rank_key(rule, params)      # same definition the live selector uses

@@ -125,6 +125,18 @@ ABLATIONS = {
     "R-factor + regime gate":     ("momentum_only",        {"need_trend": True,
                                                             "rank": "rfactor",
                                                             "regime": "gate"}),
+    # Same idea with VOLUME and RANGE folded in - Definedge describe R-Factor as
+    # intensity of momentum AND volatility, and the price-only version cannot tell a
+    # 2-sigma move on half the usual volume from one on triple volume with a range three
+    # times normal. For an option buyer that is the difference between a move that pays
+    # for the premium and one that stalls and bleeds theta. Centred on 1.0, so it differs
+    # from the arm above ONLY where activity is abnormal - which is what makes the
+    # comparison a measurement of the addition rather than of two unrelated rankings.
+    "R-factor intensity (vol+range)": ("momentum_only",    {"need_trend": True,
+                                                            "rank": "rfactor_full"}),
+    "R-factor intensity + regime":    ("momentum_only",    {"need_trend": True,
+                                                            "rank": "rfactor_full",
+                                                            "regime": "gate"}),
     # --- H4: does entering on the EXPANSION BAR beat entering on trend alone? ---
     # This is the "get in as the move starts" idea, made testable. It should produce far
     # fewer trades; the question is whether the ones it keeps are better enough to pay
