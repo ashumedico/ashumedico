@@ -224,13 +224,20 @@ def main():
     check("a dead button says WHY it is dead", "no_contract_why" in src)
     # and the disabled state must be reachable rather than theoretical: DEMO has no token
     caps = [c.value for c in at.caption]
-    # In DEMO the chain is synthetic so the whole option layer renders - spread,
-    # liquidity, implied vol, theta - and the contract is explicitly unsendable. A demo
-    # that cannot walk the path cannot prove the path works; a demo that COULD send an
-    # order would be worse than either.
-    check("in DEMO the ticket says the contract is synthetic and unsendable",
-          any("Demo contract" in c and "not sendable" in c for c in caps),
-          next((c[:80] for c in caps if "Demo contract" in c), "no such caption"))
+    # A refused ticket must say WHY, and the reason must win over every other note.
+    # "Demo contract" told him the contract was synthetic and nothing about why the trade
+    # was refused - and it short-circuited before the block reason, so the answer ended
+    # up in an expander nobody opens under time pressure.
+    errs = [e.value for e in at.error]
+    check("a blocked ticket states its reason on the face",
+          any("Quantity refused" in e or "MAX_LOSS" in e or "own checks" in e
+              for e in errs),
+          next((e[:80] for e in errs), "no error shown"))
+    order = src.index("BLOCKED") < src.index("DEMO CONTRACT")
+    check("the block reason is evaluated BEFORE the demo note", order,
+          "a ticket that fails its checks is blocked whether the contract is real or not")
+    check("and a demo contract is still unsendable when nothing else refused it",
+          "DEMO:" in src and "not sendable" in src)
 
     # ---- the gap-up screen ----------------------------------------------------
     # The demo used to open every session exactly at the previous close, so no name could

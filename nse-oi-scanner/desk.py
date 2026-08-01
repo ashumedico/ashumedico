@@ -336,14 +336,6 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
     # display and "-" is truthy. The button armed, showed symbol=-, and only the broker
     # stopped it. A guard defeated by its own placeholder is worse than no guard: it reads
     # as protection on the screen and is not.
-    # A DEMO: symbol is synthetic by construction - it exists so the page can render its
-    # whole option layer without a token, and it must never reach an order path.
-    if str(payload.get("symbol") or "").startswith("DEMO:"):
-        st.button(f"{label} · DEMO CONTRACT", key=key, disabled=True,
-                  use_container_width=True)
-        if explain:
-            st.caption("Demo contract — not sendable.")
-        return
     if not payload.get("symbol") or payload["symbol"] in ("-", "None"):
         st.button(f"{label} · NO CONTRACT", key=key, disabled=True,
                   use_container_width=True)
@@ -357,6 +349,15 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
         st.button(f"{label} · BLOCKED", key=key, disabled=True, use_container_width=True)
         if explain:
             st.error(blocked)
+        return
+
+    # A DEMO: symbol is synthetic by construction - it exists so the page can render its
+    # whole option layer without a token, and it must never reach an order path.
+    if str(payload.get("symbol") or "").startswith("DEMO:"):
+        st.button(f"{label} · DEMO CONTRACT", key=key, disabled=True,
+                  use_container_width=True)
+        if explain:
+            st.caption("Demo contract — not sendable.")
         return
 
     if _armed_key(key):
