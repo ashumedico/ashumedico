@@ -59,6 +59,9 @@ MAX_PER_NAME   = 0.15       # max in any one underlying
 DAY_DD         = 0.02       # daily drawdown auto-halt (flatten + stand down)
 WEEK_DD        = 0.06
 MAX_LOSS       = 5000       # hard worst-case rupee cap per trade
+# Counted from orders.jsonl, not from the book: a loop re-sending the same entry books
+# no P&L, so the drawdown halt watches a number that never moves while orders keep going.
+MAX_ORDERS_PER_DAY = 20     # runaway-loop backstop for unattended runs
 
 # Instrument modelling
 DEFAULT_LOT      = 50       # fallback lot size; override per name in LOT_SIZES

@@ -72,6 +72,24 @@ def save(bk, synthetic=False):
         json.dump(bk, f, indent=2)
 
 
+def _live_qty(t):
+    """How much of this position the broker CONFIRMED, for sizing an exit.
+
+    Absent and zero are different facts, and conflating them here would have been the
+    same mistake this whole layer exists to fix - one door further along. A trade written
+    before live_qty existed has no confirmation either way: that is UNKNOWN, and treating
+    it as zero would silently strip the exit off every position already open in his book
+    the day he upgrades. A position the system cannot exit is precisely the trap the
+    drawdown halt is written to avoid.
+
+    So: present means confirmed, and 0 then genuinely means nothing was bought. Absent
+    falls back to the recorded quantity and lets broker.place() do the real check - it
+    asks the exchange what is held, which is a better answer than either guess.
+    """
+    v = t.get("live_qty")
+    return int(t.get("qty") or 0) if v is None else int(v)
+
+
 # ---------------- taking a trade ----------------
 def take(bk, card, point, max_pos=None, modelled_ok=False):
     """Record the ticket exactly as the check-in printed it - same size, same stop, same
@@ -138,14 +156,53 @@ def take(bk, card, point, max_pos=None, modelled_ok=False):
     # The live order goes out BESIDE the paper record, never instead of it. Paper is the
     # measurement and has to stay complete whether or not the live leg fills - and if the
     # two ever diverge, that divergence is itself the thing worth knowing.
+    #
+    # live_qty is the number that matters afterwards, and it is CONFIRMED, not assumed.
+    # broker.buy() returning ok means the order was accepted and given an id; the book
+    # used to treat that as a position. Every exit downstream now sizes off live_qty, so
+    # an order that was acknowledged and never traded sends nothing later.
+    t["live_qty"] = 0
     try:
         import broker
         ok, detail = broker.buy(t["tradingsymbol"], t["qty"], tag=f"entry:{t['name']}")
         t["live_entry"] = {"ok": ok, "detail": str(detail)[:200]}
+        if ok:
+            filled, row, ferr = _confirm_fill(broker, detail)
+            t["live_entry"].update({"filled_qty": filled, "confirm_error": ferr,
+                                    "broker_status": (row or {}).get("status")})
+            t["live_qty"] = int(filled or 0)
+            # THE RESTING STOP. The trailing stop lives in the session loop and dies with
+            # it - close the window and nothing is watching. This one sits at the exchange
+            # and survives a dead process. It cannot trail, so the two are complements:
+            # the loop's stop for when he is watching, this one for when he is not.
+            if t["live_qty"] > 0 and o.get("stop"):
+                sok, sdetail = broker.stop_loss(t["tradingsymbol"], t["live_qty"],
+                                                o["stop"], tag=f"rest-sl:{t['name']}")
+                t["stop_order"] = {"ok": sok, "id": sdetail if sok else None,
+                                   "detail": str(sdetail)[:200], "trigger": o["stop"]}
     except Exception as e:      # noqa
         t["live_entry"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
     bk["open"].append(t)
     return t, None
+
+
+def _confirm_fill(broker, order_id, tries=6, wait=2.0):
+    """Ask the broker what actually traded, for a few seconds. (filled, row, error).
+
+    A market order on a liquid strike fills in well under a second, but the orderbook can
+    lag it, so a single immediate read would report 0 and be believed. Polling briefly and
+    then reporting UNKNOWN is the honest shape: None here never becomes a quantity, so an
+    unconfirmed entry simply sends no exit rather than guessing one.
+    """
+    import time as _t
+    filled, row, err = None, None, "not checked"
+    for i in range(tries):
+        filled, row, err = broker.fill_of(order_id)
+        if filled:
+            return filled, row, None
+        if i < tries - 1:
+            _t.sleep(wait)
+    return filled, row, err
 
 
 # ---------------- marking to market ----------------
@@ -207,10 +264,20 @@ def book_half(t, spot_now):
     prem = option_exit_premium(t, spot_now)
     t["booked"] = {"qty": qty, "premium": round(prem, 2), "at": now().isoformat()}
     t["qty"] = t["qty"] - qty            # the rest rides; close() prices only the rest
+    # Sell only what the broker confirmed was bought. The paper leg books its half either
+    # way - it is the measurement - but the live leg is capped by the live position.
+    live_half = min(qty, _live_qty(t))
     try:
         import broker
-        ok, detail = broker.sell(t.get("tradingsymbol"), qty, tag=f"t1:{t['name']}")
-        t["booked"]["live"] = {"ok": ok, "detail": str(detail)[:200]}
+        if live_half > 0:
+            ok, detail = broker.sell(t.get("tradingsymbol"), live_half,
+                                     tag=f"t1:{t['name']}")
+            t["booked"]["live"] = {"ok": ok, "qty": live_half, "detail": str(detail)[:200]}
+            if ok:
+                t["live_qty"] = int(t.get("live_qty") or 0) - live_half
+        else:
+            t["booked"]["live"] = {"ok": False, "qty": 0,
+                                   "detail": "no confirmed live position to book against"}
     except Exception as e:      # noqa
         t["booked"]["live"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
     return (f"T1 - {half_lots} lot ({qty}) book @ {prem:.2f}, "
@@ -402,8 +469,25 @@ def close(bk, t, spot_now, reason):
                                           float(getattr(config, "CAPITAL", 200000)), 2)})
     try:
         import broker
-        ok, detail = broker.sell(t.get("tradingsymbol"), t["qty"], tag=f"exit:{t['name']}")
-        t["live_exit"] = {"ok": ok, "detail": str(detail)[:200]}
+        # CANCEL THE RESTING STOP FIRST. An SL-M left at the exchange after the position
+        # is gone is not a leftover order, it is a naked short waiting for a price. If the
+        # cancel fails because that stop already fired, the position is already flat - and
+        # the sell below then meets broker.place()'s own "nothing held" refusal, which is
+        # the correct end to that sequence rather than a second exit.
+        so = t.get("stop_order") or {}
+        if so.get("id"):
+            cok, cdetail = broker.cancel(so["id"])
+            t["stop_order"]["cancelled"] = {"ok": cok, "detail": str(cdetail)[:200]}
+        live_qty = _live_qty(t)
+        if live_qty > 0:
+            ok, detail = broker.sell(t.get("tradingsymbol"), live_qty,
+                                     tag=f"exit:{t['name']}")
+            t["live_exit"] = {"ok": ok, "qty": live_qty, "detail": str(detail)[:200]}
+            if ok:
+                t["live_qty"] = 0
+        else:
+            t["live_exit"] = {"ok": False, "qty": 0,
+                              "detail": "no confirmed live position - nothing sent"}
     except Exception as e:      # noqa
         t["live_exit"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
     bk["open"] = [p for p in bk["open"] if p is not t]

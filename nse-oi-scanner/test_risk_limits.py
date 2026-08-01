@@ -125,8 +125,12 @@ def main():
     s = RL.state(book(-50000), cfg=cfg(day=None, week=None, maxloss=None))
     check("with no limits set, nothing halts", not s["halted"],
           "a limit he never set is not one he agreed to")
+    # Every limit that exists and is unset has to be named. MAX_ORDERS_PER_DAY joined the
+    # list when the runaway-loop backstop was added - a fourth setting that reads like
+    # protection, and would be the fourth to protect nothing if it went unreported.
     check("but the absence is reported, loudly",
-          set(s["not_enforced"]) == {"DAY_DD", "WEEK_DD", "MAX_LOSS"},
+          set(s["not_enforced"]) == {"DAY_DD", "WEEK_DD", "MAX_LOSS",
+                                     "MAX_ORDERS_PER_DAY"},
           str(s["not_enforced"]))
     check("and 'enforced' is honest about being empty", s["enforced"] == [])
 

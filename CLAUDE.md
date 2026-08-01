@@ -96,6 +96,14 @@ an order: provenance · basis · magnitude · staleness · absence · agreement 
 Seven checks, each one written from a bug that shipped. *A number that looks like an answer is
 the most expensive kind of wrong.*
 
+## Running unattended → `.claude/skills/unattended-execution/`
+`/unattended-execution` — what breaks when I leave the loop. The human at the desk was a
+component nobody documented: he sees the position that never filled, he notices the stop that
+died with the window, he gets bored of pressing the button. Accepted ≠ filled · a resting stop
+survives a dead process · cap actions from what *left*, not what was intended. All three rest on
+one distinction: **absent is not zero** — and reading it wrong in either direction is its own bug
+(act on a fact you don't have, or trap me inside a live position).
+
 ## No fake data → `.claude/skills/real-money-only/`
 `/real-money-only` — **always on for anything that touches the market.** Demo, sample, placeholder
 and fallback data are **refused**, not labelled. Permission to fabricate is per-process and

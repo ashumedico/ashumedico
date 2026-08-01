@@ -150,6 +150,41 @@ def place(symbol, qty, side, kind="MARKET", limit_price=0.0, tag="", product=Non
                   "req": req, "tag": tag})
             return False, f"RISK HALT - {why}"
 
+    # SELLING WHAT YOU DO NOT HOLD IS WRITING IT. This system buys options and never
+    # writes them - a written option is a margin position with open-ended risk, which is
+    # the one shape of loss the whole design refuses. But the exit path only ever asked
+    # the BOOK whether a position existed, and the book records an order the moment the
+    # broker accepts it. Accepted is not filled. So an entry that was acknowledged and
+    # never traded left the book long, and the exit that followed sold something that was
+    # never bought.
+    #
+    # Three answers, three behaviours - and the difference between zero and unknown is the
+    # whole point. Zero is a fact and it refuses. Unknown is an absence: refusing on it
+    # would mean a broker API blip could lock him inside a live position, and this file
+    # already carries that lesson from the drawdown halt - a rule that blocks the exit is
+    # not a safety rule, it is a trap.
+    #
+    # SL and SL_LIMIT are deliberately NOT gated here. A resting stop is placed seconds
+    # after the entry fills, and the positions endpoint lags the fill by an unknown
+    # margin - gating it would drop the stop exactly when a race says "nothing held",
+    # leaving the position naked. That case is covered upstream instead: the stop goes on
+    # only after the fill is CONFIRMED, and it is cancelled when the position closes.
+    if side == "SELL" and kind in ("MARKET", "LIMIT"):
+        held, herr = net_position(symbol)
+        if held is not None and held <= 0:
+            _log({"event": "blocked", "why": "nothing held", "held": held,
+                  "req": req, "tag": tag})
+            return False, (f"broker says you hold {held} of {symbol} - selling it would "
+                           f"WRITE the option, not exit it. Refusing.")
+        if held is not None and held < req["qty"]:
+            # Clamp rather than refuse: he holds some of it, and the part he holds is his
+            # to exit. Selling more than that is the write.
+            _log({"event": "clamped", "asked": req["qty"], "held": held,
+                  "req": req, "tag": tag})
+            req["qty"] = int(held)
+        if held is None:
+            _log({"event": "holding-unknown", "why": herr, "req": req, "tag": tag})
+
     _log({"event": "sending", "req": req, "tag": tag})
     try:
         r = _client().place_order(req)
@@ -157,6 +192,103 @@ def place(symbol, qty, side, kind="MARKET", limit_price=0.0, tag="", product=Non
         _log({"event": "error", "req": req, "error": str(e)[:300], "tag": tag})
         return False, f"order gaya hi nahi: {e}"
     _log({"event": "reply", "req": req, "reply": r, "tag": tag})
+    ok = isinstance(r, dict) and r.get("s") == "ok"
+    # WHAT `ok` MEANS, precisely: the broker ACCEPTED the order and gave it an id. It does
+    # not mean the order filled, and treating the two as the same is what let a position
+    # exist in the book and nowhere else. fill_of() below is how you find out.
+    return ok, (r.get("id") if ok else explain_rejection(r))
+
+
+# ---------------------------------------------------------------- what actually happened --
+def _rows(resp, must_have):
+    """Pull the list of records out of a Fyers reply without hard-coding its container key.
+
+    The response wrapper has been renamed between versions (orderBook / netPositions /
+    positionDetails), and a KeyError on a container is a silent 'no position' - the exact
+    failure this whole layer exists to prevent. So the reply is searched for the first list
+    of dicts that carries the fields we actually need. Fewer assumptions, and the ones left
+    are about the data rather than about the packaging.
+    """
+    if not isinstance(resp, dict) or resp.get("s") != "ok":
+        return None
+    for v in resp.values():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            if all(k in v[0] for k in must_have):
+                return v
+    return []
+
+
+def fill_of(order_id):
+    """How much of one order actually traded. (filled_qty, raw_row, error).
+
+    Decided on filledQty - a QUANTITY, which needs no code table. Fyers' numeric order
+    `status` is not publicly documented, and this system already learned once (rejection
+    -99) that a code map guessed from forum posts produces confident wrong answers. The
+    raw row is returned alongside so a human can read the status for diagnosis; nothing
+    here interprets it.
+
+    filled_qty is None when the answer is UNKNOWN - a transport error, a missing order.
+    Unknown is not zero and it is not filled; the caller has to handle it as its own case.
+    """
+    if not order_id:
+        return None, None, "no order id"
+    try:
+        r = _client().orderbook(data={"id": str(order_id)})
+    except Exception as e:      # noqa
+        return None, None, f"orderbook call failed: {str(e)[:150]}"
+    rows = _rows(r, ("id", "filledQty"))
+    if rows is None:
+        return None, None, f"orderbook error: {str(r)[:150]}"
+    for row in rows:
+        if str(row.get("id")) == str(order_id):
+            try:
+                return int(row.get("filledQty") or 0), row, None
+            except (TypeError, ValueError):
+                return None, row, "filledQty was not a number"
+    return None, None, "order id not found in the orderbook"
+
+
+def net_position(symbol):
+    """What the BROKER says is held in one symbol. (net_qty, error).
+
+    net_qty None means unknown, and unknown is handled differently from zero everywhere
+    it is used: zero is a fact that refuses a sell, unknown is an absence that must never
+    trap him inside a position.
+    """
+    if not symbol:
+        return None, "no symbol"
+    try:
+        r = _client().positions()
+    except Exception as e:      # noqa
+        return None, f"positions call failed: {str(e)[:150]}"
+    rows = _rows(r, ("symbol", "netQty"))
+    if rows is None:
+        return None, f"positions error: {str(r)[:150]}"
+    for row in rows:
+        if str(row.get("symbol")) == str(symbol):
+            try:
+                return int(row.get("netQty") or 0), None
+            except (TypeError, ValueError):
+                return None, "netQty was not a number"
+    return 0, None          # the book listed everything and this symbol was not in it
+
+
+def cancel(order_id):
+    """Cancel a resting order. (ok, detail).
+
+    Needed by anything that PLACES a resting stop: an SL-M left at the exchange after the
+    position is already closed is not a leftover, it is a naked short waiting for a price.
+    """
+    if not order_id:
+        return False, "no order id"
+    if killed():
+        return False, f"{KILL_FILE} mojood hai - sab kuch ruka hua hai"
+    try:
+        r = _client().cancel_order(data={"id": str(order_id)})
+    except Exception as e:      # noqa
+        _log({"event": "cancel-error", "id": order_id, "error": str(e)[:200]})
+        return False, f"cancel gaya hi nahi: {e}"
+    _log({"event": "cancel", "id": order_id, "reply": r})
     ok = isinstance(r, dict) and r.get("s") == "ok"
     return ok, (r.get("id") if ok else explain_rejection(r))
 

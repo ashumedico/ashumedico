@@ -101,6 +101,48 @@ def week_start(d=None):
     return d - timedelta(days=d.weekday())
 
 
+ORDER_LOG = "orders.jsonl"
+
+
+def orders_today(path=None, day=None):
+    """(count, error) — orders actually SENT today, counted from the broker's audit log.
+
+    Counted from the LOG rather than from the paper book on purpose. The book records
+    trades the system believes in; the log records what actually left the machine. A
+    runaway loop - a retry that never gives up, a signal that re-fires every tick - shows
+    up only in the second. That is the failure mode a human never has and an unattended
+    process has by default: nobody gets tired of pressing the button.
+
+    Counts "sending", which is the moment of no return, not "reply": an order that left
+    and timed out still went to the exchange.
+    """
+    p = path or ORDER_LOG
+    day = day or now().date()
+    if not os.path.exists(p):
+        return 0, None
+    n = 0
+    try:
+        with open(p) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue          # a torn last line is not a reason to stop counting
+                if r.get("event") != "sending":
+                    continue
+                at = str(r.get("at") or "")[:10]
+                if at == day.isoformat():
+                    n += 1
+    except OSError as e:
+        # Unreadable log is UNKNOWN, not zero. The caller refuses on unknown, because
+        # "I cannot count today's orders" is not the same as "there were none".
+        return None, f"cannot read {p}: {str(e)[:120]}"
+    return n, None
+
+
 def state(book=None, capital=None, cfg=None):
     """Where the account stands against its own limits.
 
@@ -126,12 +168,29 @@ def state(book=None, capital=None, cfg=None):
     day_cap = -abs(float(day_dd)) * capital if day_dd else None
     week_cap = -abs(float(week_dd)) * capital if week_dd else None
 
+    max_orders = getattr(cfg, "MAX_ORDERS_PER_DAY", None)
+    sent, sent_err = orders_today()
+
     enforced = [n for n, v in (("DAY_DD", day_dd), ("WEEK_DD", week_dd),
-                               ("MAX_LOSS", getattr(cfg, "MAX_LOSS", None))) if v]
-    missing = [n for n in ("DAY_DD", "WEEK_DD", "MAX_LOSS") if n not in enforced]
+                               ("MAX_LOSS", getattr(cfg, "MAX_LOSS", None)),
+                               ("MAX_ORDERS_PER_DAY", max_orders)) if v]
+    missing = [n for n in ("DAY_DD", "WEEK_DD", "MAX_LOSS", "MAX_ORDERS_PER_DAY")
+               if n not in enforced]
 
     halted, reason = False, None
-    if day_cap is not None and day_pnl <= day_cap:
+    # The order cap is checked FIRST because it is the one limit that fires when the other
+    # three cannot: a loop re-sending the same entry books no P&L until something fills,
+    # so a drawdown halt watches a number that is not moving while the orders keep going.
+    if max_orders and sent_err:
+        halted = True
+        reason = (f"Cannot count today's orders ({sent_err}). Refusing to trade against "
+                  f"an audit log I cannot read.")
+    elif max_orders and sent is not None and sent >= int(max_orders):
+        halted = True
+        reason = (f"Order cap hit: {sent} orders sent today against a "
+                  f"MAX_ORDERS_PER_DAY of {int(max_orders)}. Something is repeating - "
+                  f"read {ORDER_LOG} before raising it.")
+    elif day_cap is not None and day_pnl <= day_cap:
         halted = True
         reason = (f"Day limit hit: booked Rs {day_pnl:,.0f} against a DAY_DD floor of "
                   f"Rs {day_cap:,.0f} ({float(day_dd)*100:.1f}% of Rs {capital:,.0f}). "
@@ -151,6 +210,7 @@ def state(book=None, capital=None, cfg=None):
         "week_room": round(week_pnl - week_cap, 2) if week_cap is not None else None,
         "trades_today": sum(1 for t in (book.get("closed") or [])
                             if _closed_at(t) == today),
+        "orders_today": sent, "orders_cap": int(max_orders) if max_orders else None,
         "open_positions": len(book.get("open") or []),
         "enforced": enforced, "not_enforced": missing,
         "halted": halted, "reason": reason, "error": None,
