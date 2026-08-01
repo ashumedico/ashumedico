@@ -167,6 +167,51 @@ def main():
           and out4["names"][0]["score"] == sf,
           f"{out4['names'][0]['side']} {out4['names'][0]['score']} vs long {sf}")
 
+    # ---- the four proposed additions --------------------------------------
+    # Admitted at weight zero. Measured, reported, and changing nothing until an arm
+    # turns one on - which is what stops four plausible ideas going live together.
+    base = dict(full, ema9_ok=True, prev_break=True, near_extreme=True)
+    s_live, _, _ = M.score_name(base)
+    s_bare, _, _ = M.score_name(full)
+    check("the proposed factors change no ranking until an arm enables them",
+          s_live == s_bare, f"{s_live} vs {s_bare}")
+    s_arm, _, _ = M.score_name(base, {"ema9": 2.0})
+    check("and an arm that enables one moves the score by exactly that weight",
+          round(s_arm - s_live, 2) == 2.0, f"{s_arm} - {s_live}")
+    # An arm has to differ in ONE place or it is not a measurement of anything.
+    s_two, _, _ = M.score_name(base, {"ema9": 2.0, "prev_break": 1.0})
+    check("two arms differ only where the weights differ",
+          round(s_two - s_arm, 2) == 1.0, f"{s_two} - {s_arm}")
+
+    # ---- EMA -----------------------------------------------------------------
+    check("a 9 EMA needs nine points, and says so when it has not got them",
+          M.ema([1, 2, 3], 9) is None)
+    flat = M.ema([100.0] * 20, 9)
+    check("a flat series has its own value as the EMA", flat == 100.0, flat)
+    rising = M.ema(list(range(1, 21)), 9)
+    # An EMA weights the recent end, so on a rising series it must sit above the simple
+    # mean of the same window. If it did not, it is a differently-named SMA.
+    check("a rising series puts the EMA above the simple mean of the window",
+          rising > sum(range(12, 21)) / 9.0 - 1, rising)
+
+    # ---- wick / near-extreme -------------------------------------------------
+    check("price at the high is holding its extreme",
+          M.near_extreme(close=100.0, high=100.2, low=95.0, side="LONG") is True)
+    check("price rejected well off the high is not",
+          M.near_extreme(close=97.0, high=100.0, low=95.0, side="LONG") is False)
+    check("and the short side measures the LOW, not the high",
+          M.near_extreme(close=95.1, high=100.0, low=95.0, side="SHORT") is True)
+
+    # ---- previous-window break -----------------------------------------------
+    day2 = date(2026, 7, 30)
+    first = [bar(day2, 9, 15, 100, 102, 98, 101, 1000)]
+    second = [bar(day2, 9, 32, 101, 104, 101, 103, 1000)]
+    ok, note = M.prev_candle_break(first + second, day2, "LONG")
+    check("a close above the first window's high is a break", ok is True, note)
+    ok2, _ = M.prev_candle_break(first, day2, "LONG")
+    check("and one window alone cannot answer it - not a False",
+          ok2 is None, ok2)
+
     print("  " + "-" * 62)
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")

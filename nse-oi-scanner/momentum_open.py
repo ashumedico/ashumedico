@@ -188,6 +188,80 @@ def relative_strength(stock_open_pct, index_open_pct):
     return round(stock_open_pct - index_open_pct, 2)
 
 
+# ---------------------------------------------------------- the proposed additions --
+# Four filters were proposed together: a volume surge, a 9-EMA momentum check, a
+# previous-candle breakout, and a wick-rejection check. Three notes before any of them
+# runs, because "all four at once" is the exact failure /factor-admission exists to stop -
+# RRG went live on plausibility and cost 6.3% after costs, and every one of these is
+# equally plausible.
+#
+# They are therefore added as MEASUREMENTS with individually zeroable weights, so each is
+# an ablation arm that changes exactly one thing. None of them is on by default.
+
+
+def ema(values, n):
+    """Exponential moving average of the last n. None when there is not enough history.
+
+    None rather than a shorter average: a 4-point EMA reported as a 9-point one is a
+    different indicator wearing the right name, and it is wrong in the direction that
+    matters - it tracks price too closely and passes everything.
+    """
+    xs = [v for v in (values or []) if v is not None]
+    if len(xs) < n:
+        return None
+    k = 2.0 / (n + 1.0)
+    e = sum(xs[:n]) / float(n)
+    for v in xs[n:]:
+        e = v * k + e * (1 - k)
+    return round(e, 4)
+
+
+def prev_candle_break(bars, day, side, minutes=OPEN_MINUTES):
+    """Is the latest window breaking the PREVIOUS window's extreme? (bool, note).
+
+    This is the proposal's `[0] 15m Close > [1] 15m High`, and it is the one addition of
+    the four that carries information the daily clauses cannot: it is an intraday
+    breakout, measured intraday.
+
+    The cost is entry time. Waiting for the second window means acting at 9:45, not
+    within the first half hour - a better signal at a worse price, and the trade-off has
+    to be chosen rather than absorbed.
+    """
+    first = session_bars(bars, day, minutes)
+    second = [b for b in (bars or [])
+              if (t := _ts(b)) and
+              datetime.combine(day, SESSION_OPEN, IST) + timedelta(minutes=minutes)
+              <= t < datetime.combine(day, SESSION_OPEN, IST)
+              + timedelta(minutes=2 * minutes)]
+    if not first or not second:
+        return None, "need two completed windows"
+    prev_hi = max(b["h"] for b in first if b.get("h") is not None)
+    prev_lo = min(b["l"] for b in first if b.get("l") is not None)
+    last = second[-1].get("c")
+    if last is None:
+        return None, "no close on the second window"
+    if str(side).upper() == "SHORT":
+        return last < prev_lo, f"{last:.2f} vs prior low {prev_lo:.2f}"
+    return last > prev_hi, f"{last:.2f} vs prior high {prev_hi:.2f}"
+
+
+def near_extreme(close, high, low, side, tol=0.01):
+    """Is price holding near the day's extreme, rather than being rejected off it?
+
+    The proposal's wick check. Worth knowing LATER in the session; near the open it is
+    close to tautological, because in the first fifteen minutes a rising stock is almost
+    always within 1% of a high it set two minutes ago. Measured, weighted at zero, and
+    left for the ablation to judge rather than argued about.
+    """
+    if str(side).upper() == "SHORT":
+        if low is None or close is None or not low:
+            return None
+        return close < low * (1 + tol)
+    if high is None or close is None or not high:
+        return None
+    return close > high * (1 - tol)
+
+
 # ------------------------------------------------------------------ the score --
 # WEIGHTS ARE A HYPOTHESIS, NOT A RESULT. Nothing here has been fitted to anything -
 # fitting them before the components are validated would be curve-fitting a curve nobody
@@ -198,14 +272,23 @@ def relative_strength(stock_open_pct, index_open_pct):
 # The ablation harness exists for exactly this: each weight is one arm, changed one at a
 # time. Until that has run, this ranking is a shortlist for a human to look at, and the
 # option layer downstream still has to agree the contract is tradeable.
-WEIGHTS = {"break": 3.0, "rvol": 2.0, "rel_str": 2.0, "gap_align": 1.5, "vwap": 1.5}
+WEIGHTS = {"break": 3.0, "rvol": 2.0, "rel_str": 2.0, "gap_align": 1.5, "vwap": 1.5,
+           # The four proposed additions, admitted at ZERO. They are measured and
+           # reported, and they change no ranking until an arm turns one on. That is the
+           # whole ladder: an idea earns its weight from a measurement, not from being
+           # persuasive on the way in.
+           "ema9": 0.0, "prev_break": 0.0, "near_extreme": 0.0}
 
 #: an RVOL below this is an ordinary morning, whatever else the name is doing
 RVOL_FLOOR = 1.5
 
 
-def score_name(m):
+def score_name(m, weights=None):
     """(score, reasons, missing) for one measured name.
+
+    `weights` makes every factor an ablation arm by construction: an arm is this same
+    function with one key changed, so two arms cannot accidentally differ in two places.
+    Passing None uses the live weights.
 
     `missing` is the point of this function. A name that could not be measured on a factor
     does not score zero on it - it is REPORTED as unmeasured and, if anything material is
@@ -213,13 +296,14 @@ def score_name(m):
     two the same is how a half-read name outranks a fully-read one and nobody can tell
     from the list which is which.
     """
+    W = {**WEIGHTS, **(weights or {})}
     pts, why, missing = 0.0, [], []
 
     br = m.get("break")                  # +1 broke up, -1 broke down, 0 inside
     if br is None:
         missing.append("opening range")
     elif br:
-        pts += WEIGHTS["break"]
+        pts += W["break"]
         why.append("broke the opening range " + ("up" if br > 0 else "down"))
     else:
         why.append("still inside the opening range")
@@ -230,7 +314,7 @@ def score_name(m):
     elif rv >= RVOL_FLOOR:
         # Capped: a 40x print is a corporate event or a block deal, not forty times the
         # conviction, and uncapped it would own the top of the list every time it happens.
-        pts += WEIGHTS["rvol"] * min(rv / RVOL_FLOOR, 3.0)
+        pts += W["rvol"] * min(rv / RVOL_FLOOR, 3.0)
         why.append(f"rvol {rv}x")
     else:
         why.append(f"rvol only {rv}x - an ordinary morning")
@@ -239,12 +323,12 @@ def score_name(m):
     if rs is None:
         missing.append("relative strength")
     elif br and (rs > 0) == (br > 0):
-        pts += WEIGHTS["rel_str"]
+        pts += W["rel_str"]
         why.append(f"{abs(rs):.2f}% {'ahead of' if rs > 0 else 'behind'} the index")
 
     al = m.get("gap_aligned")
     if al is True:
-        pts += WEIGHTS["gap_align"]
+        pts += W["gap_align"]
         why.append("gap runs with the trend")
     elif al is False:
         why.append("gap runs against the trend")
@@ -255,10 +339,25 @@ def score_name(m):
     if vw is None:
         missing.append("vwap")
     elif br and (vw > 0) == (br > 0):
-        pts += WEIGHTS["vwap"]
+        pts += W["vwap"]
         why.append("on the right side of vwap")
     elif br:
         why.append("wrong side of vwap")
+
+    # The proposed additions. Measured always, scored only when an arm gives them a
+    # weight - so the screen reports what they would have said before anything acts on it.
+    if m.get("ema9_ok") is not None and W.get("ema9"):
+        if m["ema9_ok"]:
+            pts += W["ema9"]
+            why.append("above the 9 EMA")
+    if m.get("prev_break") is not None and W.get("prev_break"):
+        if m["prev_break"]:
+            pts += W["prev_break"]
+            why.append("broke the previous 15-min extreme")
+    if m.get("near_extreme") is not None and W.get("near_extreme"):
+        if m["near_extreme"]:
+            pts += W["near_extreme"]
+            why.append("holding near the day's extreme")
 
     return round(pts, 2), why, missing
 
