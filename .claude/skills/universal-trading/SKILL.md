@@ -264,7 +264,20 @@ recurs, and recognising the shape is faster than rediscovering the bug.
 14. **Screenshot the UI instead of assuming it.** That is what caught the wordmark being
     clipped - a glow renders above the cap height and the container silently cuts it.
 
-15. **Language: the chat is Hinglish, the product is English.** Code, commits, the
+15. **A one-press order button is one stray scroll-click from a position he did not
+    choose.** Every order control on the desk ARMS on the first press, shows the exact
+    request, and fires on the second - disarming itself after 20 seconds. That is not
+    overriding "trade live"; it is how an order ticket works everywhere, and it costs one
+    click for the only thing that cannot be undone.
+
+16. **A stop with no trigger is a market order in disguise** - it fires instantly and
+    looks exactly like the stop being hit. `place()` refuses it.
+
+17. **A resting exchange stop and a trailing stop are complements, not substitutes.**
+    The session loop's trail ratchets and dies with the window; an SL-M resting at Fyers
+    survives a closed laptop and cannot trail. Place both.
+
+18. **Language: the chat is Hinglish, the product is English.** Code, commits, the
     website and any MLR/UCPMP content stay English. A half-translated screen reads as
     careless.
 

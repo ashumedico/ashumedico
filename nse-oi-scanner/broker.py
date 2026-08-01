@@ -68,25 +68,41 @@ def _client():
     return fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
 
 
-def place(symbol, qty, side, kind="MARKET", limit_price=0.0, tag="", product=None):
-    """Send one order. side: 'BUY' or 'SELL'.
+# Fyers order types. SL and SL_LIMIT are what make a stop REST AT THE EXCHANGE, which is
+# a different animal from the trailing stop the session loop computes: that one lives in a
+# running Python process and dies with the window. A resting SL-M survives a closed laptop,
+# a dropped connection and a power cut. It cannot trail - the exchange has no opinion about
+# your high-water mark - so the two are complements, not substitutes.
+ORDER_TYPE = {"LIMIT": 1, "MARKET": 2, "SL": 3, "SL_LIMIT": 4}
+
+
+def place(symbol, qty, side, kind="MARKET", limit_price=0.0, tag="", product=None,
+          stop_price=0.0):
+    """Send one order. side: 'BUY' or 'SELL'. kind: MARKET | LIMIT | SL | SL_LIMIT.
 
     Returns (ok, detail). Never raises on a broker rejection - a rejection is information
     the caller has to act on, not an exception to unwind through.
     """
     product = product or getattr(config, "PRODUCT_TYPE", "MARGIN")
+    kind = str(kind).upper()
+    if kind not in ORDER_TYPE:
+        return False, f"unknown order kind {kind!r} - use {'/'.join(ORDER_TYPE)}"
     req = {
         "symbol": symbol,
         "qty": int(qty),
-        "type": 1 if kind == "LIMIT" else 2,        # 1 limit, 2 market
+        "type": ORDER_TYPE[kind],
         "side": 1 if side == "BUY" else -1,
         "productType": product,                     # MARGIN carries; INTRADAY auto-squares
-        "limitPrice": float(limit_price) if kind == "LIMIT" else 0.0,
-        "stopPrice": 0.0,
+        "limitPrice": float(limit_price) if kind in ("LIMIT", "SL_LIMIT") else 0.0,
+        "stopPrice": float(stop_price) if kind in ("SL", "SL_LIMIT") else 0.0,
         "validity": "DAY",
         "disclosedQty": 0,
         "offlineOrder": False,
     }
+    # A stop order with no trigger is a market order wearing a disguise - it would fire
+    # instantly and look like the stop had been hit.
+    if kind in ("SL", "SL_LIMIT") and not req["stopPrice"]:
+        return False, "stop order needs a trigger price - refusing to send it without one"
 
     if not symbol:
         _log({"event": "blocked", "why": "no tradeable symbol", "tag": tag})
@@ -162,6 +178,22 @@ def explain_rejection(r):
 def buy(symbol, qty, limit_price=None, tag=""):
     return (place(symbol, qty, "BUY", "LIMIT", limit_price, tag) if limit_price
             else place(symbol, qty, "BUY", "MARKET", tag=tag))
+
+
+def stop_loss(symbol, qty, trigger, tag="", limit_price=None):
+    """A SELL stop that RESTS AT THE EXCHANGE for an already-open long option.
+
+    This is the one protection that does not depend on this program still running. The
+    session loop's trailing stop is better while the machine is on - it ratchets - and
+    worthless the moment the window closes. Place both: the trail for the good case, this
+    for the case where nobody is watching.
+
+    SL-M by default. A limit price turns it into SL-L, which can go unfilled in a fast
+    move - the thing a stop exists to survive.
+    """
+    kind = "SL_LIMIT" if limit_price else "SL"
+    return place(symbol, qty, "SELL", kind=kind, stop_price=trigger,
+                 limit_price=limit_price or 0.0, tag=tag or "stop")
 
 
 def sell(symbol, qty, tag=""):

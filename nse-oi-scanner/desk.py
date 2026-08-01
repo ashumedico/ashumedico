@@ -399,6 +399,81 @@ def make_fig(name, closes, bars_, dates_, feat, plan=None, height=440):
     return fig
 
 
+# ======================================================================= orders ==
+# ONE-CLICK IS NEVER ONE CLICK HERE, AND THAT IS DELIBERATE.
+#
+# A button that sends a real order on a single press is one stray scroll-click away from a
+# position he did not choose. So every order button ARMS first and fires on the second
+# press, shows the exact payload in between, and disarms itself after ARM_SECONDS. That is
+# not me overriding the instruction to trade live - it is how an order ticket works
+# everywhere, and it costs one extra click for the thing that cannot be undone.
+#
+# Everything else the broker already enforced still applies: LIVE_TRADING armed, no kill
+# switch, a valid token. This layer adds intent, not permission.
+ARM_SECONDS = 20
+
+
+def _armed_key(k):
+    import time
+    a = st.session_state.get("arm") or {}
+    if a.get("key") != k:
+        return False
+    if time.time() - a.get("at", 0) > ARM_SECONDS:
+        st.session_state.arm = {}
+        return False
+    return True
+
+
+def order_button(label, key, payload, fire, colour="#00E5FF"):
+    """Two-press order control. Returns nothing; renders its own result.
+
+    payload is shown verbatim before anything is sent - the numbers on the button and the
+    numbers in the request have to be the same numbers, and the only way to be sure of
+    that is to print the request.
+    """
+    import time
+    try:
+        import broker as B
+        halted, live = B.killed(), B.armed()
+    except Exception as e:      # noqa
+        st.caption(f"broker unavailable: {e}")
+        return
+
+    if halted:
+        st.button(f"{label} · KILL SWITCH ON", key=key, disabled=True,
+                  use_container_width=True)
+        return
+    if not payload.get("symbol"):
+        st.button(f"{label} · no contract", key=key, disabled=True,
+                  use_container_width=True)
+        st.caption("The chain did not supply a tradeable symbol, so there is nothing to "
+                   "send. An order assembled by hand from strike and expiry is one typo "
+                   "from a different contract.")
+        return
+
+    if _armed_key(key):
+        st.code(" · ".join(f"{k}={v}" for k, v in payload.items()), language=None)
+        c1, c2 = st.columns([3, 1])
+        if c1.button(f"⚠ CONFIRM — {label}", key=f"{key}_go", type="primary",
+                     use_container_width=True):
+            st.session_state.arm = {}
+            ok, detail = fire()
+            (st.success if ok else st.error)(
+                f"{'SENT' if ok else 'NOT SENT'} — {detail}")
+            if not live and not ok:
+                st.caption("LIVE_TRADING is off, so this was logged and not sent. "
+                           "Arm it from the launcher or `LIVE - arm or disarm`.")
+        if c2.button("cancel", key=f"{key}_no", use_container_width=True):
+            st.session_state.arm = {}
+            st.rerun()
+        st.caption(f"Disarms in {ARM_SECONDS}s. Nothing has been sent yet.")
+    else:
+        if st.button(label + ("" if live else "  (paper — live is off)"),
+                     key=key, use_container_width=True):
+            st.session_state.arm = {"key": key, "at": time.time()}
+            st.rerun()
+
+
 @st.dialog("Chart", width="large")
 def chart_window(name):
     """The floating window. Opens over whatever you were reading, on any name, anywhere.
@@ -967,24 +1042,95 @@ if longs:
                 f'<div><b>Pts now</b><span style="color:{pcol}">{pts_now:+.2f}</span></div>'
                 f'</div></div>', unsafe_allow_html=True)
 
+        def signal_block(p, is_short):
+            """The plan in BOTH languages - the stock's levels and the option's - plus the
+            three things he can actually do about it.
+
+            Both matter and they are not interchangeable. The stock levels are where the
+            thesis lives (stop below structure, targets at ATR multiples). The option
+            levels are what the account will actually see, because the premium moves by
+            delta and not one-for-one. Showing only one of them is how a trader ends up
+            watching the wrong number."""
+            c = TC.build_card(p, prices.get(p["symbol"]) or [p["close"]],
+                              expiry_label="—",
+                              days_to_expiry=TC.min_days_for_thesis(),
+                              capital=float(getattr(config, "CAPITAL", 200000)),
+                              side="SHORT" if is_short else "LONG")
+            _CARDS[c["name"]] = c
+            render(p, is_short)
+            o = c.get("option") or {}
+            stk, sz = c["stock"], c["size"]
+            e, sl = stk.get("entry") or c["spot"], stk["stop"]
+            r = max(0.01, abs(e - sl))
+            t3 = round(e - 2 * r, 2) if is_short else round(e + 2 * r, 2)
+
+            und = (f'UNDERLYING &nbsp; E <b>{e}</b> &nbsp; SL <b>{sl}</b> &nbsp; '
+                   f'TP1 <b>{stk["t1"]}</b> &nbsp; TP2 <b>{stk["t2"]}</b> &nbsp; '
+                   f'TP3 <b>{t3}</b>')
+            opt = (f'OPTION {o.get("strike","?")} {o.get("type","")} &nbsp; '
+                   f'BUY <b>{o.get("premium","?")}</b> &nbsp; '
+                   f'SL <b>{o.get("stop","?")}</b> &nbsp; '
+                   f'TP1 <b>{o.get("t1","?")}</b> &nbsp; TP2 <b>{o.get("t2","?")}</b> '
+                   f'&nbsp; qty <b>{sz["qty"]}</b>')
+            st.markdown(
+                f'<div class="scen" style="margin-top:-4px">{und}<br>{opt}</div>',
+                unsafe_allow_html=True)
+
+            sym, qty = o.get("tradingsymbol"), sz["qty"]
+            prem = o.get("premium")
+            b1, b2, b3 = st.columns(3)
+            nm = c["name"]
+            with b1:
+                order_button(
+                    f"BUY {qty} @ mkt", f"buy_{nm}",
+                    {"symbol": sym or "-", "side": "BUY", "qty": qty,
+                     "type": "MARKET", "premium~": prem},
+                    lambda sym=sym, qty=qty, nm=nm: __import__("broker").buy(
+                        sym, qty, tag=f"desk:buy:{nm}"))
+            with b2:
+                trig = o.get("stop")
+                order_button(
+                    f"SET SL @ {trig}", f"sl_{nm}",
+                    {"symbol": sym or "-", "side": "SELL", "qty": qty,
+                     "type": "SL-M", "trigger": trig},
+                    lambda sym=sym, qty=qty, trig=trig, nm=nm:
+                        __import__("broker").stop_loss(sym, qty, trig,
+                                                       tag=f"desk:sl:{nm}"))
+            with b3:
+                order_button(
+                    f"EXIT {qty} @ mkt", f"exit_{nm}",
+                    {"symbol": sym or "-", "side": "SELL", "qty": qty,
+                     "type": "MARKET"},
+                    lambda sym=sym, qty=qty, nm=nm: __import__("broker").sell(
+                        sym, qty, tag=f"desk:exit:{nm}"))
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
         cl, cr = st.columns(2)
         with cl:
-            st.markdown('<div class="callsign">// LONG — BUY CE</div>', unsafe_allow_html=True)
+            st.markdown('<div class="callsign">// LONG — BUY CE</div>',
+                        unsafe_allow_html=True)
             for p in longs[:6]:
-                render(p, False)
+                signal_block(p, False)
                 if st.button(f"Chart — {p['name']}", key=f"ch_l_{p['name']}",
                              use_container_width=True):
                     chart_window(p["name"])
         with cr:
-            st.markdown('<div class="callsign">// SHORT — BUY PE</div>', unsafe_allow_html=True)
+            st.markdown('<div class="callsign">// SHORT — BUY PE</div>',
+                        unsafe_allow_html=True)
             shorts = sel.get("shorts") or []
             if not shorts:
                 st.caption("No name passes the short rule today.")
             for p in shorts[:6]:
-                render(p, True)
+                signal_block(p, True)
                 if st.button(f"Chart — {p['name']}", key=f"ch_s_{p['name']}",
                              use_container_width=True):
                     chart_window(p["name"])
+
+        st.caption("**SET SL rests at the exchange.** That is the difference between it "
+                   "and the trailing stop in the session loop: the trail ratchets but "
+                   "dies with the window, this one survives a closed laptop and cannot "
+                   "trail. Place both — the trail for when you are watching, the resting "
+                   "SL for when you are not.")
 
         if not bool(getattr(config, "TRADE_SHORTS", False)):
             st.warning(
