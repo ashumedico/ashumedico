@@ -1426,12 +1426,13 @@ with T_GAP:
         st.caption(f"Prices from **{src_txt}**. The {GAP_SMA}-day mean always comes from "
                    f"daily candles — there is no quote for an average.")
 
-        # A prev close that two feeds disagree about is a corporate action one of them
-        # has applied. Every clause hangs off that number, so it is never resolved
-        # quietly.
-        clashes = [r for r in rows if r.get("conflict")]
-        for r in clashes:
-            st.error(f"**{r['name']}** — {r['conflict']}")
+        # A prev close the two feeds disagree about is a corporate action one of them has
+        # applied. The mean is rescaled onto the quote's basis rather than left to
+        # compare an adjusted price against unadjusted history - but the repair is stated,
+        # because a number that was silently corrected is still a number he did not
+        # choose.
+        for r in [x for x in rows if x.get("conflict")]:
+            st.info(f"**{r['name']}** — {r['conflict']}")
 
         g1, g2 = st.columns([2.1, 1], gap="medium")
         with g1:

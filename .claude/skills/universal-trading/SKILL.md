@@ -394,12 +394,19 @@ recurs, and recognising the shape is faster than rediscovering the bug.
     average, and the source named on screen. "He wants no mistakes" is answered by
     removing the differences that are mine, not by promising there are none.
 
-38. **Never resolve conflicting inputs silently.** When the quote and the candle disagree
-    on prev close by more than a rounding error, that is a corporate action one feed has
-    applied - it goes on screen in red, with both numbers. Picking one quietly is how a
-    wrong list looks right. And a partial quote (open but no prev close) is ignored
-    entirely rather than half-applied, which would invent a third gap belonging to
-    neither feed.
+38. **Never resolve conflicting inputs silently — and a warning is not a fix.** When the
+    quote and the candle disagree on prev close, that is a corporate action the history
+    has not applied. The first version announced it and carried on, which left the mean
+    comparing an adjusted price against twenty unadjusted closes: a 1:2 split reads as
+    50% below the mean and the name drops off the screen for a non-market reason. The
+    disagreement IS the factor - rescale the series by it, then say what was done. A
+    partial quote (open but no prev close) is ignored entirely rather than half-applied,
+    which would invent a third gap belonging to neither feed.
+
+39. **When he says "no excuses", he means close the loop, not soften it.** Listing what
+    cannot be guaranteed is only honest AFTER everything that can be fixed has been.
+    The remaining "two feeds disagree" caveat turned out to be arithmetic I had not
+    done. Check for the fix before reaching for the caveat.
 
 ---
 

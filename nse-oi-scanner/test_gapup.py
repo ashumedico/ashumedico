@@ -173,14 +173,30 @@ def main():
     check("no conflict flagged when the two agree", withq["prev_close_conflict"] is None,
           "candle prev close is 100.0 and so is the quote")
 
-    split = G.daily_row(bars([200.0] * 25 + [101.6], last_open=100.5),
+    # ---- a corporate action is REPAIRED, not just announced -------------------
+    # History at 200 and a quote at 100 is a 1:2 split the history has not applied.
+    # Leaving it there would compare today's adjusted price against twenty unadjusted
+    # closes: every name would read 50% below its own mean and drop off the screen for a
+    # reason that has nothing to do with the market. The disagreement IS the factor, so
+    # the series is rescaled by it.
+    split_bars = bars([200.0] * 25 + [101.6], last_open=100.5)
+    raw = G.daily_row(split_bars)
+    split = G.daily_row(split_bars,
                         quote={"prev_close": 100.0, "open": 101.5, "ltp": 101.6})
-    check("a prev close the two feeds disagree about is reported, not resolved quietly",
-          bool(split["prev_close_conflict"]),
+    check("without the repair the split would fail the SMA clause",
+          G.passes(raw)[0] is False and abs(raw["sma_prev"] - 200.0) < 1e-9,
+          f"mean {raw['sma_prev']:.2f} against a price of 101.60")
+    check("the mean is rescaled onto the quote's basis",
+          abs(split["sma_prev"] - 100.0) < 1e-9, f"{split['sma_prev']:.2f}")
+    check("the factor is the disagreement itself", split["adjusted_by"] == 0.5)
+    check("and the name then passes, as it should",
+          G.passes(split)[0] is True)
+    check("the repair is stated, not silent", bool(split["prev_close_conflict"]))
+    check("and it names both numbers and the factor",
+          all(x in (split["prev_close_conflict"] or "")
+              for x in ("100.00", "200.00", "0.5000")),
           (split["prev_close_conflict"] or "")[:70])
-    check("and the conflict names both numbers",
-          "100.00" in (split["prev_close_conflict"] or "")
-          and "200.00" in (split["prev_close_conflict"] or ""))
+    check("no rescale when the two agree", "adjusted_by" not in withq)
 
     # a quote with no prev_close is not a quote for this purpose
     half = G.daily_row(cand, quote={"open": 101.5, "ltp": 101.6})

@@ -97,13 +97,29 @@ def daily_row(bars, sma_len=20, quote=None):
         if quote.get("low"):
             row["low"] = float(quote["low"])
         row["source"] = "exchange quote"
+
+        # THE LAST DIFFERENCE, CLOSED.
+        # When the quote and the candle disagree on yesterday's close, the history is on
+        # a different basis from the price - a split or bonus that one feed has applied
+        # and the other has not. Warning about it and carrying on would leave the SMA
+        # comparing today's adjusted price against twenty unadjusted ones, which is not
+        # a smaller error than the gap clause, it is a bigger one: a 1:2 split makes
+        # every name look 50% below its own mean and the clause fails for a reason that
+        # has nothing to do with the market.
+        #
+        # The fix is arithmetic, not a caveat. The disagreement IS the adjustment factor,
+        # so the whole close series is rescaled by it and the mean is computed on the
+        # same basis as the price it will be compared against.
         if candle_pc and abs(row["prev_close"] / candle_pc - 1.0) > PREV_CLOSE_TOLERANCE:
+            factor = row["prev_close"] / candle_pc
+            row["sma_prev"] = sma([c * factor for c in closes[:-1]], sma_len)
+            row["adjusted_by"] = round(factor, 6)
             row["prev_close_conflict"] = (
-                f"quote says prev close {row['prev_close']:.2f}, the daily candle says "
-                f"{candle_pc:.2f} ({(row['prev_close']/candle_pc - 1)*100:+.2f}%) — "
-                f"likely a corporate action one feed has applied and the other has not. "
-                f"The quote is used; the 20-day mean still comes from the candles, so "
-                f"treat this name's SMA clause as unreliable today.")
+                f"history was on a different basis — the quote's previous close is "
+                f"{row['prev_close']:.2f}, the candle's was {candle_pc:.2f} "
+                f"({(factor - 1) * 100:+.2f}%), which is a corporate action this feed's "
+                f"history has not applied. The {sma_len}-day mean has been rescaled by "
+                f"x{factor:.4f} so it is measured on the same basis as the price.")
     return row
 
 

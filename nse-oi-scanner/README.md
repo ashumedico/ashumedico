@@ -89,8 +89,11 @@ is the single biggest reason two screens with identical rules return different n
 20-day mean still comes from daily candles; there is no quote for an average.
 
 If the quote and the candle disagree about the previous close by more than 0.25%, that is
-a corporate action one feed has applied and the other has not. It is shown in red on the
-tab, never resolved quietly — every clause hangs off that number.
+a corporate action the history has not applied — a split or bonus. The disagreement **is**
+the adjustment factor, so the close series is rescaled by it and the mean is computed on
+the same basis as the price it gets compared against. Without that, a 1:2 split makes a
+name read 50% below its own mean and it drops off the screen for a reason that has nothing
+to do with the market. The repair is stated on the tab, with both numbers and the factor.
 
 ### When this list still differs from Chartink's
 It can, and usually at the **band edges**: a 0.98% gap and a 1.02% gap are the same event
