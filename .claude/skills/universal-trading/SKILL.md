@@ -51,7 +51,7 @@ Changing any of these is a conversation, not a code change.
 
 ```bash
 python fyers_auth.py          # 1 - START DAY : token, lot check, check-in
-python checkin.py             # 2 - CHECK-IN  : kya hold, kya book, kya naya
+python checkin.py             # 2 - CHECK-IN  : what to hold / book / buy
 streamlit run desk.py         # 3 - DESK      : the website
 python paper.py --session     # 4 - PAPER LIVE: every candle, hands-free
 ```
@@ -191,6 +191,82 @@ Protecting capital beats catching every move. Log every BLOCK — the blocks are
 7. **Honesty on data (Directive 17).** No feed → say it, run demo, never invent.
 8. **Verify to 92% (Directive 3).** Stress via `@edge-seeker` before calling anything ready.
 9. **One next action (Directive 14).** End every trade brief with a single **Next:** line.
+
+---
+
+---
+
+## LESSONS THAT COST SOMETHING (add to this list, never trim it)
+
+Each of these was a real failure in this codebase. They are here because the same shape
+recurs, and recognising the shape is faster than rediscovering the bug.
+
+1. **Two implementations of one rule will disagree, and you find out live.**
+   The backtest ranked candidates one way and the live selector another - weeks of
+   trading a strategy nobody had tested. Later the card backtest recomputed `abs_trend`
+   in an "obviously equivalent" shorter form; replacing it with the real `build_points`
+   moved the result from −₹446 to +₹997. **Call the function. Never restate it.**
+   `paper.step()` is now the single exit contract, shared by the live loop and the
+   backtest.
+
+2. **A statistical tie-break will pick the wrong column by construction.**
+   The lot parser chose "the column with the most distinct values". Freeze quantity has
+   the same *shape* as lot size but is nearly unique, while lot sizes repeat - so that
+   rule prefers freeze **every time**. MCX came back as 31,181 when its lot is 25.
+   Fixed by an **economic** test: price × lot must land near a ₹5-10 lakh contract.
+   Same trap, smaller: sector "drivers" weighted move × correlation, and a 9% move at
+   r=0.30 still outranked 3% at r=0.85. **Correlation must gate before it weights.**
+
+3. **A poisoned cache never heals itself.** Freeze quantities pass every plausibility
+   check - numeric, varied, in range. Version the cache filename; that is the only thing
+   that guarantees the bad file is not read again.
+
+4. **A swallowed exception turns one fault into two hundred identical lines.**
+   `except: lot = None` made an expired token, a rate limit and a bad symbol print the
+   same message across the whole universe. Show the first error verbatim, and cap
+   fan-out API calls - a broken parse otherwise becomes hundreds of throttled requests.
+
+5. **Say which failure it was.** "The chain gave nothing" and "the chain gave a lot the
+   band rejects" are different facts; the second is the case where the *band* is wrong.
+
+6. **Mirror at the source, not at the display layer.** The short book gets its stop,
+   targets, put intrinsic and premium from `build_card(side="SHORT")`. Assembling a
+   short card in the UI would have priced a put off a call's stop. Every
+   direction-bearing comparison flips: `px <= stop` stops out a fresh put instantly, and
+   a put's high-water mark is its *lowest* print.
+
+7. **Fix the class, not the instance - even when it is unreachable.** The put-marking
+   bug sat behind `TRADE_SHORTS=False`. A flag is one keystroke from real money.
+
+8. **The backtest must obey the same constraints as the account.** `PRODUCT_TYPE` is
+   INTRADAY, so the live engine flattens at 15:15 - a backtest that carried overnight
+   scored trades the account could never have held. Detect intraday from **BAR_MINUTES**
+   (what the engine itself asks), not from "do any dates repeat"; a cycling date series
+   satisfies that and squares off every bar.
+
+9. **Prove no-lookahead by experiment.** Asserting "we sliced with `[:t]`" is not proof.
+   Poison every bar after a cut with noise; the run must be identical to the last rupee.
+
+10. **A control that does nothing is worse than no control**, because it gets trusted.
+    The price band was wired into the actual universe filter the same hour the field
+    appeared.
+
+11. **Never offer a source that cannot answer.** StockCharts covers US/Canada, not NSE -
+    linking it would be a dead link dressed as a feature.
+
+12. **Say what cannot be tested.** OI buildup and fundamental watchlists have no
+    historical series here, so they are permanently NOT TESTED - not passed, not failed.
+    Sector strength and the scorecard *weighting* are the same.
+
+13. **Empty is an answer. Zero is a different claim.** An empty heatmap means "no data";
+    0.00% means "did not move". Never render the second when you have the first.
+
+14. **Screenshot the UI instead of assuming it.** That is what caught the wordmark being
+    clipped - a glow renders above the cap height and the container silently cuts it.
+
+15. **Language: the chat is Hinglish, the product is English.** Code, commits, the
+    website and any MLR/UCPMP content stay English. A half-translated screen reads as
+    careless.
 
 ---
 

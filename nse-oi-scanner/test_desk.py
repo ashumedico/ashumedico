@@ -55,11 +55,13 @@ def main():
     b = html(at, 'class="banner')
     check("status banner rendered", bool(b), b[0][:90] if b else "missing")
     check("banner states a verdict",
-          bool(b) and ("Trend Identified" in b[0] or "Koi trend nahi" in b[0]
+          bool(b) and ("Trend Identified" in b[0] or "No trend" in b[0]
                        or "Partial" in b[0]))
 
-    r = html(at, 'class="ribbon"')
+    r = html(at, 'class="ribbon')
     check("ribbon rendered with the name", bool(r) and "Spot" in r[0])
+    check("HUD frame is on the ribbon", bool(r) and "hud" in r[0])
+    check("selected name carries a targeting reticle", bool(r) and "reticle" in r[0])
 
     s = html(at, "SCENARIO ANALYSIS")
     check("scenario strip names the rules used",
@@ -154,6 +156,51 @@ def main():
     rule = src.split(".disclaim {", 1)[-1].split("}", 1)[0]
     check("the disclaimer bar is pink, not red",
           "#FF2D8A" in rule and "#FF8FC5" in rule, rule[:70].replace("\n", " "))
+
+    # ---- sector drivers ----
+    # The two-column heatmap cannot render in demo (no sector feed), so the function
+    # behind it is tested directly rather than left to be discovered live.
+    ns2 = {"st": None, "__name__": "_deskfns2"}
+    # slice from the CONSTANT, not the def - drivers() reads DRIVER_MIN_R, and starting
+    # at "def" leaves it undefined in the exec namespace
+    exec(compile(src[src.index("DRIVER_MIN_R ="):src.index("try:\n    hm = SEC.heatmap()")],
+                 DESK, "exec"), ns2, ns2)
+    cmap = {"NIFTY IT": [{"name": "A", "corr": 0.9}, {"name": "B", "corr": 0.3},
+                         {"name": "C", "corr": 0.8}, {"name": "D", "corr": 0.85}]}
+    by = {"A": {"abs_pct": 2.0}, "B": {"abs_pct": 9.0},
+          "C": {"abs_pct": -4.0}, "D": {"abs_pct": 3.0}}
+    up = ns2["drivers"]("NIFTY IT", +1, cmap, by)
+    check("drivers only lists names moving WITH the sector",
+          [d["name"] for d in up] == ["D", "A"],
+          f"{[d['name'] for d in up]}")
+    check("a big move in a name that barely tracks the sector does not lead",
+          "B" not in [d["name"] for d in up],
+          "B moved 9% at r=0.3 - that is B's story, not the sector's")
+    dn = ns2["drivers"]("NIFTY IT", -1, cmap, by)
+    check("the declining side lists the fallers", [d["name"] for d in dn] == ["C"])
+    check("an unknown sector yields nothing, not an error",
+          ns2["drivers"]("NOPE", +1, cmap, by) == [])
+
+    # ---- the page is in English ----
+    # The chat is Hinglish; the website is not. A half-translated screen is worse than
+    # either language on its own - the reader stops trusting that the words were chosen
+    # rather than left over. This scans the strings that reach the page.
+    import re as _re
+    HINGLISH = _re.compile(
+        r"\b(nahi|naam|hai|hoon|kar(o|na|ke)?|chala(o|na)?|jeete|khaali|khule|"
+        r"mein|kya|koi|abhi|purani|sabse|pehle|dekh|bata|jhooth|matlab|wo|ye|"
+        r"raha|rahe|aaya|aaj|upar|neeche|haan|thoda|zyada)\b", _re.I)
+    # "band" is deliberately NOT in that list: price band, confidence band and the F&O
+    # band are all English here, and a checker that cries wolf gets switched off.
+    lit = _re.findall(r'"([^"\n]{14,})"', src) + _re.findall(r"'([^'\n]{14,})'", src)
+    # skip code-ish literals: selectors, css, module paths, keys
+    def _uiish(t):
+        if any(x in t for x in ("data-testid", "px", "rgba(", "#", "<", "/", "_", "=")):
+            return False
+        return " " in t
+    leftovers = sorted({t for t in lit if _uiish(t) and HINGLISH.search(t)})
+    check("no Hinglish left on the page", not leftovers,
+          "; ".join(leftovers[:3])[:160] if leftovers else "")
 
     # a source that cannot show NSE names must not be offered as one
     # StockCharts covers US/Canada, not NSE India. Offering it would be a dead link
