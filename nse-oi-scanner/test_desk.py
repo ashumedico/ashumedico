@@ -105,12 +105,16 @@ def main():
     # One namespace for globals AND locals: with two, the functions defined here get the
     # first dict as their globals and cannot see each other - make_fig would not find
     # touches, which is exactly what happened.
-    ns = {"st": None, "__name__": "_deskfns"}
+    # make_fig now draws from the palette, so the namespace it is exec'd into needs one.
+    # That dependency is the point: a chart that hard-codes its candle colours cannot be
+    # restyled with the rest of the page.
+    import theme as TH
+    ns = {"st": None, "__name__": "_deskfns", "T": TH.get()}
     exec(compile(src[src.index("def touches("):src.index("@st.dialog")], DESK, "exec"),
          ns, ns)
     bars_ = [[i, 100 + i, 102 + i, 98 + i, 101 + i, 1000] for i in range(40)]
     feat = {"r1": 130.0, "r2": 140.0, "s1": 95.0, "s2": 90.0, "atr": 2.0}
-    plan = [("STOP", 96.0, "#FF2D8A"), ("T1", 125.0, "#00E5FF")]
+    plan = [("STOP", 96.0, TH.get()["down"]), ("T1", 125.0, TH.get()["up"])]
     fig = ns["make_fig"]("X", [b[4] for b in bars_], bars_, ["d"] * 40, feat, plan)
     shapes = getattr(fig.layout, "shapes", ()) or ()
     check("chart draws all four levels plus the trade plan",
@@ -120,42 +124,39 @@ def main():
           all(k in texts for k in ("R1", "R2", "S1", "S2", "STOP", "T1")))
     check("levels carry their touch count", "x" in texts)
 
-    # ---- the palette: three neons on black, and nothing else ----
-    # A stray colour is not a cosmetic slip. Every colour on this page is a claim - blue
-    # says up, pink says down, green says look here - so a fourth one is a claim nobody
-    # can read. This catches an old hex creeping back in through a copied line.
+    # ---- the palette: named meanings, not hex codes ----
+    # Every colour on this page is a CLAIM - up, down, attention, accent - so a fifth
+    # one is a claim nobody can read. The palette moved three times (GitHub dark, three
+    # neons, Claude paper) and each move left orphans behind, because a sweep for hexes
+    # cannot see an rgba(). So the rule is now structural: the page asks theme.py for a
+    # meaning and never writes a colour of its own.
     import re as _re
+    # HEX **AND** rgba(). The last palette change missed the heatmap because its greens
+    # were written as rgba() and a hex sweep is blind to those - so the check that was
+    # meant to catch orphans created one. Both notations, or neither is worth running.
     hexes = set(h.upper() for h in _re.findall(r"#[0-9a-fA-F]{6}", src))
-    OLD = {"#3FB950", "#56D364", "#F85149", "#FF7B72", "#D29922", "#E3B341",
-           "#58A6FF", "#0D2B18", "#3D1519", "#0B0F14", "#161B22"}
-    check("no pre-neon colours left", not (hexes & OLD), f"{sorted(hexes & OLD)}")
+    rgbas = set(_re.findall(r"rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+", src))
+    check("desk.py contains no hard-coded colours at all", not hexes,
+          f"{sorted(hexes)[:4]} — a colour here is a meaning the theme cannot restyle")
+    check("...and none written as rgba() either", not rgbas,
+          f"{sorted(rgbas)[:3]} — the notation a hex sweep cannot see")
+    check("it takes its palette from theme.py", "TH.css(T)" in src and "import theme" in src)
 
-    def _hue(h):
-        r, g, b = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)
-        if max(r, g, b) < 60:
-            return "black"                      # surfaces
-        if b >= r and b >= g:
-            return "blue"
-        if g > r and g > b:
-            return "green"
-        if r >= g and r >= b:
-            return "pink"
-        return "other"
-    fams = {}
-    for h in hexes:
-        fams.setdefault(_hue(h), []).append(h)
-    check("only black, blue, green and pink are used",
-          not (set(fams) - {"black", "blue", "green", "pink"}),
-          f"{ {k: len(v) for k, v in sorted(fams.items())} }")
+    for name in ("claude", "neon"):
+        T = TH.get(name)
+        missing = [k for k in ("bg", "panel", "ink", "muted", "line", "accent",
+                               "up", "down", "attn") if not T.get(k)]
+        check(f"palette '{name}' defines every meaning", not missing, str(missing))
+        css = TH.css(T)
+        check(f"palette '{name}' builds a stylesheet with no leftover token",
+              "{T[" not in css and "<style>" in css)
 
-    # up must never be pink and down must never be blue - the swap he asked for is the
-    # whole point, and getting it backwards is worse than not doing it
-    check("candles: up is blue, down is pink",
-          'increasing_line_color="#00E5FF"' in src
-          and 'decreasing_line_color="#FF2D8A"' in src)
-    rule = src.split(".disclaim {", 1)[-1].split("}", 1)[0]
-    check("the disclaimer bar is pink, not red",
-          "#FF2D8A" in rule and "#FF8FC5" in rule, rule[:70].replace("\n", " "))
+    # the semantics he set: up must never be the down colour, and vice versa
+    C = TH.get("claude")
+    check("up and down are different colours", C["up"] != C["down"])
+    check("candles are drawn from the palette, not from a literal",
+          'increasing_line_color=T["up"]' in src
+          and 'decreasing_line_color=T["down"]' in src)
 
     # ---- sector drivers ----
     # The two-column heatmap cannot render in demo (no sector feed), so the function

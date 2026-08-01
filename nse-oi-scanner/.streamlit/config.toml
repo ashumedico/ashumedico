@@ -1,12 +1,12 @@
-# Three neons on black. Blue = up / pass, pink = down / fail, green = attention.
-# Nothing else gets a colour, so a colour on this screen always means something.
+# Generated to match theme.py — change THEME in config.py, not this file.
+# Four meanings carry colour: up, down, attention, accent. A fifth is a bug.
 [theme]
-base                     = "dark"
-primaryColor             = "#39FF14"
-backgroundColor          = "#04060A"
-secondaryBackgroundColor = "#080C12"
-textColor                = "#D5E6F2"
-font                     = "monospace"
+base                     = "light"
+primaryColor             = "#D97757"
+backgroundColor          = "#FAF9F5"
+secondaryBackgroundColor = "#F2F0E9"
+textColor                = "#1F1E1D"
+font                     = "serif"
 
 [browser]
 gatherUsageStats = false

@@ -25,331 +25,6 @@ import streamlit as st
 st.set_page_config(page_title="AASHISH · Trading Desk", layout="wide",
                    page_icon="📈", initial_sidebar_state="expanded")
 
-st.markdown("""
-<style>
-  /* ===================================================================== */
-  /*  Three neons on black. Blue = up / pass. Pink = down / fail.           */
-  /*  Green = attention, headers, borders. Nothing else gets a colour, so   */
-  /*  a colour on this screen always means something.                       */
-  /* ===================================================================== */
-  .stApp {background:#04060A;}
-  /* faint grid, the way a terminal sits on one. Fixed, so it does not      */
-  /* scroll with content and turn into visual noise.                        */
-  .stApp::before {content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
-      background-image:
-        linear-gradient(rgba(57,255,20,.030) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(57,255,20,.030) 1px, transparent 1px);
-      background-size: 44px 44px;}
-  /* ONE LANDSCAPE PAGE, 21 inches.
-     The cap was 1500px, so a 1920 screen threw away a fifth of its width and then made
-     up for it by scrolling - the worst trade available. Full width, tight vertical
-     rhythm, and the type size left alone: on a trading screen you shrink the margins,
-     never the numbers. */
-  .block-container {padding: .55rem 1.1rem 3.2rem 1.1rem; max-width: 100%;
-                    position:relative; z-index:1;}
-  /* Streamlit's own toolbar is a FIXED bar ~45px tall, and the default top padding of
-     the container exists to clear it. Cutting that padding without removing the bar put
-     the wordmark and the scan button underneath it - a screenshot showed a blank strip
-     where the header should be, while AppTest happily reported both elements present.
-     Rendered and visible are different claims. The toolbar carries Deploy and a menu
-     neither of which this desk uses, so it goes, and its 45px go to the page. */
-  [data-testid="stHeader"] {display:none;}
-  [data-testid="stToolbar"] {display:none;}
-  /* Streamlit's default gaps are generous for documents and wasteful for a desk */
-  [data-testid="stVerticalBlock"] {gap: .32rem;}
-  [data-testid="stHorizontalBlock"] {gap: .55rem;}
-  [data-testid="stElementContainer"]:has(> .stMarkdown p:empty) {display:none;}
-  hr {margin: .45rem 0;}
-
-  /* tabs: the five screens. Each one is meant to fit without scrolling. */
-  [data-testid="stTabs"] [data-baseweb="tab-list"] {gap:2px; background:#080C12;
-      border:1px solid #14202C; border-radius:5px; padding:3px;}
-  [data-testid="stTabs"] [data-baseweb="tab"] {height:30px; background:transparent;
-      color:#4E6072; font-family: ui-monospace, Consolas, monospace; font-size:.7rem;
-      font-weight:800; letter-spacing:1.3px; border-radius:3px; padding:0 14px;}
-  [data-testid="stTabs"] [aria-selected="true"] {background:#00222B; color:#00E5FF;
-      box-shadow:0 0 14px rgba(0,229,255,.25);}
-  [data-testid="stTabs"] [data-baseweb="tab-highlight"],
-  [data-testid="stTabs"] [data-baseweb="tab-border"] {display:none;}
-
-  /* numbers are monospace everywhere - a price that shifts width as it     */
-  /* ticks is harder to read at a glance than one that does not.            */
-  [data-testid="stMetricValue"] {font-size: 1.35rem; color:#D5E6F2;
-      font-family: ui-monospace, Consolas, "SF Mono", monospace;
-      text-shadow: 0 0 14px rgba(0,229,255,.30);}
-  [data-testid="stMetricLabel"] {font-size: .72rem; color: #4E6072; letter-spacing:.4px;
-                                 text-transform: uppercase;}
-  [data-testid="stMetricDelta"] {font-family: ui-monospace, Consolas, monospace;}
-
-  code, pre, .stCode {background:#080C12 !important; border:1px solid #14202C;
-      color:#39FF14 !important;}
-  ::selection {background:#39FF14; color:#04060A;}
-
-  /* buttons read as terminal keys, and light up on hover */
-  .stButton > button {background:#080C12; color:#5CF2FF; border:1px solid #0A6675;
-      border-radius:4px; font-weight:700; letter-spacing:.6px; font-size:.74rem;
-      text-transform:uppercase; transition:all .12s ease;
-      /* a live ticket stacks three button rows; the default height put two tickets a
-         side past one screen on their own */
-      padding:.18rem .55rem; min-height:0; line-height:1.5;}
-  .stButton > button:hover {border-color:#39FF14; color:#39FF14;
-      box-shadow:0 0 12px rgba(57,255,20,.35); background:#0A0E14;}
-  .stButton > button[kind="primary"] {background:#00222B; color:#00E5FF;
-      border-color:#00E5FF; box-shadow:0 0 14px rgba(0,229,255,.28);}
-
-  /* tables: black rows, neon rules */
-  [data-testid="stDataFrame"] {border:1px solid #14202C; border-radius:6px;}
-  [data-testid="stDataFrame"] * {font-family: ui-monospace, Consolas, monospace !important;}
-
-  /* the pill tags used for mode / state */
-  .tag {display:inline-block; padding:3px 10px; border-radius:3px; margin-right:6px;
-        font-size:.71rem; font-weight:700; letter-spacing:.8px;
-        font-family: ui-monospace, Consolas, monospace;}
-  .ok   {background:#00222B; color:#00E5FF; border:1px solid #0A6675;}
-  .warn {background:#0A2B05; color:#39FF14; border:1px solid #1E6610;}
-  .bad  {background:#2B0016; color:#FF2D8A; border:1px solid #7A0B3D;}
-  .muted{background:#0A0E14; color:#4E6072; border:1px solid #14202C;}
-
-  /* green status banner - the one-line "is this thing trending" read */
-  .banner {padding:11px 16px; border-radius:4px; font-weight:700; font-size:.92rem;
-           margin:.35rem 0 .8rem 0; display:flex; align-items:center; gap:10px;
-           letter-spacing:.6px; font-family: ui-monospace, Consolas, monospace;}
-  .banner-ok  {background:#00222B; color:#5CF2FF; border:1px solid #00E5FF;
-               box-shadow:0 0 18px rgba(0,229,255,.22) inset, 0 0 10px rgba(0,229,255,.18);}
-  .banner-mid {background:#0A2B05; color:#7CFF5E; border:1px solid #39FF14;
-               box-shadow:0 0 18px rgba(57,255,20,.20) inset;}
-  .banner-bad {background:#2B0016; color:#FF6BB0; border:1px solid #FF2D8A;
-               box-shadow:0 0 18px rgba(255,45,138,.20) inset;}
-
-  /* blue ribbon carrying the live numbers for the selected name */
-  .ribbon {background:linear-gradient(90deg,#00131A 0%,#002230 60%,#00131A 100%);
-           border:1px solid #0A6675; border-radius:4px; padding:10px 16px;
-           box-shadow:0 0 22px rgba(0,229,255,.10);
-           display:flex; flex-wrap:wrap; gap:26px; align-items:center; margin-bottom:.9rem;}
-  .rb-k {color:#4DE8FF; font-size:.66rem; letter-spacing:.6px; text-transform:uppercase;}
-  .rb-v {color:#D5E6F2; font-size:1.02rem; font-weight:700;
-         font-family: ui-monospace, Consolas, monospace;}
-  .up   {color:#5CF2FF;} .dn {color:#FF6BB0;}
-
-  /* the "SCENARIO ANALYSIS [...] — rules used" strip */
-  .scen {background:#080C12; border-left:3px solid #39FF14; border-radius:4px;
-         padding:9px 14px; font-size:.8rem; color:#8FA9BF; margin:.2rem 0 .7rem 0;
-         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
-
-  .sec {font-size:.72rem; letter-spacing:2px; text-transform:uppercase; color:#39FF14;
-        border-bottom:1px solid #14202C; padding-bottom:4px; margin:.5rem 0 .45rem 0;
-        font-family: ui-monospace, Consolas, monospace;
-        text-shadow:0 0 12px rgba(57,255,20,.40);}
-  .sec::before {content:"> "; color:#1E6610;}
-
-  /* --- command deck: heatmap tiles, radar badges, trade cards --- */
-  .hm {border-radius:4px; padding:10px 13px; margin-bottom:8px; position:relative;
-       border:1px solid #14202C; transition:border-color .12s ease;}
-  .hm:hover {border-color:#39FF14;}
-  .hm-n {font-size:.68rem; letter-spacing:1.1px; color:#B8CEE0; text-transform:uppercase;
-         font-weight:700;}
-  .hm-p {font-size:1.5rem; font-weight:800; font-family:ui-monospace,Consolas,monospace;
-         text-shadow:0 0 16px currentColor;}
-  .hm-r {position:absolute; top:8px; right:11px; font-size:.62rem; color:#3E5060;}
-  .hm-t {font-size:.6rem; letter-spacing:1.4px; font-weight:800;}
-
-  .badge {display:inline-block; padding:5px 12px; border-radius:3px; margin:0 7px 7px 0;
-          font-size:.7rem; font-weight:800; letter-spacing:1px;
-          font-family: ui-monospace, Consolas, monospace;
-          text-shadow:0 0 10px currentColor;}
-  .b-up   {background:#00222B; color:#5CF2FF; border:1px solid #0A6675;}
-  .b-dn   {background:#2B0016; color:#FF6BB0; border:1px solid #7A0B3D;}
-  .b-turn {background:#0A2B05; color:#7CFF5E; border:1px solid #1E6610;}
-  .b-bnc  {background:#00222B; color:#22D3EE; border:1px solid #0A6675;}
-  .b-none {background:#0A0E14; color:#4E6072; border:1px solid #14202C;}
-
-  /* ---- the order ticket: broker-app hierarchy, terminal palette ----
-     One number dominates (what you pay), one action is primary, everything else is
-     secondary and quiet. Roomy on purpose - a confirm sheet that has to be readable
-     cannot live in a crushed column. */
-  .ticket {background:#080C12; border:1px solid #14202C; border-radius:6px;
-           padding:8px 12px 7px; margin-bottom:4px;}
-  .tk-head {display:flex; align-items:center; gap:10px; margin-bottom:5px;}
-  .tk-name {font-size:1.02rem; font-weight:800; color:#D5E6F2; letter-spacing:1.4px;
-            font-family: ui-monospace, Consolas, monospace;}
-  .tk-grade {font-size:.7rem; font-weight:800; color:#7CFF5E; margin-left:auto;
-             font-family: ui-monospace, Consolas, monospace;}
-  /* the verdict was a grid cell, and "WAIT FOR PULLBACK" wrapped to two lines and grew
-     every ticket by a row. It is one chip in the head now, and it does not wrap. */
-  .tk-act {font-size:.6rem; font-weight:800; letter-spacing:1px; padding:2px 7px;
-           border-radius:3px; background:#0A0E14; color:#7CFF5E; border:1px solid #1E6610;
-           white-space:nowrap; font-family: ui-monospace, Consolas, monospace;}
-  .tk-big {font-size:1.6rem; font-weight:800; letter-spacing:1px; line-height:1.25;
-           font-family: ui-monospace, Consolas, monospace; padding:0 0 3px;
-           text-shadow:0 0 18px currentColor;}
-  .tk-sub {font-size:.7rem; font-weight:600; color:#4E6072; letter-spacing:.3px;
-           text-shadow:none;}
-  /* AUTO-FIT, not a fixed six. The ticket carried 11 cells; the buyer's own numbers -
-     event risk, IV vs realised, theta, delta, spread, strike OI - took it to 17, and a
-     hard six-column grid turned that into a third row on every ticket. Packing to the
-     width available keeps it at two. */
-  .tk-grid {display:grid; grid-template-columns:repeat(auto-fit, minmax(84px, 1fr));
-            gap:5px 10px;
-            margin-top:5px; font-family: ui-monospace, Consolas, monospace;
-            font-size:.78rem; color:#D5E6F2;}
-  .tk-grid b {display:block; color:#3E5060; font-weight:600; font-size:.62rem;
-              letter-spacing:.8px; text-transform:uppercase; margin-bottom:1px;}
-
-  .card {background:#080C12; border:1px solid #14202C; border-left:3px solid #00E5FF;
-         border-radius:4px; padding:11px 15px; margin-bottom:9px;
-         transition:box-shadow .12s ease;}
-  .card:hover {box-shadow:0 0 18px rgba(0,229,255,.16);}
-  .card-h {display:flex; align-items:center; gap:10px; margin-bottom:6px;}
-  .side {font-size:.64rem; font-weight:800; letter-spacing:1.2px; padding:3px 9px;
-         border-radius:3px; background:#00222B; color:#5CF2FF;
-         font-family: ui-monospace, Consolas, monospace;}
-  .grade {font-size:.72rem; font-weight:800; color:#7CFF5E;}
-  .card-n {font-size:1.02rem; font-weight:800; color:#D5E6F2; letter-spacing:1.2px;
-           font-family: ui-monospace, Consolas, monospace;}
-  .lv {display:flex; flex-wrap:wrap; gap:20px; font-family:ui-monospace,Consolas,monospace;
-       font-size:.82rem;}
-  .lv b {color:#3E5060; font-weight:600; font-size:.66rem; letter-spacing:.6px;
-         text-transform:uppercase; display:block;}
-
-  /* the wordmark - his desk, with his name on it */
-  /* A glow spreads in every direction, including above the cap height, so the letters
-     need vertical room of their own - the container will happily clip whatever sticks
-     out. line-height does that; padding alone did not, because the line box itself was
-     still only as tall as the text. */
-  .mark {display:flex; align-items:baseline; gap:10px; margin:0; padding:2px 0;
-         overflow:visible;}
-  .mark-name {font-size:1.5rem; font-weight:800; letter-spacing:5px;
-              font-family: ui-monospace, Consolas, monospace; color:#39FF14;
-              line-height:1.5; display:inline-block; padding:2px 0;
-              /* the RGB split stays horizontal; the soft halo is kept tight so it does
-                 not need more headroom than the line box has */
-              text-shadow: 0 0 6px rgba(57,255,20,.80),
-                           2px 0 0 rgba(255,45,138,.50),
-                          -2px 0 0 rgba(0,229,255,.50);}
-  .mark-sub {font-size:.82rem; color:#3E5060; letter-spacing:2.6px;
-             text-transform:uppercase;}
-
-  /* the disclaimer the reference keeps nailed to the bottom, and so does this */
-  .disclaim {position:fixed; left:0; right:0; bottom:0; z-index:99;
-             background:#2B0016; color:#FF8FC5; border-top:1px solid #FF2D8A;
-             text-align:center; padding:7px 10px; font-size:.74rem; font-weight:700;
-             letter-spacing:.6px; font-family: ui-monospace, Consolas, monospace;
-             box-shadow:0 0 22px rgba(255,45,138,.30);}
-  section[data-testid="stSidebar"] {border-right:1px solid #14202C; background:#06090E;}
-
-  /* ===================================================================== */
-  /*  SWAT KATS HUD                                                        */
-  /*  Borrowed from the Turbokat cockpit, not from its colours: angular cut */
-  /*  corners, corner brackets, a radar block, hazard stripes on an alert,  */
-  /*  and a targeting reticle on whatever is selected. The palette stays    */
-  /*  the three neons - a fourth colour would be a meaning nobody defined.  */
-  /*  Decoration never covers a number; every frame here sits behind one.   */
-  /* ===================================================================== */
-
-  /* angular corners, the way a cockpit panel is cut */
-  .hud {position:relative; clip-path: polygon(
-        14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);}
-  /* corner brackets - drawn, not an image, so they scale with the panel */
-  .hud::before, .hud::after {content:""; position:absolute; width:16px; height:16px;
-        pointer-events:none;}
-  .hud::before {top:0; right:0; border-top:2px solid #39FF14; border-right:2px solid #39FF14;}
-  .hud::after  {bottom:0; left:0; border-bottom:2px solid #39FF14; border-left:2px solid #39FF14;}
-
-  /* the radar block on the scan strip */
-  /* the status strip: one line, pills, no wrapping. Scrolls sideways rather than
-     growing a second row - a header that changes height moves the whole page. */
-  .strip {display:flex; align-items:center; gap:7px; overflow-x:auto; padding:3px 0;
-          font-family: ui-monospace, Consolas, monospace; white-space:nowrap;}
-  .strip > span {display:inline-flex; align-items:baseline; gap:6px; padding:4px 10px;
-          border:1px solid #14202C; border-radius:3px; background:#080C12;}
-  .strip i {font-style:normal; font-size:.6rem; letter-spacing:1.2px; color:#3E5060;}
-  .strip b {font-size:.82rem; font-weight:800; color:#5CF2FF; letter-spacing:.6px;}
-  .strip .radar-dish {flex:none; display:inline-block; width:18px; height:18px;}
-  /* the verdict, folded into the same line as the numbers that justify it */
-  .verdict {font-size:.72rem; font-weight:800; letter-spacing:.6px; padding:5px 12px;
-            border-radius:3px; font-family: ui-monospace, Consolas, monospace;}
-  .verdict.banner-ok  {background:#00222B; color:#5CF2FF; border:1px solid #00E5FF;}
-  .verdict.banner-mid {background:#0A2B05; color:#7CFF5E; border:1px solid #39FF14;}
-  .verdict.banner-bad {background:#2B0016; color:#FF6BB0; border:1px solid #FF2D8A;}
-
-  .radar {display:flex; align-items:center; gap:10px; padding:6px 12px;
-          border:1px solid #14202C; border-radius:3px; background:#080C12;
-          font-family: ui-monospace, Consolas, monospace; font-size:.68rem;
-          color:#4E6072; letter-spacing:1.4px;}
-  .radar-dish {width:22px; height:22px; border-radius:50%; position:relative;
-        border:1px solid #1E6610; box-shadow:0 0 10px rgba(57,255,20,.25) inset;}
-  .radar-dish::after {content:""; position:absolute; inset:0; border-radius:50%;
-        background: conic-gradient(from 0deg, rgba(57,255,20,.55), transparent 70deg);
-        animation: sweep 2.4s linear infinite;}
-  @keyframes sweep {to {transform: rotate(360deg);}}
-  .radar b {color:#39FF14; font-weight:800;}
-
-  /* hazard stripes - only ever used for a state that stops trading */
-  .hazard {margin:.2rem 0 .8rem 0; border:1px solid #FF2D8A; border-radius:3px;
-           padding:9px 14px; font-family: ui-monospace, Consolas, monospace;
-           font-weight:800; letter-spacing:2px; font-size:.78rem; color:#FF6BB0;
-           background: repeating-linear-gradient(45deg,
-                 #2B0016 0 14px, #3A001F 14px 28px);
-           box-shadow:0 0 20px rgba(255,45,138,.25);}
-
-  /* targeting reticle on the selected name */
-  .reticle {position:relative; padding-left:22px;}
-  .reticle::before {content:""; position:absolute; left:0; top:50%; width:13px; height:13px;
-        margin-top:-7px; border:1px solid #39FF14; border-radius:50%;
-        box-shadow:0 0 8px rgba(57,255,20,.6);}
-  .reticle::after {content:""; position:absolute; left:6px; top:50%; width:1px; height:19px;
-        margin-top:-10px; background:#39FF14; opacity:.55;}
-
-  /* callsign tag for the deck sub-blocks */
-  .callsign {display:inline-block; font-family: ui-monospace, Consolas, monospace;
-        font-size:.64rem; letter-spacing:2.4px; font-weight:800; color:#39FF14;
-        border-left:3px solid #39FF14; padding:1px 0 1px 8px; margin:.2rem 0 .5rem 0;
-        text-shadow:0 0 10px rgba(57,255,20,.45);}
-
-  /* Streamlit's own alert colours are its palette, not this one - an olive warning box
-     next to neon pink and blue reads as a fourth meaning nobody defined. Repainted so
-     error=pink, warning=green, info/success=blue, same as everywhere else. */
-  [data-testid="stAlert"] {border-radius:4px; border-width:1px; border-style:solid;
-      font-family: ui-monospace, Consolas, monospace; font-size:.84rem;}
-  [data-testid="stAlert"] p {font-family: ui-monospace, Consolas, monospace;}
-  [data-testid="stAlertContentError"], div[data-baseweb="notification"][kind="negative"] {
-      background:#2B0016 !important; color:#FF6BB0 !important; border-color:#FF2D8A !important;}
-  [data-testid="stAlertContentWarning"] {
-      background:#0A2B05 !important; color:#7CFF5E !important; border-color:#39FF14 !important;}
-  [data-testid="stAlertContentInfo"] {
-      background:#00222B !important; color:#5CF2FF !important; border-color:#0A6675 !important;}
-  [data-testid="stAlertContentSuccess"] {
-      background:#00222B !important; color:#00E5FF !important; border-color:#00E5FF !important;}
-  /* The fill lives on a nested div, not on the alert itself, so setting the wrapper
-     alone leaves Streamlit's maroon and olive showing through the middle. Paint the
-     wrapper AND everything inside it. */
-  [data-testid="stAlert"]:has([data-testid="stAlertContentError"]),
-  [data-testid="stAlert"]:has([data-testid="stAlertContentError"]) > div,
-  [data-testid="stAlert"]:has([data-testid="stAlertContentError"]) div[data-baseweb="notification"] {
-      background:#2B0016 !important; border-color:#FF2D8A !important; color:#FF6BB0 !important;}
-  [data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]),
-  [data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) > div,
-  [data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) div[data-baseweb="notification"] {
-      background:#0A2B05 !important; border-color:#39FF14 !important; color:#7CFF5E !important;}
-  [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]),
-  [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div,
-  [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) div[data-baseweb="notification"] {
-      background:#00222B !important; border-color:#0A6675 !important; color:#5CF2FF !important;}
-  [data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]),
-  [data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) > div,
-  [data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) div[data-baseweb="notification"] {
-      background:#00222B !important; border-color:#00E5FF !important; color:#00E5FF !important;}
-  /* the icon svg inherits, so it stops being Streamlit red too */
-  [data-testid="stAlert"] svg {fill:currentColor !important; color:inherit !important;}
-
-  /* inputs and the select box, so the rail matches the rest */
-  [data-baseweb="select"] > div, .stTextInput input, .stNumberInput input {
-      background:#080C12 !important; border-color:#14202C !important; color:#D5E6F2 !important;
-      font-family: ui-monospace, Consolas, monospace !important;}
-  [data-baseweb="select"] > div:hover {border-color:#39FF14 !important;}
-  .stRadio label, .stCheckbox label {font-family: ui-monospace, Consolas, monospace;}
-</style>
-""", unsafe_allow_html=True)
 
 try:
     import config
@@ -359,6 +34,17 @@ except ImportError:
     config = _C()
 
 DEMO = not os.path.exists(getattr(config, "TOKEN_FILE", "access_token.txt"))
+
+# ------------------------------------------------------------------- look --
+# The palette lives in theme.py as NAMED tokens, not as hex codes scattered through this
+# file. It has changed three times - a GitHub dark, three neons on black, now Claude's
+# warm paper - and each time a few colours were missed because a sweep for hexes cannot
+# see an rgba(). The page now asks for MEANING (`T["up"]`) and the palette answers.
+import theme as TH
+
+_pal = st.query_params.get("theme") if hasattr(st, "query_params") else None
+T = TH.get(_pal or getattr(config, "THEME", TH.DEFAULT))
+st.markdown(TH.css(T), unsafe_allow_html=True)
 
 
 def tag(text, kind="muted"):
@@ -554,26 +240,26 @@ def make_fig(name, closes, bars_, dates_, feat, plan=None, height=330):
                             name=name,
                             # up is blue, down is pink - the same two colours the rest
                             # of the page uses, so a candle means what a number means
-                            increasing_line_color="#00E5FF",
-                            increasing_fillcolor="#00E5FF",
-                            decreasing_line_color="#FF2D8A",
-                            decreasing_fillcolor="#FF2D8A")
+                            increasing_line_color=T["up"],
+                            increasing_fillcolor=T["up"],
+                            decreasing_line_color=T["down"],
+                            decreasing_fillcolor=T["down"])
         try:
             import indicators as I
             vwl = I.vwap_session(bars_, (dates_ or [""] * len(bars_))[-len(bars_):])
             fig.add_scatter(x=list(range(len(bars_))), y=vwl, name="VWAP",
-                            line=dict(color="#39FF14", width=2))   # accent, not a signal
+                            line=dict(color=T["accent"], width=2))   # accent, not a signal
         except Exception:
             pass
     else:
         c = closes or []
         fig.add_scatter(x=list(range(len(c))), y=c, name=name,
-                        line=dict(color="#39FF14"))
+                        line=dict(color=T["accent"]))
     atr = feat.get("atr")
-    for nm, lvl, col in (("R2", feat.get("r2"), "#FF2D8A"),
-                         ("R1", feat.get("r1"), "#FF2D8A"),
-                         ("S1", feat.get("s1"), "#00E5FF"),
-                         ("S2", feat.get("s2"), "#00E5FF")):
+    for nm, lvl, col in (("R2", feat.get("r2"), T["down"]),
+                         ("R1", feat.get("r1"), T["down"]),
+                         ("S1", feat.get("s1"), T["up"]),
+                         ("S2", feat.get("s2"), T["up"])):
         if not lvl:
             continue
         n = touches(bars_, lvl, atr)
@@ -587,12 +273,16 @@ def make_fig(name, closes, bars_, dates_, feat, plan=None, height=330):
                           annotation_text=f"  {nm}", annotation_position="left",
                           annotation_font=dict(color=col, size=10))
     fig.update_layout(height=height, margin=dict(l=8, r=70, t=10, b=8),
-                      xaxis_rangeslider_visible=False, template="plotly_dark",
-                      paper_bgcolor="#04060A", plot_bgcolor="#04060A",
+                      xaxis_rangeslider_visible=False,
+                      # the chart follows the palette too - a neon-green gridline on
+                      # warm paper is exactly the orphan a hex sweep cannot see, which
+                      # is how the heatmap kept its old colours through the last change
+                      template=("plotly_dark" if T["base"] == "dark" else "plotly_white"),
+                      paper_bgcolor=T["bg"], plot_bgcolor=T["bg"],
                       font=dict(family="ui-monospace, Consolas, monospace",
-                                color="#8FA9BF", size=11),
-                      xaxis=dict(gridcolor="rgba(57,255,20,.07)", zeroline=False),
-                      yaxis=dict(gridcolor="rgba(57,255,20,.07)", zeroline=False),
+                                color=T["muted"], size=11),
+                      xaxis=dict(gridcolor=T["line"], zeroline=False),
+                      yaxis=dict(gridcolor=T["line"], zeroline=False),
                       showlegend=False)
     return fig
 
@@ -623,7 +313,7 @@ def _armed_key(k):
 
 
 def order_button(label, key, payload, fire, blocked=None, explain=True,
-                 colour="#00E5FF", no_contract_why=None):
+                 colour=T["up"], no_contract_why=None):
     """Two-press order control. Returns nothing; renders its own result.
 
     payload is shown verbatim before anything is sent - the numbers on the button and the
@@ -727,9 +417,9 @@ def chart_window(name):
     plan = []
     for c in (_CARDS or {}).values():
         if c and c.get("name") == name:
-            plan = [("STOP", c["stock"]["stop"], "#FF6BB0"),
-                    ("T1", c["stock"]["t1"], "#5CF2FF"),
-                    ("T2", c["stock"]["t2"], "#5CF2FF")]
+            plan = [("STOP", c["stock"]["stop"], T["down"]),
+                    ("T1", c["stock"]["t1"], T["up"]),
+                    ("T2", c["stock"]["t2"], T["up"])]
             break
     if not b:
         st.caption("No OHLCV bars for this name — close line only. "
@@ -745,10 +435,10 @@ def chart_window(name):
         st.warning(f"Feature calculation fail: {f['feature_error']}")
 
     links = "  ·  ".join(f'<a href="{u.format(name=name)}" target="_blank" '
-                         f'style="color:#39FF14;text-decoration:none">{t} ↗</a>'
+                         f'style="color:{T["accent"]};text-decoration:none">{t} ↗</a>'
                          for t, u in EXTERNAL_CHARTS)
     st.markdown(f'<div class="scen">Full chart elsewhere: {links}'
-                f'<br><span style="color:#3E5060">StockCharts.com is not here — it covers '
+                f'<br><span style="color:{T["muted"]}">StockCharts.com is not here — it covers '
                 f'US and Canadian listings, not NSE India. Linking a source that cannot '
                 f'show your names is shipping a dead link.</span>'
                 f'</div>', unsafe_allow_html=True)
@@ -1098,18 +788,18 @@ with T_DECK:
                 for r in rows:
                     f = min(1.0, abs(r["pct"]) / span)
                     if direction > 0:
-                        bg, fg = f"rgba(0,229,255,{0.06 + 0.24*f})", "#5CF2FF"
+                        bg, fg = TH.tint(T["up"], 0.06 + 0.24 * f), T["up"]
                     else:
-                        bg, fg = f"rgba(255,45,138,{0.06 + 0.24*f})", "#FF6BB0"
+                        bg, fg = TH.tint(T["down"], 0.06 + 0.24 * f), T["down"]
                     dr = drivers(r["name"], direction, cmap, by_name)
                     chips = "".join(
                         f'<span style="display:inline-block;margin:3px 6px 0 0;padding:1px 6px;'
                         f'border:1px solid {fg}44;border-radius:3px;font-size:.66rem;'
                         f'color:{fg};font-family:ui-monospace,Consolas,monospace">'
-                        f'{d["name"]} {d["pct"]:+.1f}% <span style="color:#3E5060">r{d["r"]}'
+                        f'{d["name"]} {d["pct"]:+.1f}% <span style="color:{T["muted"]}">r{d["r"]}'
                         f'</span></span>' for d in dr)
                     if not chips:
-                        chips = ('<span style="font-size:.66rem;color:#3E5060;'
+                        chips = ('<span style="font-size:.66rem;color:{T["muted"]};'
                                  'font-family:ui-monospace,Consolas,monospace">'
                                  'no tracked name moved this way</span>')
                     tag = (f'<span class="hm-t" style="color:{fg};margin-left:8px">'
@@ -1129,9 +819,9 @@ with T_DECK:
 
             cu, cd = st.columns(2)
             with cu:
-                render_col(up, +1, "ADVANCING", "#00E5FF")
+                render_col(up, +1, "ADVANCING", T["up"])
             with cd:
-                render_col(dn, -1, "DECLINING", "#FF2D8A")
+                render_col(dn, -1, "DECLINING", T["down"])
 
             if SEC.unresolved():
                 st.caption("These sectors did not resolve and are not on the heatmap: "
@@ -1298,7 +988,7 @@ with T_SIG:
                 total = (sc_["of"] - sc_["total"]) if is_short else sc_["total"]
                 g = grade(total)
                 side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
-                acc = "#FF2D8A" if is_short else "#00E5FF"
+                acc = T["down"] if is_short else T["up"]
 
                 # A lot that implies an absurd contract value is not a display problem, it is
                 # a wrong quantity - and a wrong quantity one confirm away from the exchange.
@@ -1342,7 +1032,7 @@ with T_SIG:
                 if q:
                     vv = q.get("vol") or {}
                     ratio = f'{vv["ratio"]}x' if vv.get("ratio") else "—"
-                    vcol = "#FF6BB0" if vv.get("verdict") == "EXPENSIVE" else "#5CF2FF"
+                    vcol = T["down"] if vv.get("verdict") == "EXPENSIVE" else T["up"]
                     spread = (f'{q["spread_pct"] * 100:.1f}%'
                               if q.get("spread_pct") else "—")
                     oi_txt = f'{int(q["oi"]):,}' if q.get("oi") else "—"
@@ -1352,7 +1042,7 @@ with T_SIG:
                     # because an empty calendar cannot clear a name and a green tick the
                     # day before results is the worst output this ticket can produce.
                     ev = o.get("event_state") or "unchecked"
-                    ecol = {"clear": "#5CF2FF", "blackout": "#FF2D8A"}.get(ev, "#39FF14")
+                    ecol = {"clear": T["up"], "blackout": T["down"]}.get(ev, T["accent"])
                     etxt = {"clear": "clear", "blackout": "RESULTS",
                             "unchecked": "NOT CHECKED"}.get(ev, ev)
                     qcells = (
@@ -1361,7 +1051,7 @@ with T_SIG:
                         f'<div><b>IV vs realised</b><span style="color:{vcol}">'
                         f'{ratio} {vv.get("verdict", "")}</span></div>'
                         f'<div><b>Theta / day</b>'
-                        f'<span style="color:#FF6BB0">{theta_txt}</span></div>'
+                        f'<span style="color:{T["down"]}">{theta_txt}</span></div>'
                         f'<div><b>Delta</b>{q.get("delta", "—")}</div>'
                         f'<div><b>Spread</b>{spread}</div>'
                         f'<div><b>Strike OI</b>{oi_txt}</div>')
@@ -1378,14 +1068,14 @@ with T_SIG:
                     f'{o.get("type","")} {o.get("expiry","")} &nbsp;·&nbsp; '
                     f'{"LIVE CHAIN" if o.get("premium_source") == "live chain" else "ESTIMATED"}'
                     f' &nbsp;·&nbsp; {qty} qty &nbsp;·&nbsp; '
-                    f'<b style="color:#D5E6F2">₹{outlay:,.0f} to buy</b></span></div>'
+                    f'<b style="color:{T["ink"]}">₹{outlay:,.0f} to buy</b></span></div>'
                     f'<div class="tk-grid">'
                     f'<div><b>Stock entry</b>{e}</div>'
-                    f'<div><b>Stock SL</b><span style="color:#FF6BB0">{sl}</span></div>'
+                    f'<div><b>Stock SL</b><span style="color:{T["down"]}">{sl}</span></div>'
                     f'<div><b>TP1 · {stk["rr1"]}R</b>{stk["t1"]}</div>'
                     f'<div><b>TP2 · {stk["rr2"]}R</b>{stk["t2"]}</div>'
                     f'<div><b>TP3 · {stk["rr3"]}R</b>{t3}</div>'
-                    f'<div><b>Option SL</b><span style="color:#FF6BB0">{o.get("stop","—")}</span></div>'
+                    f'<div><b>Option SL</b><span style="color:{T["down"]}">{o.get("stop","—")}</span></div>'
                     f'<div><b>Option TP1</b>{o.get("t1","—")}</div>'
                     f'<div><b>Option TP2</b>{o.get("t2","—")}</div>'
                     f'<div><b>Option TP3</b>{o.get("t3","—")}</div>'
@@ -1603,10 +1293,10 @@ with T_GAP:
                 for c in (r or {}).get("clauses", []):
                     st.markdown(
                         f'<div class="hm" style="border-color:'
-                        f'{"#0A6675" if c["ok"] else "#7A0B3D"}">'
+                        f'{T["up"] if c["ok"] else T["down"]}">'
                         f'<div class="hm-n">{"✓" if c["ok"] else "✗"} {c["clause"]}</div>'
                         f'<div style="font-family:ui-monospace,Consolas,monospace;'
-                        f'font-size:.8rem;color:#D5E6F2">{c["detail"]}</div></div>',
+                        f'font-size:.8rem;color:{T["ink"]}">{c["detail"]}</div></div>',
                         unsafe_allow_html=True)
             else:
                 st.caption("Nothing to explain yet.")
@@ -1654,9 +1344,9 @@ with T_CHART:
             try:
                 plan = []
                 if card and card["name"] == pick:
-                    plan = [("STOP", card["stock"]["stop"], "#FF6BB0"),
-                            ("T1", card["stock"]["t1"], "#5CF2FF"),
-                            ("T2", card["stock"]["t2"], "#5CF2FF")]
+                    plan = [("STOP", card["stock"]["stop"], T["down"]),
+                            ("T1", card["stock"]["t1"], T["up"]),
+                            ("T2", card["stock"]["t2"], T["up"])]
                 if not BARS:
                     st.caption("No OHLCV bars — close line only. The levels are still real.")
                 st.plotly_chart(make_fig(pick, prices.get(SYM, []), BARS, dates, F, plan),

@@ -111,3 +111,9 @@ MAX_IV_TO_REALISED  = 2.0    # refuse when implied vol is this many times what t
 # crush - the stock can move exactly as predicted and the trade still loses.
 EVENT_BLACKOUT_BEFORE = 2    # trading days before the event
 EVENT_BLACKOUT_AFTER  = 1    # and after, while IV is still resetting
+
+# Look and feel. theme.py holds the palettes; this picks one.
+#   "claude" — warm paper, serif prose, monospace numbers, one coral accent (default)
+#   "neon"   — three neons on black, the previous look
+# Override for a single session without editing anything:  ?theme=neon  in the URL.
+THEME = "claude"
