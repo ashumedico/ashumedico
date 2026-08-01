@@ -120,7 +120,38 @@ def main():
     check("the gap percent is reported, not just the verdict",
           abs(rows[0]["gap_pct"] - 1.5) < 0.01, f"{rows[0]['gap_pct']}%")
 
-    # ---- 8. an empty universe is an answer, not a crash ----------------------
+    # ---- 8. near misses: the tool for "why is your list different" -----------
+    # A near-miss list is only useful if "how badly it missed" is measured on the clause
+    # that actually failed. Ranking a name that failed the SMA test by how far its GAP
+    # was from the band sorts the list by a number that had nothing to do with the
+    # rejection - it looks like an answer and orders by noise.
+    db2 = {
+        "NSE:JUSTUNDER-EQ": bars([100.0] * 25 + [101.5], last_open=100.95),  # gap 0.95%
+        "NSE:JUSTOVER-EQ":  bars([100.0] * 25 + [102.5], last_open=102.1),   # gap 2.10%
+        "NSE:WAYOFF-EQ":    bars([100.0] * 25 + [106.0], last_open=105.0),   # gap 5.00%
+        # gapped perfectly, but sits 8% under its own 20-day mean
+        "NSE:UNDERSMA-EQ":  bars([100.0] * 25 + [92.0], last_open=101.5),
+    }
+    nm = G.near_misses(db2, [])
+    names = [r["name"] for r in nm]
+    check("near misses lists only single-clause failures",
+          set(names) == {"JUSTUNDER", "JUSTOVER", "WAYOFF", "UNDERSMA"}, str(names))
+    check("the closest miss ranks first", names[0] == "JUSTUNDER",
+          f"{names[0]} missed by {nm[0]['missed_by_pct']}%")
+    under = next(r for r in nm if r["name"] == "UNDERSMA")
+    check("an SMA failure is measured against the MEAN, not against the band",
+          abs(under["missed_by_pct"] - 8.0) < 0.5,
+          f"{under['missed_by_pct']}% below the mean, gap was {under['gap_pct']}%")
+    check("and it names the clause that actually failed",
+          "SMA" in under["failed"], under["failed"])
+    check("a name that passes is never a near miss",
+          "PASSES" not in names)
+    two_bad = G.near_misses({"NSE:TWO-EQ": bars([100.0] * 25 + [92.0],
+                                                last_open=105.0)}, [])
+    check("failing two clauses is not a near miss", two_bad == [],
+          "below the mean AND outside the band — that is not 'nearly'")
+
+    # ---- 9. an empty universe is an answer, not a crash ----------------------
     check("no bars at all -> empty list", G.scan({}, []) == [])
     check("None -> empty list", G.scan(None, None) == [])
 

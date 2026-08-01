@@ -149,6 +149,94 @@ def scan(daily_bars, points=None, cfg=None, last_intraday=None):
     return rows
 
 
+def near_misses(daily_bars, points=None, cfg=None, last_intraday=None, top=8):
+    """Names that failed EXACTLY ONE clause, and which one.
+
+    This is the answer to "why is your list different from Chartink's". Two screens with
+    the same rules disagree at the BAND EDGES, because a gap of 0.98% and a gap of 1.02%
+    are the same event and land on opposite sides of a threshold - and the two feeds do
+    not agree to the paisa on what yesterday's close was (Chartink adjusts for corporate
+    actions on its own schedule; Fyers returns its own continuous series). A name missing
+    from one list is usually not a bug, it is a number differing in the third decimal.
+
+    So instead of a shorter list, this shows the ones that came closest and the exact
+    figure that kept them out. Then a disagreement can be checked instead of argued.
+    """
+    cfg = {**DEFAULTS, **(cfg or {})}
+    by_sym = {p["symbol"]: p for p in (points or [])}
+    out = []
+    for sym, bars in (daily_bars or {}).items():
+        row = daily_row(bars, cfg["sma_len"])
+        if not row:
+            continue
+        ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym))
+        if ok:
+            continue
+        failed = [c for c in clauses if not c["ok"]]
+        if len(failed) != 1:
+            continue
+        p = by_sym.get(sym) or {}
+        pc = row["prev_close"]
+        gap = (row["open"] / pc - 1.0) * 100.0 if pc else 0.0
+        clause = failed[0]["clause"]
+        # HOW BADLY it missed has to be measured on the clause that actually failed.
+        # Reporting the gap's distance from the band for a name that failed the SMA test
+        # sorts the list by a number that had nothing to do with the rejection - it looks
+        # like an answer and ranks by noise.
+        if "SMA" in clause:
+            miss = abs(row["close"] / row["sma_prev"] - 1.0) * 100.0
+        elif "15-min" in clause:
+            miss = 0.0          # a gate that could not be evaluated has no distance
+        else:
+            miss = min(abs(gap - (cfg["gap_min"] - 1) * 100),
+                       abs(gap - (cfg["gap_max"] - 1) * 100))
+        out.append({
+            "name": p.get("name") or sym.split(":")[-1].replace("-EQ", ""),
+            "failed": clause,
+            "detail": failed[0]["detail"],
+            "gap_pct": round(gap, 2),
+            "missed_by_pct": round(miss, 2),
+        })
+    out.sort(key=lambda r: r["missed_by_pct"])
+    return out[:top]
+
+
+def explain(symbols, cfg=None, days=90):
+    """Print every number for named symbols, live. The tool for a disagreement.
+
+    `python gapup.py --explain BAJAJFINSV TORNTPHARM` prints what this system believes
+    yesterday's close, today's open and the 20-day mean are for each name, and which
+    clause decided it. Paste the same names into Chartink and the difference stops being
+    "the lists are different" and becomes "your prev close is 2029.10, mine is 2027.55".
+    """
+    cfg = {**DEFAULTS, **(cfg or {})}
+    import rrg_engine as E
+    syms = [s if ":" in s else f"NSE:{s.upper()}-EQ" for s in symbols]
+    E.fetch_history(syms, resolution="D", days=days)
+    bars = E.LAST_BARS or {}
+    print(f"\n  GAP-UP, clause by clause  (SMA{cfg['sma_len']}, band "
+          f"{cfg['gap_min']:g}-{cfg['gap_max']:g})")
+    print("  " + "-" * 70)
+    for s in syms:
+        nm = s.split(":")[-1].replace("-EQ", "")
+        b = bars.get(s)
+        if not b:
+            print(f"  {nm:14s} no daily bars came back for this symbol")
+            continue
+        row = daily_row(b, cfg["sma_len"])
+        if not row:
+            print(f"  {nm:14s} only {len(b)} daily bars - needs {cfg['sma_len'] + 2}")
+            continue
+        ok, clauses = passes(row, cfg)
+        gap = (row["open"] / row["prev_close"] - 1) * 100
+        print(f"  {nm:14s} {'PASS' if ok else 'fail'}   prev close {row['prev_close']:.2f}"
+              f" · open {row['open']:.2f} (gap {gap:+.2f}%) · close {row['close']:.2f}"
+              f" · sma {row['sma_prev']:.2f}")
+        for c in clauses:
+            print(f"       {'ok ' if c['ok'] else '>> '} {c['clause']:44s} {c['detail']}")
+    print()
+
+
 def _demo():
     """A hand-built set where each name fails exactly one clause, so the output is
     readable as a test rather than as a list."""
@@ -180,7 +268,14 @@ def _demo():
 
 if __name__ == "__main__":
     import sys
-    if "--demo" in sys.argv:
+    if "--explain" in sys.argv:
+        i = sys.argv.index("--explain")
+        names = [a for a in sys.argv[i + 1:] if not a.startswith("--")]
+        if not names:
+            print("  usage: python gapup.py --explain BAJAJFINSV TORNTPHARM ...")
+            raise SystemExit(2)
+        explain(names)
+    elif "--demo" in sys.argv:
         db = _demo()
         print("\n  GAP-UP SCREEN (demo)\n  " + "-" * 58)
         for sym, bars in db.items():

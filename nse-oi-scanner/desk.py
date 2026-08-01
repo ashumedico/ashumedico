@@ -1437,6 +1437,27 @@ with T_GAP:
             else:
                 st.caption("Nothing to explain yet.")
 
+        # WHY THIS LIST DIFFERS FROM CHARTINK'S
+        # Two screens running the same four clauses disagree at the BAND EDGES, because
+        # a 0.98% gap and a 1.02% gap are the same event on opposite sides of a
+        # threshold - and the two feeds do not agree to the paisa on yesterday's close
+        # (corporate-action adjustments land on different days). A name missing here is
+        # usually not a bug, it is a number differing in the second decimal. Showing the
+        # near-misses turns "the lists are different" into "this figure is different".
+        with st.expander("Near misses — names that failed exactly one clause "
+                         "(this is usually where a Chartink disagreement lives)"):
+            nm_rows = GU.near_misses(db, pts, GAP_CFG, last_i)
+            if nm_rows:
+                st.dataframe(nm_rows, use_container_width=True, hide_index=True)
+                st.caption("`missed_by_pct` is measured on the clause that actually "
+                           "failed — distance outside the band for a gap clause, "
+                           "distance below the mean for the SMA clause. A name Chartink "
+                           "shows and this does not will almost always be near the top "
+                           "here; run `python gapup.py --explain NAME` and compare the "
+                           "previous close before assuming either screen is wrong.")
+            else:
+                st.caption("Nothing failed on a single clause.")
+
         st.warning(
             "**This screen is not backtested.** It is the Chartink filter, computed on "
             "your bars so the numbers can be checked — a name here means *worth opening "

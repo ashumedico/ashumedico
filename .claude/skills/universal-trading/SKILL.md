@@ -375,6 +375,18 @@ recurs, and recognising the shape is faster than rediscovering the bug.
     both. Thresholds go in the sidebar, not the source: a number he has to ask me to
     change is a number he will stop questioning.
 
+35. **"Why is your list different?" is answered with numbers, not with an argument.**
+    Two screens running identical rules disagree at the BAND EDGES - a 0.98% gap and a
+    1.02% gap are the same event on opposite sides of a threshold, and two feeds do not
+    agree to the paisa on yesterday's close. So the tab shows **near misses** (failed
+    exactly one clause, and by how much) and `gapup.py --explain NAME` prints this
+    system's prev close, open, mean and every verdict. The question becomes *whose
+    previous close is right*, which is answerable.
+
+36. **Measure "how close" on the clause that failed.** The first near-miss list ranked a
+    name that failed the SMA test by how far its GAP was from the band - a number with
+    nothing to do with the rejection. It looked like an answer and sorted by noise.
+
 ---
 
 ## REFERENCES

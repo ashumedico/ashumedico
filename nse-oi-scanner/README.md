@@ -81,6 +81,22 @@ two numbers that decided it, so the screen can be argued with rather than believ
 test_gapup.py` pins the parts that silently drift: the SMA window, the strict `>` at the
 band edges, and a clause that cannot be evaluated failing rather than being skipped.
 
+### When this list differs from Chartink's
+It usually will, and usually at the **band edges**: a 0.98% gap and a 1.02% gap are the
+same event on opposite sides of a threshold, and two feeds do not agree to the paisa on
+yesterday's close — corporate-action adjustments land on different days. So the tab has a
+**Near misses** panel listing every name that failed *exactly one* clause and by how much,
+measured on the clause that actually failed. A name Chartink shows and this does not is
+almost always near the top of it.
+
+To settle a specific disagreement, ask for the numbers:
+```bash
+python gapup.py --explain BAJAJFINSV TORNTPHARM ASHOKLEY
+```
+It prints this system's previous close, today's open, the 20-day mean and every clause
+verdict per name. The question stops being *whose list is right* and becomes *whose
+previous close is right*, which is answerable.
+
 ## On the chart — `tradingview/`
 | File | What it is |
 |---|---|
