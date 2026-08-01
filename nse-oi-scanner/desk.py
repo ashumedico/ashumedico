@@ -993,8 +993,7 @@ with T_SIG:
                 # a wrong quantity - and a wrong quantity one confirm away from the exchange.
                 blocked = None
                 if sz.get("lot_absurd"):
-                    blocked = (f"Quantity refused. {sz['lot_warning']}  "
-                               f"Fix with Tools → Lot Audit before ordering this name.")
+                    blocked = f"Quantity refused — {sz['lot_warning']}. Tools → Lot Audit."
                 # MAX_LOSS is an absolute cap, so it BLOCKS the ticket rather than
                 # printing beside it. A cap that only warns is not a cap.
                 elif sz.get("max_loss_breach"):
@@ -1003,8 +1002,8 @@ with T_SIG:
                 # for a buyer the contract is the trade, and a strike nobody can exit at
                 # a fair price is not tradeable however good the name looks.
                 elif o.get("quality_fails"):
-                    blocked = ("Contract fails its own checks — "
-                               + "; ".join(o["quality_fails"]) + ".")
+                    # first reason only; the rest are listed in the full plan
+                    blocked = f"Contract refused — {o['quality_fails'][0]}."
 
                 # THE BUYER'S OWN NUMBERS. Until now the ticket showed what the STOCK
                 # would do and priced the option off it. It never said what holding the

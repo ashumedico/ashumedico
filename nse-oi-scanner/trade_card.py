@@ -497,19 +497,18 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     lot_absurd = False
     if contract_value < 200000:
         lot_absurd = True
-        lot_warning = (f"lot {lot} gives a contract value of only Rs {contract_value:,} - "
-                       f"NSE F&O contracts are ~Rs 5-10 lakh, so verify the lot before you order")
+        lot_warning = (f"lot {lot} → only Rs {contract_value:,} contract "
+                       f"(F&O is ~Rs 5-10 lakh)")
     elif contract_value > 2000000:
         lot_absurd = True
-        lot_warning = (f"lot {lot} gives a contract value of Rs {contract_value:,} - "
-                       f"NSE F&O contracts are ~Rs 5-10 lakh, so this lot is wrong "
-                       f"(freeze quantity reads like this). Do NOT order on it.")
+        lot_warning = (f"lot {lot} → Rs {contract_value:,} contract. That is the freeze "
+                       f"quantity, not the lot. Do NOT order.")
     elif contract_value > 1200000:
         # Not absurd, but above the band. Worth saying out loud rather than silently
         # sizing on it - a name can run past its lot revision, and a wrong lot looks
         # exactly like this on the way up.
-        lot_warning = (f"lot {lot} gives a contract value of Rs {contract_value:,} - "
-                       f"above the usual Rs 5-10 lakh band. Check the lot before ordering.")
+        lot_warning = (f"lot {lot} → Rs {contract_value:,} contract, above the usual "
+                       f"Rs 5-10 lakh band")
     elif chain_lot and master_lot and chain_lot != master_lot:
         lot_warning = (f"lot mismatch: live chain says {chain_lot}, symbol master says "
                        f"{master_lot} - using {chain_lot}; a recent split may have revised it")
