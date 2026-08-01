@@ -25,6 +25,7 @@ oi_snapshot.json
 oi_baseline.json
 fno_symbols.txt
 fno_lots.json
+fno_lots_v2.json
 rrg_best_setup.json
 alerts_sent.json
 signals_*.csv

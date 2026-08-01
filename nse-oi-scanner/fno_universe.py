@@ -58,7 +58,11 @@ def _parse_fyers(text):
     return sorted({m.group(1) for m in pat.finditer(text) if m.group(1) not in INDICES})
 
 
-LOTS_CACHE = "fno_lots.json"
+# Versioned on purpose. The previous detector could pick the FREEZE QUANTITY column,
+# and those values pass the plausibility check happily - they vary, they are numeric,
+# they are in range. So a poisoned cache never healed itself; it just kept being read.
+# A new filename is the only thing that guarantees the bad file is not trusted again.
+LOTS_CACHE = "fno_lots_v2.json"
 
 
 # Fyers symbol-master column layout: index 3 is the minimum lot size. Used only as a
@@ -67,23 +71,34 @@ LOTS_CACHE = "fno_lots.json"
 FYERS_LOT_COL = 3
 
 
-def _detect_lot_col(rows, fallback=FYERS_LOT_COL):
+def _detect_lot_col(rows, fallback=FYERS_LOT_COL, prices=None):
     """Find the lot-size column without trusting a hard-coded index.
 
-    The lot size has a shape no other column shares: it is the SAME for every contract of
-    one underlying (future and every strike alike) but DIFFERENT across underlyings.
+    The lot size is the SAME for every contract of one underlying (future and every strike
+    alike) but DIFFERENT across underlyings:
       - instrument type, tick size, segment -> constant within AND across  (rejected)
       - token, expiry, strike, symbol       -> varies within an underlying (rejected)
-    So we score each column on exactly that, and take the one that fits.
 
-    rows: {underlying: [split-and-stripped columns, ...]}. This is what makes the parser
-    survive a column being inserted upstream - the failure mode that produced lot 13.
+    That narrows it, and it is not enough. The master also carries FREEZE QUANTITY, which
+    has exactly the same shape - constant per underlying, varying across - and it beat lot
+    size on the old tie-breaker, "most distinct values". It beat it for a reason that will
+    happen every time: many names share a lot size (500, 1000, 2500 recur), while freeze
+    quantities are nearly unique. Ranking by distinctness therefore prefers the wrong
+    column BY CONSTRUCTION. That is how MCX came back as 31,181 when its lot is 25.
+
+    So the tie-break is economic instead of statistical. An F&O contract is built to be
+    worth roughly Rs 5-10 lakh, so with prices in hand the right column is the one where
+    price x value lands in that band for most names. Nothing else in the file does that.
+
+    Without prices there is no economic test, so it falls back to shape alone - and then
+    prefers the SMALLER median, because freeze quantity is a multiple of lot size and
+    never smaller than it.
     """
     multi = {u: rs for u, rs in rows.items() if len(rs) >= 2}
     if len(multi) < 20:
         return fallback
     width = min(len(r) for rs in rows.values() for r in rs)
-    best = None
+    cands = []
     for i in range(width):
         per_name, constant = {}, 0
         for u, rs in multi.items():
@@ -97,12 +112,38 @@ def _detect_lot_col(rows, fallback=FYERS_LOT_COL):
             per_name[u] = int(v)
         if constant < 0.9 * len(multi) or len(per_name) < 20:
             continue                      # not constant-within for most names
-        distinct = len(set(per_name.values()))
-        if distinct < 10:
+        if len(set(per_name.values())) < 10:
             continue                      # constant across names too -> not a lot size
-        if best is None or distinct > best[1]:
-            best = (i, distinct)
-    return best[0] if best else fallback
+        cands.append((i, per_name))
+    if not cands:
+        return fallback
+
+    if prices:
+        # SEBI's band for a stock F&O contract, with slack either side so a genuinely
+        # small or large name does not disqualify the whole column.
+        LO, HI = 3_00_000, 20_00_000
+        scored = []
+        for i, per_name in cands:
+            shared = [(per_name[u], prices[u]) for u in per_name
+                      if prices.get(u)]
+            if len(shared) < 20:
+                continue
+            hits = sum(1 for lot, px in shared if LO <= lot * px <= HI)
+            scored.append((hits / len(shared), -_median_int(per_name.values()), i))
+        if scored:
+            scored.sort(reverse=True)
+            if scored[0][0] >= 0.5:       # at least half the names in the band
+                return scored[0][2]
+
+    # No prices, or nothing fit the band: smaller wins. Freeze quantity is a multiple of
+    # the lot and cannot be below it, so the lot column is never the larger of the two.
+    cands.sort(key=lambda c: _median_int(c[1].values()))
+    return cands[0][0]
+
+
+def _median_int(vals):
+    v = sorted(int(x) for x in vals)
+    return v[len(v) // 2] if v else 0
 
 
 def _plausible(lots):
@@ -124,7 +165,7 @@ CONTRACT_PAT = re.compile(r"NSE:([A-Z0-9&\-]+?)\d{2}[A-Z]{3}(?:FUT|\d+(?:\.\d+)?
 ROWS_PER_NAME = 4      # enough to test "constant within underlying"; keeps memory bounded
 
 
-def _lots_from_fyers(text):
+def _lots_from_fyers(text, prices=None):
     rows = {}
     for line in text.splitlines():
         m = CONTRACT_PAT.search(line)
@@ -135,7 +176,7 @@ def _lots_from_fyers(text):
             got.append([c.strip() for c in line.split(",")])
     if not rows:
         return {}
-    col = _detect_lot_col(rows)
+    col = _detect_lot_col(rows, prices=prices)
     lots = {}
     for u, rs in rows.items():
         vals = [int(r[col]) for r in rs
@@ -163,7 +204,7 @@ def _lots_from_nse(text):
     return lots
 
 
-def fetch_lot_sizes(timeout=30):
+def fetch_lot_sizes(timeout=30, prices=None):
     """Real F&O lot sizes per underlying.
 
     This matters more than it looks: options and futures trade only in whole lots, so a
@@ -173,7 +214,9 @@ def fetch_lot_sizes(timeout=30):
     for kind, url in SOURCES:
         parser = {"fyers": _lots_from_fyers}.get(kind, _lots_from_nse)
         try:
-            lots = parser(_fetch(url, timeout))
+            text = _fetch(url, timeout)
+            lots = (parser(text, prices=prices) if parser is _lots_from_fyers
+                    else parser(text))
         except Exception:
             continue
         if _plausible(lots):
@@ -183,11 +226,14 @@ def fetch_lot_sizes(timeout=30):
     return {}
 
 
-def lot_sizes():
+def lot_sizes(prices=None):
     """Cached lot sizes; empty dict if we have never been able to fetch them.
 
-    The cache is re-validated on read, because an older build wrote a bad column into it
-    and a poisoned cache would otherwise outlive the fix."""
+    `prices` is optional and worth passing when the caller already has them: it lets the
+    column detector use the economic test - price x lot should land near a Rs 5-10 lakh
+    contract - which is the only check that separates the lot column from the freeze
+    quantity column. Shape alone cannot.
+    """
     if os.path.exists(LOTS_CACHE):
         try:
             with open(LOTS_CACHE) as f:
@@ -198,7 +244,7 @@ def lot_sizes():
         except Exception:
             pass
     try:
-        return fetch_lot_sizes()
+        return fetch_lot_sizes(prices=prices)
     except Exception:
         return {}
 

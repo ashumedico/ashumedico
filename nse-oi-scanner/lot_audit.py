@@ -71,28 +71,70 @@ def audit(prices, lots):
     return rows, flagged, median
 
 
-def repair(flagged, median, sleep=0.4):
+def repair(flagged, median, sleep=0.4, max_calls=40):
     """Ask the live option chain for the exchange's own lot on the flagged names only.
 
     Chain-first is the whole point: it is the same source the order window uses, so it
-    survives splits and column changes. Names the chain cannot answer stay flagged."""
+    survives splits and column changes. Names the chain cannot answer stay flagged.
+
+    Three things this used to get wrong, all of which showed up as the same line on
+    screen - "chain could not confirm" against every name in the list:
+
+      1. The exception was swallowed. Two hundred identical failures printed with no
+         reason attached, so an expired token, a rate limit and a bad symbol were
+         indistinguishable. The first error is now shown verbatim, once.
+      2. "The chain gave nothing" and "the chain gave a lot the band still rejects" are
+         different facts and were printed as one. A lot the exchange itself reports is
+         worth seeing even when it fails the sanity band - that is the case where the
+         BAND is wrong, not the lot.
+      3. Every flagged name got a call. On a bad parse that is the whole universe, a few
+         hundred option-chain requests in a row, and Fyers throttles long before the end
+         - which turns one broken parse into two hundred failures. It is capped now, and
+         the cap is announced rather than silently applied.
+    """
     import option_chain as oc
-    fixed, still = {}, []
-    for r in flagged:
+    fixed, still, first_error, calls = {}, [], None, 0
+    capped = len(flagged) > max_calls
+    if capped:
+        print(f"    {len(flagged)} naam flagged hain - sirf pehle {max_calls} chain se "
+              f"poochhunga.")
+        print(f"    Itne saare flag ka matlab aksar lot parse toota hai, har naam nahi. "
+              f"Poori list: python lot_audit.py")
+    for r in flagged[:max_calls]:
         sym = f"NSE:{r['name']}-EQ"
+        lot, err = None, None
         try:
             oc.fetch_live(sym)
             lot = oc.LAST_LOT
+            calls += 1
         except Exception as e:      # noqa
-            lot = None
-        if lot and band_verdict(r["price"] * lot, median) == "ok":
-            fixed[r["name"]] = int(lot)
-            print(f"    {r['name']:<12} {r['lot']:>7} -> {lot:<7} "
-                  f"(contract Rs {r['price']*lot:,.0f})")
+            err = f"{type(e).__name__}: {e}"[:160]
+            if first_error is None:
+                first_error = f"{r['name']}: {err}"
+        if lot:
+            value = r["price"] * lot
+            if band_verdict(value, median) == "ok":
+                fixed[r["name"]] = int(lot)
+                print(f"    {r['name']:<12} {r['lot']:>7} -> {lot:<7} "
+                      f"(contract Rs {value:,.0f})")
+            else:
+                # The exchange's own number, outside our band. Say exactly that.
+                still.append(r["name"])
+                print(f"    {r['name']:<12} {r['lot']:>7}    chain says {lot} "
+                      f"(contract Rs {value:,.0f}) - band ke bahar, khud dekh")
         else:
             still.append(r["name"])
-            print(f"    {r['name']:<12} {r['lot']:>7}    chain could not confirm - still flagged")
+            print(f"    {r['name']:<12} {r['lot']:>7}    chain ne jawab nahi diya"
+                  + (f"  [{err}]" if err and first_error and
+                     first_error.startswith(r["name"]) else ""))
         time.sleep(sleep)
+    if capped:
+        still.extend(r["name"] for r in flagged[max_calls:])
+    if first_error and not fixed:
+        print(f"\n    Ek bhi naam confirm nahi hua. Pehli asli wajah:")
+        print(f"      {first_error}")
+        print(f"    Aksar: token expire ({calls} call chale), ya rate limit, "
+              f"ya IP whitelist.")
     return fixed, still
 
 
@@ -126,11 +168,9 @@ def main():
     else:
         from fno_universe import lot_sizes, _underlyings
         import rrg_engine as E
-        lots = lot_sizes()
-        if not lots:
-            print("  No lot sizes on disk and none could be fetched.")
-            print("  Run:  python fno_universe.py --lots")
-            return
+        # Prices FIRST. The lot-column detector can only tell a lot size from a freeze
+        # quantity by checking that price x lot lands near a Rs 5-10 lakh contract, and
+        # it cannot do that after the lots have already been chosen.
         names, _src = _underlyings()
         print(f"  {len(names)} F&O names - pulling live prices...")
         q = E.live_quote([f"NSE:{n}-EQ" for n in names])
@@ -138,6 +178,11 @@ def main():
         if not prices:
             print("  No live prices (market closed / token expired?).")
             print("  Run:  python fyers_auth.py    then try again in market hours.")
+            return
+        lots = lot_sizes(prices=prices)
+        if not lots:
+            print("  No lot sizes on disk and none could be fetched.")
+            print("  Run:  python fno_universe.py --lots")
             return
 
     rows, flagged, med = audit(prices, lots)
