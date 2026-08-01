@@ -67,6 +67,12 @@ Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR con
 Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and
 option-chain analytics. Invoke for any market task; pairs with `@edge-seeker`. Not financial advice.
 
+## The bar → `.claude/skills/solution-first/`
+`/solution-first` — **always on, every task.** Never hand back an excuse, a caveat or a limitation
+as the deliverable. Research the real answer (vendor docs, the API's own response, the source), fix
+everything inside my control, prove it with evidence, and only then name what genuinely remains —
+with a command that checks it. *A warning printed next to a wrong number is still a wrong number.*
+
 ---
 
 ## STANDING DIRECTIVES

@@ -1418,6 +1418,19 @@ with T_GAP:
         # WHICH FEED DECIDED THIS. Not decoration: a screen that silently swaps its
         # input source between runs produces two different lists from one rule and gives
         # no way to tell which run was which.
+        # A name cannot pass a screen it was never shown to. If the universe came from a
+        # stale cache or the hard-coded fallback, every name NSE has added since is
+        # missing - and a missing name looks exactly like a name that did not qualify.
+        try:
+            import fno_universe as _U
+            u_src, u_note = _U.source()
+            if u_src in ("stale cache", "fallback"):
+                st.error(f"**Universe is {u_src}** — {u_note}  "
+                         f"Run `python fno_universe.py` on a machine with internet, or "
+                         f"`0 - UPDATE`, before trusting this list is complete.")
+        except Exception:      # noqa
+            pass
+
         src_txt = ("exchange quotes — the same open and previous close every other "
                    "screener reads" if qs else
                    "daily candles — no live quote feed, so open and previous close are "

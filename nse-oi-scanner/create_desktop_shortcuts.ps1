@@ -125,6 +125,7 @@ New-Shortcut $tools "Sector map test"    "run_sectors_test.bat" "%SystemRoot%\Sy
 New-Shortcut $tools "Desk render test"    "run_desk_test.bat"   "%SystemRoot%\System32\shell32.dll" 23  "Website sach mein render hoti hai ya nahi"
 New-Shortcut $tools "Screen fit test"     "run_layout_test.bat" "%SystemRoot%\System32\shell32.dll" 23  "Har tab 21-inch screen mein fit hota hai ya nahi"
 New-Shortcut $tools "Gap-up screen test"  "run_gapup_test.bat"  "%SystemRoot%\System32\shell32.dll" 23  "Chartink filter yahan bhi wahi matlab rakhta hai ya nahi"
+New-Shortcut $tools "Universe check"      "run_universe_test.bat" "%SystemRoot%\System32\shell32.dll" 23  "F&O list purani toh nahi - naam gayab ho rahe hain kya"
 New-Shortcut $tools "Telegram alerts"     "TELEGRAM-SETUP.bat"  "%SystemRoot%\System32\shell32.dll" 12  "Phone pe alert"
 New-Shortcut $tools "Secret update"       "SET-SECRET.bat"      "%SystemRoot%\System32\shell32.dll" 48  "Fyers secret badla toh"
 New-Shortcut $tools "MCP token"           "SET-FIA-TOKEN.bat"   "%SystemRoot%\System32\shell32.dll" 48  "Fyers MCP token"

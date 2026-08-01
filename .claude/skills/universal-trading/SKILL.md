@@ -406,7 +406,24 @@ recurs, and recognising the shape is faster than rediscovering the bug.
 39. **When he says "no excuses", he means close the loop, not soften it.** Listing what
     cannot be guaranteed is only honest AFTER everything that can be fixed has been.
     The remaining "two feeds disagree" caveat turned out to be arithmetic I had not
-    done. Check for the fix before reaching for the caveat.
+    done. Check for the fix before reaching for the caveat. Full bar:
+    `.claude/skills/solution-first/SKILL.md`.
+
+40. **Look the vendor's semantics up; do not reason about them.** Chartink's "futures
+    segment" was assumed to scan futures prices - which would have made this whole
+    screen the wrong instrument. Their own guide: *"If you select futures, scanning will
+    be done on basis of cash stock prices/values."* It is a UNIVERSE filter. The same
+    page settled two more: "latest close" is the **CMP** during market hours (so
+    intraday "Daily Close" is the LTP, which is what the quote's `lp` gives), and `[0]`
+    is the **current forming candle**. Three assumptions verified in one search.
+
+41. **A universe that silently shrinks is the worst kind of missing name.** `fno_stocks()`
+    computed where its list came from and threw it away, and the cache had NO expiry - a
+    file written in March was still the universe in August, so every name NSE added
+    since was invisible on every screen, and a missing name looks exactly like a name
+    that did not qualify. The cache now expires at 7 days, an expired-but-usable cache
+    is labelled "stale cache" rather than passed off as current, and the desk says so in
+    red. Before asking why a list is short, ask what it was allowed to contain.
 
 ---
 

@@ -286,19 +286,64 @@ def refresh(timeout=30):
     return []
 
 
+# NSE adds and drops F&O names every month. A cache with no expiry is used forever, so a
+# list written in March is still the universe in August - and a newly-added name simply
+# never appears on any screen, with nothing to indicate it is missing. Silence is the
+# whole problem: a missing name looks exactly like a name that did not qualify.
+CACHE_MAX_AGE_DAYS = 7
+
+# The last answer's provenance, readable by anything that displays a list. It used to be
+# computed and thrown away by fno_stocks(), which meant the desk could be running on the
+# built-in fallback - a hard-coded list that has never once been refreshed - and say so
+# only in a console line nobody sees.
+LAST_SOURCE = None
+LAST_SOURCE_NOTE = None
+
+
+def _cache_age_days():
+    if not os.path.exists(CACHE):
+        return None
+    import time
+    return (time.time() - os.path.getmtime(CACHE)) / 86400.0
+
+
 def _underlyings():
-    # 1) cache  2) live refresh  3) fallback
-    if os.path.exists(CACHE):
+    """(names, source) — source is 'cache' | 'live' | 'stale cache' | 'fallback'."""
+    global LAST_SOURCE, LAST_SOURCE_NOTE
+    age = _cache_age_days()
+    if age is not None and age <= CACHE_MAX_AGE_DAYS:
         names = [l.strip() for l in open(CACHE) if l.strip()]
         if names:
+            LAST_SOURCE, LAST_SOURCE_NOTE = "cache", f"{len(names)} names, {age:.1f}d old"
             return names, "cache"
     try:
         names = refresh()
         if names:
+            LAST_SOURCE, LAST_SOURCE_NOTE = "live", f"{len(names)} names, fetched just now"
             return names, "live"
     except Exception as e:      # noqa
-        print(f"  [fno_universe] live fetch failed ({e}); using built-in fallback list.")
+        print(f"  [fno_universe] live fetch failed ({e})")
+    # The refresh failed. An expired cache still beats a hard-coded list from whenever
+    # this file was written - but it must not be reported as if it were current.
+    if age is not None:
+        names = [l.strip() for l in open(CACHE) if l.strip()]
+        if names:
+            LAST_SOURCE = "stale cache"
+            LAST_SOURCE_NOTE = (f"{len(names)} names, {age:.1f}d old — the refresh failed, "
+                                f"so any name NSE added since is missing from every screen")
+            return names, "stale cache"
+    LAST_SOURCE = "fallback"
+    LAST_SOURCE_NOTE = (f"{len(FALLBACK)} names, built into the code — this list is only "
+                        f"as current as the day it was written. Names NSE has added since "
+                        f"cannot appear on any screen.")
     return FALLBACK, "fallback"
+
+
+def source():
+    """(source, note) for the universe currently in use. Call after fno_stocks()."""
+    if LAST_SOURCE is None:
+        _underlyings()
+    return LAST_SOURCE, LAST_SOURCE_NOTE
 
 
 def fno_stocks(suffix="-EQ"):
