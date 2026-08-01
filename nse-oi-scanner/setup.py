@@ -15,7 +15,10 @@ OUT = "config.py"
 def main():
     print("\n=== Fyers Scanner setup ===")
     print("From  myapi.fyers.in -> Dashboard -> your App  (copy each value):\n")
-    cid = input("  App ID        (e.g. GUNIFIJXO1-200): ").strip().strip('"')
+    # The example is a SHAPE, not a real App ID. It used to be the owner's own, which put
+    # a live account identifier in a public repository - harmless-looking next to a
+    # "Secret ID" prompt, and still the half of a credential pair that names the account.
+    cid = input("  App ID        (e.g. ABCD1234-100)  : ").strip().strip('"')
     sec = input("  Secret ID                          : ").strip().strip('"')
     red = input("  Redirect URL  (the FULL url)       : ").strip().strip('"')
 
