@@ -67,6 +67,17 @@ Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR con
 Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and
 option-chain analytics. Invoke for any market task; pairs with `@edge-seeker`. Not financial advice.
 
+## Execution safety → `.claude/skills/execution-safety/`
+`/execution-safety` — anything that can send a real order. Three gates (LIVE_TRADING · kill
+switch · a contract from the exchange's own chain), the two-press rule, quantity as a safety
+field, resting vs trailing stops, rejection codes, the audit trail. *A guard defeated by its own
+placeholder is worse than no guard.*
+
+## Screen proof → `.claude/skills/screen-proof/`
+`/screen-proof` — prove a UI works by looking at it. Screenshot at the real viewport (his desk is
+1920×940), measure the overflow, ask the DOM which element is expensive. *Rendered and visible are
+different claims* — AppTest passed while the header sat under Streamlit's own toolbar.
+
 ## Data integrity → `.claude/skills/data-integrity/`
 `/data-integrity` — the pre-flight for any market number before it reaches a screen, a ticket or
 an order: provenance · basis · magnitude · staleness · absence · agreement · self-consistency.
