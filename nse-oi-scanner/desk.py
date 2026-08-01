@@ -342,8 +342,7 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
         st.button(f"{label} · DEMO CONTRACT", key=key, disabled=True,
                   use_container_width=True)
         if explain:
-            st.caption("**Demo contract** — synthetic, and deliberately not sendable. "
-                       "Run `1 - START DAY` for real ones.")
+            st.caption("Demo contract — not sendable.")
         return
     if not payload.get("symbol") or payload["symbol"] in ("-", "None"):
         st.button(f"{label} · NO CONTRACT", key=key, disabled=True,
@@ -587,8 +586,8 @@ try:
         st.markdown(f'<div class="hazard">⚠ RISK HALT — {RISK["reason"]}</div>',
                     unsafe_allow_html=True)
     if RISK.get("not_enforced"):
-        st.caption(f"**Not enforced:** {', '.join(RISK['not_enforced'])} — not set in "
-                   f"`config.py`, so they are not limits. Run `0 - UPDATE` to add them.")
+        st.caption(f"**{len(RISK['not_enforced'])} risk limits off** "
+                   f"({', '.join(RISK['not_enforced'])}) — run `0 - UPDATE`.")
 except Exception as e:      # noqa
     RISK = None
     st.caption(f"risk limits unavailable: {e}")
@@ -605,11 +604,10 @@ try:
     _off = [f"{k} ({v})" for k, v in _OPT_GATES.items()
             if getattr(config, k, None) in (None, "")]
     if _off:
-        st.warning(f"**{len(_off)} option gates are NOT enforced** — "
-                   + ", ".join(_off)
-                   + ". They are absent from `config.py`, so a wide spread, a dead "
-                     "strike or a results-day contract will not be blocked. "
-                     "Run `0 - UPDATE`.")
+        # One line, not a paragraph. The detail is true and it is not the decision;
+        # the decision is "run 0 - UPDATE", and that has to survive being skim-read.
+        st.warning(f"**{len(_off)} option gates off** "
+                   f"({', '.join(k.split(' ')[0] for k in _off)}) — run `0 - UPDATE`.")
 except Exception as e:      # noqa
     st.caption(f"option gate check unavailable: {e}")
 
@@ -1056,41 +1054,45 @@ with T_SIG:
                         f'<div><b>Spread</b>{spread}</div>'
                         f'<div><b>Strike OI</b>{oi_txt}</div>')
 
+                # THREE numbers decide the press: what it costs, where the stop is, and
+                # where the first target is. Everything else - TP2, TP3, all four option
+                # legs, R, the six buyer metrics - is the WHY, and the why belongs behind
+                # a click. Eighteen cells on the face of a ticket is not information, it
+                # is a paragraph he has to read at 9:20am to find three numbers.
+                ok_chip = ("blocked" if blocked else
+                           "not checked" if not q else "ok")
+                chip_col = {"ok": T["up"], "blocked": T["down"],
+                            "not checked": T["attn"]}[ok_chip]
+                bits = []
+                if (q.get("vol") or {}).get("ratio"):
+                    bits.append(f'IV {q["vol"]["ratio"]}x {(q["vol"]["verdict"] or "").lower()}')
+                if o.get("theta_rs_day") is not None:
+                    bits.append(f'theta ₹{o["theta_rs_day"]:,}/day')
+                if ev != "clear":
+                    bits.append(f'event {etxt.lower()}')
                 st.markdown(
-                    f'<div class="ticket hud">'
+                    f'<div class="ticket">'
                     f'<div class="tk-head">'
-                    f'<span class="side" style="background:{acc}22;color:{acc}">{side_txt}</span>'
+                    f'<span class="side" style="background:{acc}1A;color:{acc}">{side_txt}</span>'
                     f'<span class="tk-name">{c["name"]}</span>'
                     f'<span class="tk-act">{c["action"]}</span>'
-                    f'<span class="tk-grade">★ {g} &nbsp;{total}/{sc_["of"]}</span></div>'
+                    f'<span class="tk-grade">★ {g} {total}/{sc_["of"]}</span></div>'
                     f'<div class="tk-big" style="color:{acc}">₹{prem if prem is not None else "—"}'
-                    f'<span class="tk-sub">&nbsp;per unit &nbsp;·&nbsp; {o.get("strike","?")} '
-                    f'{o.get("type","")} {o.get("expiry","")} &nbsp;·&nbsp; '
-                    f'{"LIVE CHAIN" if o.get("premium_source") == "live chain" else "ESTIMATED"}'
-                    f' &nbsp;·&nbsp; {qty} qty &nbsp;·&nbsp; '
-                    f'<b style="color:{T["ink"]}">₹{outlay:,.0f} to buy</b></span></div>'
-                    f'<div class="tk-grid">'
-                    f'<div><b>Stock entry</b>{e}</div>'
-                    f'<div><b>Stock SL</b><span style="color:{T["down"]}">{sl}</span></div>'
-                    f'<div><b>TP1 · {stk["rr1"]}R</b>{stk["t1"]}</div>'
-                    f'<div><b>TP2 · {stk["rr2"]}R</b>{stk["t2"]}</div>'
-                    f'<div><b>TP3 · {stk["rr3"]}R</b>{t3}</div>'
-                    f'<div><b>Option SL</b><span style="color:{T["down"]}">{o.get("stop","—")}</span></div>'
-                    f'<div><b>Option TP1</b>{o.get("t1","—")}</div>'
-                    f'<div><b>Option TP2</b>{o.get("t2","—")}</div>'
-                    f'<div><b>Option TP3</b>{o.get("t3","—")}</div>'
-                    f'<div><b>R (points)</b>{r}</div>'
-                    + qcells
+                    f'<span class="tk-sub">&nbsp;· {o.get("strike","?")} {o.get("type","")}'
+                    f' · {qty} qty · <b style="color:{T["ink"]}">₹{outlay:,.0f}</b></span></div>'
+                    f'<div class="tk-line">'
+                    f'<span><i>entry</i>{e}</span>'
+                    f'<span><i>stop</i><b style="color:{T["down"]}">{sl}</b></span>'
+                    f'<span><i>target</i><b style="color:{T["up"]}">{stk["t1"]}</b></span>'
+                    f'<span class="tk-chip" style="color:{chip_col}">contract {ok_chip}</span>'
+                    + (f'<span class="tk-why">{" · ".join(bits)}</span>' if bits else "")
                     + '</div></div>', unsafe_allow_html=True)
 
+                # Warnings still interrupt - they are the ones that change the decision.
                 for w in (o.get("premium_reject"), o.get("expiry_warning"),
                           sz.get("cost_warning"), c.get("afford_note")):
                     if w:
                         st.warning(w)
-                # "extended 2.9x vol above its 10-day mean - don't chase". It used to
-                # print only for the top pick; it is per-card, so it belongs per card.
-                if c.get("entry_note"):
-                    st.caption(c["entry_note"])
 
                 nm = c["name"]
                 order_button(
@@ -1120,6 +1122,38 @@ with T_SIG:
                         blocked=blocked, explain=False, no_contract_why=cherr)
                 if st.button(f"Chart — {nm}", key=f"ch_{nm}", use_container_width=True):
                     chart_window(nm)
+
+                # THE WHY, behind one click. Nothing was removed from the ticket - it
+                # moved off the face of it, which is the only way three numbers stay
+                # findable at 9:20am.
+                with st.expander("full plan"):
+                    rows = [("Entry", e), ("Stop", sl),
+                            (f"TP1 · {stk['rr1']}R", stk["t1"]),
+                            (f"TP2 · {stk['rr2']}R", stk["t2"]),
+                            (f"TP3 · {stk['rr3']}R", t3), ("R (points)", r),
+                            ("Option SL", o.get("stop", "—")),
+                            ("Option TP1", o.get("t1", "—")),
+                            ("Option TP2", o.get("t2", "—")),
+                            ("Option TP3", o.get("t3", "—"))]
+                    if q:
+                        rows += [("Delta", q.get("delta", "—")),
+                                 ("Spread", f'{q["spread_pct"]*100:.1f}%'
+                                            if q.get("spread_pct") else "—"),
+                                 ("Strike OI", f'{int(q["oi"]):,}' if q.get("oi") else "—"),
+                                 ("Volume", f'{int(q["volume"]):,}'
+                                            if q.get("volume") else "—"),
+                                 ("Implied vol", f'{q["iv"]*100:.1f}%' if q.get("iv") else "—"),
+                                 ("Realised vol", f'{q["rv"]*100:.1f}%' if q.get("rv") else "—")]
+                    st.markdown(
+                        '<div class="tk-grid">'
+                        + "".join(f"<div><b>{k}</b>{v}</div>" for k, v in rows)
+                        + "</div>", unsafe_allow_html=True)
+                    for x in (o.get("quality_fails") or []):
+                        st.caption(f"✗ {x}")
+                    if o.get("event_note"):
+                        st.caption(f"Event risk — {o['event_note']}")
+                    if c.get("entry_note"):
+                        st.caption(c["entry_note"])
                 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
             # LONG on the left, SHORT on the right - the two sides of the book side by

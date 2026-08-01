@@ -216,6 +216,18 @@ def css(T):
               letter-spacing:.4px; text-transform:uppercase; margin-bottom:1px;
               font-family:{T['ui']}; white-space:nowrap;}}
 
+  /* the one line that decides the press: entry, stop, target, verdict */
+  .tk-line {{display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 20px;
+            margin-top:7px; font-family:{T['mono']}; font-size:.92rem;
+            color:{T['ink']};}}
+  .tk-line i {{font-style:normal; font-size:.6rem; letter-spacing:.4px;
+              text-transform:uppercase; color:{T['muted']}; margin-right:6px;
+              font-family:{T['ui']};}}
+  .tk-chip {{font-size:.68rem; font-weight:700; letter-spacing:.3px;
+            font-family:{T['ui']}; margin-left:auto;}}
+  .tk-why {{font-size:.7rem; color:{T['muted']}; font-family:{T['ui']};
+           width:100%; margin-top:-2px;}}
+
   .card {{background:{T['panel']}; border:1px solid {T['line']};
          border-left:3px solid {T['up']}; border-radius:10px; padding:11px 15px;
          margin-bottom:9px;}}
