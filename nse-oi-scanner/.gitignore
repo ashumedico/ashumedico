@@ -42,3 +42,6 @@ dist/
 # generated per-scan snapshots - regenerate, never commit
 tradingview/AashishScreener_live.pine
 tradingview/watchlist.txt
+# recorded implied-vol series - his data, and this repo is public
+iv_history.json
+iv_history.json.tmp

@@ -81,6 +81,11 @@ def take(bk, card, point, max_pos=None):
         "strike": o["strike"], "type": o["type"], "expiry": o.get("expiry"),
         "premium_in": o["premium"], "premium_source": o.get("premium_source"),
         "tradingsymbol": o.get("tradingsymbol"),
+        # the bid-ask THIS strike was actually quoting, so the book is costed on what it
+        # faced rather than on a universe average
+        "spread_pct_measured": ((o.get("quality") or {}).get("spread_pct")
+                                if (o.get("quality") or {}).get("spread_src") == "measured"
+                                else None),
         "qty": card["size"]["qty"], "lot": card["size"]["lot"],
         "cost": card["size"].get("cost_per_lot", 0) * card["size"]["lots"],
         # the stock-level plan the option inherits
@@ -283,7 +288,14 @@ def net_pnl_now(t, spot_now):
     spread and every statutory charge, not before them."""
     prem = option_exit_premium(t, spot_now)
     gross = (prem - t["premium_in"]) * t["qty"]
-    spread = float(getattr(config, "OPTION_SPREAD_PCT", 0.02)) * t["premium_in"] * t["qty"]
+    # THE SPREAD THIS TRADE ACTUALLY FACED, not the config average.
+    # The chain now supplies bid and ask, so the ticket records the measured spread at
+    # entry. Costing every trade at the same assumed 2% makes an illiquid strike look as
+    # cheap to trade as a liquid one - and this P&L feeds the drawdown halt, so an
+    # under-costed book is a halt that fires late.
+    sp = t.get("spread_pct_measured")
+    spread = float(sp if sp else getattr(config, "OPTION_SPREAD_PCT", 0.02)) \
+        * t["premium_in"] * t["qty"]
     try:
         import charges as CH
         stat = CH.round_trip(t["premium_in"], t["qty"], prem)["total"]
@@ -342,7 +354,9 @@ def close(bk, t, spot_now, reason):
     # Bid-ask is the big one; STT, exchange fees, stamp and GST are small but they are not
     # zero, and a paper book that omits them slowly convinces you of an edge the ledger
     # will not pay out.
-    spread = float(getattr(config, "OPTION_SPREAD_PCT", 0.02))
+    # measured at entry when the chain supplied bid/ask; the config average otherwise
+    spread = float(t.get("spread_pct_measured")
+                   or getattr(config, "OPTION_SPREAD_PCT", 0.02))
     spread_cost = spread * t["premium_in"] * total_q
     try:
         import charges as CH

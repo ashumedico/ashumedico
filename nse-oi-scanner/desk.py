@@ -1278,6 +1278,20 @@ with T_SIG:
                 # on. Built here rather than inline: nested quotes inside an f-string are
                 # a syntax error waiting for the one edit that trips it.
                 q = o.get("quality") or {}
+                # Record today's implied vol so an IV RANK becomes possible with time.
+                # Naming a store in a docstring and never writing to it is a limitation
+                # that never expires, because nothing ever starts collecting. Once per
+                # name per day - the desk reruns on every click, and observing on each
+                # rerun would weight a day he browsed a lot above one he did not.
+                if q.get("iv") and not DEMO:
+                    try:
+                        import iv_history as IVH
+                        IVH.record(p["symbol"], q["iv"], spot=c.get("spot"),
+                                   dte=o.get("days_to_expiry"))
+                        rk, rk_note = IVH.rank(p["symbol"], q["iv"])
+                        q["iv_rank"], q["iv_rank_note"] = rk, rk_note
+                    except Exception:      # noqa - never let bookkeeping break a ticket
+                        pass
                 qcells = ""
                 if q:
                     vv = q.get("vol") or {}
