@@ -293,7 +293,24 @@ recurs, and recognising the shape is faster than rediscovering the bug.
     it had to be readable. One number, one primary action, everything else quieter and
     full width.
 
-21. **Language: the chat is Hinglish, the product is English.** Code, commits, the
+21. **Measure every level from the ENTRY, never from spot.** The card set its stop and
+    targets off spot while the entry was a limit somewhere else, so every figure that
+    divides by risk was wrong by the gap between them - it printed R:R 1.5 where the real
+    number at the stated entry was 1.20. If he enters where the card says, the numbers
+    have to be his.
+
+22. **Derive ordered things from one formula.** T1 and T2 came from vol, T3 from R, and
+    T3 landed BETWEEN them - a level labelled "third target" that was second-furthest.
+    All three are R-multiples now (1.5R / 3R / 4R), so their order is arithmetic rather
+    than luck.
+
+23. **Wrong numbers do not announce themselves. They look like numbers.** Consistency is
+    testable even when correctness is not: stop on the losing side of entry, targets
+    stepping away in order, printed R:R equal to actual R:R, option levels off the same
+    entry as the stock levels. `test_card_math.py` asserts all of it on three price
+    scales and both directions.
+
+24. **Language: the chat is Hinglish, the product is English.** Code, commits, the
     website and any MLR/UCPMP content stay English. A half-translated screen reads as
     careless.
 

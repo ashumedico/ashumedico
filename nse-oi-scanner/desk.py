@@ -1012,7 +1012,8 @@ else:
     k[3].metric("Cost", f"Rs {s.get('cost_per_lot', 0) * s['lots']:,.0f}",
                 f"{s.get('cost_pct', 0)}% capital")
     k[4].metric("Stop", card["stock"]["stop"])
-    k[5].metric("T1 / T2", f"{card['stock']['t1']}", f"T2 {card['stock']['t2']}")
+    k[5].metric("T1 / T2 / T3", f"{card['stock']['t1']}",
+                f"T2 {card['stock']['t2']} · T3 {card['stock']['t3']}")
     for w in (o.get("premium_reject"), o.get("expiry_warning"),
               s.get("lot_warning"), s.get("cost_warning"), s.get("afford_note")):
         if w:
@@ -1094,9 +1095,11 @@ if longs:
             _CARDS[c["name"]] = c
             o = c.get("option") or {}
             stk, sz = c["stock"], c["size"]
-            e, sl = stk.get("entry") or c["spot"], stk["stop"]
-            r = max(0.01, abs(e - sl))
-            t3 = round(e - 2 * r, 2) if is_short else round(e + 2 * r, 2)
+            # Take these from the card. Recomputing R and a third target here is exactly
+            # how the two halves drifted before: the card measured from spot, the desk
+            # measured from entry, and the R:R on screen belonged to neither.
+            e, sl = stk["entry_px"], stk["stop"]
+            r, t3 = stk["risk_pts"], stk["t3"]
             prem, qty = o.get("premium"), sz["qty"]
             sym = o.get("tradingsymbol")
             outlay = (prem or 0) * qty
@@ -1128,11 +1131,16 @@ if longs:
                 f'<div class="tk-grid">'
                 f'<div><b>Stock entry</b>{e}</div>'
                 f'<div><b>Stock SL</b><span style="color:#FF6BB0">{sl}</span></div>'
-                f'<div><b>TP1</b>{stk["t1"]}</div><div><b>TP2</b>{stk["t2"]}</div>'
-                f'<div><b>TP3 · 2R</b>{t3}</div>'
+                f'<div><b>TP1 · {stk["rr1"]}R</b>{stk["t1"]}</div>'
+                f'<div><b>TP2 · {stk["rr2"]}R</b>{stk["t2"]}</div>'
+                f'<div><b>TP3 · {stk["rr3"]}R</b>{t3}</div>'
                 f'<div><b>Option SL</b><span style="color:#FF6BB0">{o.get("stop","—")}</span></div>'
                 f'<div><b>Option TP1</b>{o.get("t1","—")}</div>'
                 f'<div><b>Option TP2</b>{o.get("t2","—")}</div>'
+                f'<div><b>Option TP3</b>{o.get("t3","—")}</div>'
+                f'<div><b>R (points)</b>{r}</div>'
+                f'<div><b>R:R at TP1</b>{stk["rr1"]} : 1</div>'
+                f'<div><b>Action</b>{c["action"]}</div>'
                 f'</div></div>', unsafe_allow_html=True)
 
             for w in (o.get("premium_reject"), o.get("expiry_warning"),

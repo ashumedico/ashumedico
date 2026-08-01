@@ -185,17 +185,16 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
     vol = realised_vol(closes) or spot * 0.02
     sgn = -1.0 if short else 1.0
 
-    # ---- stock-level structure: stop 2x daily vol, targets at 3x and 6x ----
-    stop_px   = round(spot - sgn * 2.0 * vol, 2)
-    t1_px     = round(spot + sgn * 3.0 * vol, 2)
-    t2_px     = round(spot + sgn * 6.0 * vol, 2)
-    risk_pts  = max(abs(spot - stop_px), 1e-9)
-    rr1 = round(abs(t1_px - spot) / risk_pts, 2)
-    rr2 = round(abs(t2_px - spot) / risk_pts, 2)
-
-    # ---- entry timing: chase or wait? ----
-    # extended = already far from the fast mean IN THE TRADE'S DIRECTION -> waiting beats
-    # chasing. For a short that means far BELOW the mean, so the sign travels with it.
+    # ---- entry FIRST, then everything measured from it --------------------------
+    # This used to run the other way round: the stop and both targets were built off
+    # SPOT, and then the entry was set somewhere else - a limit above spot when chasing,
+    # a limit below it when waiting for a pullback. So the R printed on the card was not
+    # the R the trade would actually have. On one worked example the card claimed
+    # R:R 1.5 while the real figure from the stated entry was 1.20. Every number that
+    # divides by risk was wrong by the gap between spot and the limit.
+    #
+    # Now the entry is decided first and the stop, all three targets and the R:R are
+    # measured from THAT price. If he enters where the card says, the numbers are his.
     raw_stretch = (spot - (sum(closes[-10:]) / 10)) / vol if len(closes) >= 10 else 0
     stretch = raw_stretch * sgn
     trend = point.get("abs_trend", 0)
@@ -216,6 +215,23 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         entry_note = (f"in range ({stretch:+.1f}x vol from mean) — "
                       f"{'sell down to' if short else 'buy up to'} {limit_px}")
 
+    # A price is a price. Leaving this as a raw float made entry_px and spot differ
+    # in the 12th decimal, which is invisible on screen and breaks every equality
+    # test that tries to check the two agree.
+    entry_px = round(limit_px if limit_px is not None else spot, 2)
+
+    # Targets as multiples of R, so their ORDER is guaranteed by arithmetic instead of
+    # by hoping two different formulas happen to sort. The old card computed T1/T2 from
+    # vol and T3 from R, and T3 landed BETWEEN T1 and T2 - a level labelled "third
+    # target" that was the second-furthest.
+    risk_pts = 2.0 * vol
+    stop_px = round(entry_px - sgn * risk_pts, 2)
+    t1_px = round(entry_px + sgn * 1.5 * risk_pts, 2)
+    t2_px = round(entry_px + sgn * 3.0 * risk_pts, 2)
+    t3_px = round(entry_px + sgn * 4.0 * risk_pts, 2)
+    risk_pts = max(risk_pts, 1e-9)
+    rr1, rr2, rr3 = 1.5, 3.0, 4.0
+
     card = {
         "name": point["name"], "symbol": point.get("symbol"),
         "action": action, "entry_note": entry_note,
@@ -228,8 +244,10 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "oi": point.get("signal"),
         },
         "spot": round(spot, 2), "vol_daily": round(vol, 2),
-        "stock": {"entry": limit_px, "stop": stop_px, "t1": t1_px, "t2": t2_px,
-                  "rr1": rr1, "rr2": rr2},
+        # Every one of these is measured from `entry`, not from spot.
+        "stock": {"entry": limit_px, "entry_px": entry_px, "stop": stop_px,
+                  "t1": t1_px, "t2": t2_px, "t3": t3_px, "risk_pts": round(risk_pts, 2),
+                  "rr1": rr1, "rr2": rr2, "rr3": rr3},
         "instrument": instrument,
         "rules": [],
     }
@@ -276,14 +294,18 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         delta = 0.50 if getattr(config, "MONEYNESS", "ATM") == "ATM" else 0.60
         # Distances, not signed differences: the premium of a put rises as the stock
         # falls, so the same formula serves both sides once the direction is taken out.
-        opt_stop = round(max(premium - delta * abs(spot - stop_px), premium * 0.55), 1)
-        opt_t1   = round(premium + delta * abs(t1_px - spot), 1)
-        opt_t2   = round(premium + delta * abs(t2_px - spot), 1)
+        # Measured from the ENTRY, like every stock level above. Using spot here would
+        # reintroduce the same mismatch on the option leg: a premium stop derived from a
+        # price he is not entering at.
+        opt_stop = round(max(premium - delta * abs(entry_px - stop_px), premium * 0.55), 1)
+        opt_t1   = round(premium + delta * abs(t1_px - entry_px), 1)
+        opt_t2   = round(premium + delta * abs(t2_px - entry_px), 1)
+        opt_t3   = round(premium + delta * abs(t3_px - entry_px), 1)
         card["option"] = {
             "type": "CE" if direction == "BULLISH" else "PE",
             "strike": strike, "expiry": expiry_label or "current",
             "premium": premium, "premium_source": prem_src,
-            "stop": opt_stop, "t1": opt_t1, "t2": opt_t2,
+            "stop": opt_stop, "t1": opt_t1, "t2": opt_t2, "t3": opt_t3,
             "max_loss_per_unit": round(premium - opt_stop, 1),
             "days_to_expiry": days_to_expiry,
             "expiry_warning": expiry_warning,
@@ -340,11 +362,17 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
         lot_absurd = True
         lot_warning = (f"lot {lot} gives a contract value of only Rs {contract_value:,} - "
                        f"NSE F&O contracts are ~Rs 5-10 lakh, so verify the lot before you order")
-    elif contract_value > 2500000:
+    elif contract_value > 2000000:
         lot_absurd = True
         lot_warning = (f"lot {lot} gives a contract value of Rs {contract_value:,} - "
                        f"NSE F&O contracts are ~Rs 5-10 lakh, so this lot is wrong "
                        f"(freeze quantity reads like this). Do NOT order on it.")
+    elif contract_value > 1200000:
+        # Not absurd, but above the band. Worth saying out loud rather than silently
+        # sizing on it - a name can run past its lot revision, and a wrong lot looks
+        # exactly like this on the way up.
+        lot_warning = (f"lot {lot} gives a contract value of Rs {contract_value:,} - "
+                       f"above the usual Rs 5-10 lakh band. Check the lot before ordering.")
     elif chain_lot and master_lot and chain_lot != master_lot:
         lot_warning = (f"lot mismatch: live chain says {chain_lot}, symbol master says "
                        f"{master_lot} - using {chain_lot}; a recent split may have revised it")
