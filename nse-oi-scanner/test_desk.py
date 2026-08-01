@@ -89,6 +89,44 @@ def main():
     check("mauke table rendered", len(at.dataframe) >= 1)
     check("metrics rendered", len(at.metric) >= 4, f"{len(at.metric)} metrics")
 
+    # ---- the floating chart window ----
+    src = open(DESK).read()
+    check("tables open the chart on row click",
+          src.count("clickable(") >= 4,
+          f"{src.count('clickable(') - 1} tables wired")
+    check("trade cards have their own chart button", "chart_window(p[" in src)
+    check("one chart builder, used by page and popup alike",
+          src.count("def make_fig") == 1 and src.count("make_fig(") >= 3,
+          f"{src.count('make_fig(') - 1} call sites")
+
+    # The chart builder is a pure function - test it directly rather than through the UI.
+    # One namespace for globals AND locals: with two, the functions defined here get the
+    # first dict as their globals and cannot see each other - make_fig would not find
+    # touches, which is exactly what happened.
+    ns = {"st": None, "__name__": "_deskfns"}
+    exec(compile(src[src.index("def touches("):src.index("@st.dialog")], DESK, "exec"),
+         ns, ns)
+    bars_ = [[i, 100 + i, 102 + i, 98 + i, 101 + i, 1000] for i in range(40)]
+    feat = {"r1": 130.0, "r2": 140.0, "s1": 95.0, "s2": 90.0, "atr": 2.0}
+    plan = [("STOP", 96.0, "#ff7b72"), ("T1", 125.0, "#56d364")]
+    fig = ns["make_fig"]("X", [b[4] for b in bars_], bars_, ["d"] * 40, feat, plan)
+    shapes = getattr(fig.layout, "shapes", ()) or ()
+    check("chart draws all four levels plus the trade plan",
+          len(shapes) == 6, f"{len(shapes)} lines (4 levels + 2 plan)")
+    texts = " ".join(str(a.text) for a in (getattr(fig.layout, "annotations", ()) or ()))
+    check("levels are named on the chart",
+          all(k in texts for k in ("R1", "R2", "S1", "S2", "STOP", "T1")))
+    check("levels carry their touch count", "x" in texts)
+
+    # a source that cannot show NSE names must not be offered as one
+    # StockCharts covers US/Canada, not NSE India. Offering it would be a dead link
+    # dressed as a feature - so it must not appear in the link list.
+    links_block = src.split("EXTERNAL_CHARTS = [", 1)[-1].split("]", 1)[0].lower()
+    check("no chart source that cannot carry NSE names",
+          "EXTERNAL_CHARTS = [" in src and "stockcharts" not in links_block)
+    check("external links are offered for what we cannot draw",
+          "tradingview.com" in src.lower())
+
     print("  " + "-" * 62)
     if FAILED:
         print(f"  {len(FAILED)} FAILED: {', '.join(FAILED)}\n")

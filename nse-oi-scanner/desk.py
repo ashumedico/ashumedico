@@ -145,6 +145,28 @@ def watch_map():
         return {}
 
 
+# --------------------------------------------------------------- charting --
+# WHERE THE CHART COMES FROM
+#
+# StockCharts.com is a fine site and it is not usable here: it covers US and Canadian
+# listings, not NSE India equities, so an NSE F&O name would come back empty. Wiring a
+# source that returns nothing for the names he actually trades would look like a feature
+# and behave like a dead link.
+#
+# So the floating window draws OUR data - the same bars the signals were computed from,
+# with R1/R2/S1/S2, VWAP and this trade's stop and targets already on it. No external site
+# can draw those, because they do not have the levels this system computed.
+#
+# For the things a full charting site does better - drawing tools, multi-year history,
+# indicators we deliberately deleted - there are links out. TradingView carries every NSE
+# name; so does Fyers, which is where the order goes anyway.
+EXTERNAL_CHARTS = [
+    ("TradingView", "https://www.tradingview.com/chart/?symbol=NSE%3A{name}"),
+    ("Fyers", "https://trade.fyers.in/?symbol=NSE:{name}-EQ"),
+    ("NSE India", "https://www.nseindia.com/get-quotes/equity?symbol={name}"),
+]
+
+
 def touches(bars, level, atr):
     """How many bars came within a quarter-ATR of a level. A line nobody has traded
     against is a line drawn on a chart, not a level."""
@@ -152,6 +174,133 @@ def touches(bars, level, atr):
         return 0
     tol = atr * 0.25
     return sum(1 for b in bars if b[3] - tol <= level <= b[2] + tol)
+
+
+def make_fig(name, closes, bars_, dates_, feat, plan=None, height=440):
+    """One chart builder, used by the page and by the floating window alike.
+
+    Two copies of this would drift - the inline one would get the trade levels and the
+    popup would quietly keep showing a chart without them, and nobody would notice until
+    a stop looked wrong on one screen and right on the other.
+    """
+    import plotly.graph_objects as go
+    feat = feat or {}
+    fig = go.Figure()
+    if bars_:
+        fig.add_candlestick(x=list(range(len(bars_))),
+                            open=[r[1] for r in bars_], high=[r[2] for r in bars_],
+                            low=[r[3] for r in bars_], close=[r[4] for r in bars_],
+                            name=name, increasing_line_color="#3fb950",
+                            decreasing_line_color="#f85149")
+        try:
+            import indicators as I
+            vwl = I.vwap_session(bars_, (dates_ or [""] * len(bars_))[-len(bars_):])
+            fig.add_scatter(x=list(range(len(bars_))), y=vwl, name="VWAP",
+                            line=dict(color="#d29922", width=2))
+        except Exception:
+            pass
+    else:
+        c = closes or []
+        fig.add_scatter(x=list(range(len(c))), y=c, name=name,
+                        line=dict(color="#58a6ff"))
+    atr = feat.get("atr")
+    for nm, lvl, col in (("R2", feat.get("r2"), "#f85149"),
+                         ("R1", feat.get("r1"), "#f85149"),
+                         ("S1", feat.get("s1"), "#3fb950"),
+                         ("S2", feat.get("s2"), "#3fb950")):
+        if not lvl:
+            continue
+        n = touches(bars_, lvl, atr)
+        fig.add_hline(y=lvl, line_dash="dot", line_color=col, line_width=1.4,
+                      annotation_text=f"  {nm} {lvl}" + (f" · {n}x" if n else ""),
+                      annotation_position="right",
+                      annotation_font=dict(color=col, size=11))
+    for nm, lvl, col in (plan or []):
+        if lvl:
+            fig.add_hline(y=lvl, line_dash="dash", line_color=col, line_width=1,
+                          annotation_text=f"  {nm}", annotation_position="left",
+                          annotation_font=dict(color=col, size=10))
+    fig.update_layout(height=height, margin=dict(l=8, r=70, t=10, b=8),
+                      xaxis_rangeslider_visible=False, template="plotly_dark",
+                      paper_bgcolor="#0b0f14", plot_bgcolor="#0b0f14",
+                      showlegend=False)
+    return fig
+
+
+@st.dialog("Chart", width="large")
+def chart_window(name):
+    """The floating window. Opens over whatever you were reading, on any name, anywhere.
+
+    It draws the system's own bars because those are the only ones that carry the levels
+    this system computed - R1/R2/S1/S2, the session VWAP, and the stop and targets of the
+    live ticket if this name has one. An external site can draw a prettier candle and
+    cannot draw any of that.
+    """
+    p = next((x for x in _ALL_POINTS if x["name"] == name), None)
+    if not p:
+        st.warning(f"{name} is scan mein nahi hai — koi bars nahi mile.")
+        return
+    f = p.get("feat") or {}
+    sym = p.get("symbol")
+    b = (_BARS or {}).get(sym) or []
+
+    m = st.columns(5)
+    m[0].metric(name, round(p.get("close", 0), 2),
+                f"{p.get('abs_pct'):+.2f}%" if p.get("abs_pct") is not None else None)
+    try:
+        import scorecard as SC
+        s = SC.score(p)
+        m[1].metric("Score", f"{s['total']}/{s['of']}", SC.label(s["total"]))
+    except Exception:
+        pass
+    m[2].metric("RVOL", f.get("rvol", "—"))
+    m[3].metric("ATR", f.get("atr", "—"))
+    m[4].metric("vs VWAP", "UPAR" if f.get("above_vwap") else
+                ("NEECHE" if f else "—"))
+
+    plan = []
+    for c in (_CARDS or {}).values():
+        if c and c.get("name") == name:
+            plan = [("STOP", c["stock"]["stop"], "#ff7b72"),
+                    ("T1", c["stock"]["t1"], "#56d364"),
+                    ("T2", c["stock"]["t2"], "#56d364")]
+            break
+    if not b:
+        st.caption("Is naam ke OHLCV bars nahi aaye — sirf close line. "
+                   "Levels tab bhi asli hain.")
+    try:
+        st.plotly_chart(make_fig(name, _PRICES.get(sym, []), b, _DATES, f, plan,
+                                 height=380),
+                        use_container_width=True)
+    except Exception as e:      # noqa
+        st.caption(f"chart nahi bana: {e}")
+
+    if f.get("feature_error"):
+        st.warning(f"Feature calculation fail: {f['feature_error']}")
+
+    links = "  ·  ".join(f'<a href="{u.format(name=name)}" target="_blank" '
+                         f'style="color:#58a6ff;text-decoration:none">{t} ↗</a>'
+                         for t, u in EXTERNAL_CHARTS)
+    st.markdown(f'<div class="scen">Poora chart kahin aur: {links}'
+                f'<br><span style="color:#6e7781">StockCharts.com yahan nahi hai — '
+                f'wo US/Canada listings cover karta hai, NSE India nahi. Jo source '
+                f'tere naam hi na dikhaye, uska link dena dead link dena hai.</span>'
+                f'</div>', unsafe_allow_html=True)
+
+
+def clickable(rows, key, name_col="naam", **kw):
+    """A table whose rows open the chart. Selection, not a button per row - a button
+    beside every name turns a readable table into a wall of controls."""
+    ev = st.dataframe(rows, use_container_width=True, hide_index=True,
+                      on_select="rerun", selection_mode="single-row", key=key, **kw)
+    try:
+        sel = (ev.selection.rows or []) if hasattr(ev, "selection") else []
+        if sel:
+            nm = rows[sel[0]].get(name_col)
+            if nm:
+                chart_window(nm)
+    except Exception:
+        pass
 
 
 # ================================================================== sidebar ==
@@ -217,6 +366,10 @@ if DEMO:
 
 try:
     pts, prices, bench, bars, dates = load(DEMO)
+    # The floating window is defined before the data exists, so it reads these. Module
+    # globals rather than arguments because st.dialog callbacks take only what the click
+    # passes - a name - and everything else has to be reachable from inside.
+    _ALL_POINTS, _PRICES, _BARS, _DATES, _CARDS = pts, prices, bars, dates, {}
 except Exception as e:      # noqa
     st.error(f"Data nahi aaya: {e}")
     st.info("Token expire ho gaya? Icon '1 - START DAY' chalao.")
@@ -439,7 +592,7 @@ if st.session_state.get("sector"):
             rows.sort(key=lambda r: (r["score"], abs(r["trend %"] or 0)), reverse=True)
             for i, r_ in enumerate(rows):
                 r_["#"] = i + 1
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            clickable(rows, key="sec_rows")
             top = rows[0] if rows else None
             if top:
                 st.success(
@@ -539,6 +692,7 @@ if longs:
             g = grade(total)
             gcol = {"A+": "#3fb950", "A": "#56d364", "B": "#d29922"}.get(g, "#8b949e")
             pcol = "#56d364" if pts_now >= 0 else "#ff7b72"
+            _CARDS[c["name"]] = c
             side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
             side_bg = ("background:#3d1519;color:#ff7b72" if is_short
                        else "background:#0d2b18;color:#56d364")
@@ -563,6 +717,9 @@ if longs:
             st.markdown("**LONG — BUY CE**")
             for p in longs[:6]:
                 render(p, False)
+                if st.button(f"Chart — {p['name']}", key=f"ch_l_{p['name']}",
+                             use_container_width=True):
+                    chart_window(p["name"])
         with cr:
             st.markdown("**SHORT — BUY PE**")
             shorts = sel.get("shorts") or []
@@ -570,6 +727,9 @@ if longs:
                 st.caption("Aaj koi naam short rule pass nahi kar raha.")
             for p in shorts[:6]:
                 render(p, True)
+                if st.button(f"Chart — {p['name']}", key=f"ch_s_{p['name']}",
+                             use_container_width=True):
+                    chart_window(p["name"])
 
         if not bool(getattr(config, "TRADE_SHORTS", False)):
             st.warning(
@@ -588,48 +748,16 @@ if longs:
 st.markdown('<div class="sec">Chart — levels, and how often they held</div>',
             unsafe_allow_html=True)
 if P:
-    LV = [("R2", F.get("r2"), "#f85149"), ("R1", F.get("r1"), "#f85149"),
-          ("S1", F.get("s1"), "#3fb950"), ("S2", F.get("s2"), "#3fb950")]
     try:
-        import plotly.graph_objects as go
-        fig = go.Figure()
-        if BARS:
-            fig.add_candlestick(x=list(range(len(BARS))),
-                                open=[r[1] for r in BARS], high=[r[2] for r in BARS],
-                                low=[r[3] for r in BARS], close=[r[4] for r in BARS],
-                                name=pick,
-                                increasing_line_color="#3fb950",
-                                decreasing_line_color="#f85149")
-            import indicators as I
-            vwl = I.vwap_session(BARS, (dates or [""] * len(BARS))[-len(BARS):])
-            fig.add_scatter(x=list(range(len(BARS))), y=vwl, name="VWAP",
-                            line=dict(color="#d29922", width=2))
-        else:
-            c = prices.get(SYM, [])
-            fig.add_scatter(x=list(range(len(c))), y=c, name=pick,
-                            line=dict(color="#58a6ff"))
-            st.caption("OHLCV bars nahi mile — sirf close line. Levels tab bhi asli hain.")
-        atr = F.get("atr")
-        for nm, lvl, col in LV:
-            if not lvl:
-                continue
-            n = touches(BARS, lvl, atr)
-            fig.add_hline(y=lvl, line_dash="dot", line_color=col, line_width=1.4,
-                          annotation_text=f"  {nm} {lvl}" + (f" · {n}x" if n else ""),
-                          annotation_position="right",
-                          annotation_font=dict(color=col, size=11))
+        plan = []
         if card and card["name"] == pick:
-            for nm, lvl, col in (("STOP", card["stock"]["stop"], "#ff7b72"),
-                                 ("T1", card["stock"]["t1"], "#56d364"),
-                                 ("T2", card["stock"]["t2"], "#56d364")):
-                fig.add_hline(y=lvl, line_dash="dash", line_color=col, line_width=1,
-                              annotation_text=f"  {nm}", annotation_position="left",
-                              annotation_font=dict(color=col, size=10))
-        fig.update_layout(height=440, margin=dict(l=8, r=70, t=10, b=8),
-                          xaxis_rangeslider_visible=False, template="plotly_dark",
-                          paper_bgcolor="#0b0f14", plot_bgcolor="#0b0f14",
-                          showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+            plan = [("STOP", card["stock"]["stop"], "#ff7b72"),
+                    ("T1", card["stock"]["t1"], "#56d364"),
+                    ("T2", card["stock"]["t2"], "#56d364")]
+        if not BARS:
+            st.caption("OHLCV bars nahi mile — sirf close line. Levels tab bhi asli hain.")
+        st.plotly_chart(make_fig(pick, prices.get(SYM, []), BARS, dates, F, plan),
+                        use_container_width=True)
     except Exception as e:      # noqa
         st.caption(f"chart nahi bana: {e}")
 
@@ -693,7 +821,7 @@ for p in longs:
         "freshness": p.get("freshness"),
     })
 if rows:
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    clickable(rows, key="mauke")
 else:
     st.caption("koi naam nahi")
 
@@ -703,14 +831,13 @@ st.markdown('<div class="sec">Scorecard — 10-point conviction, har point ka na
 try:
     import scorecard as SC
     ranked = sorted(pts, key=lambda p: SC.score(p)["total"], reverse=True)[:15]
-    st.dataframe(
+    clickable(
         [{"naam": p["name"], "LTP": round(p.get("close", 0), 2),
           "score": f"{SC.score(p)['total']}/{SC.MAX}",
           "verdict": SC.label(SC.score(p)["total"]),
           "kya-kya laga": ", ".join(h["label"] for h in SC.score(p)["hits"] if h["got"])
                           or "kuch nahi"}
-         for p in ranked],
-        use_container_width=True, hide_index=True)
+         for p in ranked], key="scorecard")
     st.caption("Har point ek gate hai jo walk-forward mein test hua. **Weighting test nahi "
                "hui** — 10/10 probability nahi hai, aur quantity phir bhi 1 lot rahegi. "
                "Feature na mile toh point nahi milta: unknown ko 'haan' nahi maana jaata.")
@@ -719,11 +846,11 @@ try:
     st.markdown('<div class="sec">Volume shock — apne hi norm se kai guna</div>',
                 unsafe_allow_html=True)
     if shock:
-        st.dataframe([{"naam": r["name"], "RVOL": f"{r['rvol']:.2f}x",
-                       "LTP": round(r["close"] or 0, 2), "trend %": r["pct"],
-                       "VWAP": r["vwap"],
-                       "expansion": "HAAN" if r["expanding"] else "nahi"}
-                      for r in shock], use_container_width=True, hide_index=True)
+        clickable([{"naam": r["name"], "RVOL": f"{r['rvol']:.2f}x",
+                    "LTP": round(r["close"] or 0, 2), "trend %": r["pct"],
+                    "VWAP": r["vwap"],
+                    "expansion": "HAAN" if r["expanding"] else "nahi"}
+                   for r in shock], key="shock")
     else:
         st.caption("Aaj koi naam apne norm se itna upar nahi hai. Chup rehna bhi ek "
                    "jawab hai.")
