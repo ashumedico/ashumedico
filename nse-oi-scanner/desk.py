@@ -1179,7 +1179,16 @@ with T_SIG:
                                  ("Volume", f'{int(q["volume"]):,}'
                                             if q.get("volume") else "—"),
                                  ("Implied vol", f'{q["iv"]*100:.1f}%' if q.get("iv") else "—"),
-                                 ("Realised vol", f'{q["rv"]*100:.1f}%' if q.get("rv") else "—")]
+                                 ("Realised vol", f'{q["rv"]*100:.1f}%' if q.get("rv") else "—"),
+                                 # What an ordinary post-event IV normalisation costs, in
+                                 # rupees. A momentum screen buys names moving on news,
+                                 # and their IV falls back whether or not the stock does.
+                                 ("IV −5 pts costs",
+                                  f'₹{o["iv_crush_rs_5pt"]:,}'
+                                  + (f' ({o["iv_crush_pct_5pt"]}%)'
+                                     if o.get("iv_crush_pct_5pt") else "")
+                                  if o.get("iv_crush_rs_5pt") is not None else "—"),
+                                 ("Gamma", o.get("gamma", "—"))]
                     st.markdown(
                         '<div class="tk-grid">'
                         + "".join(f"<div><b>{k}</b>{v}</div>" for k, v in rows)

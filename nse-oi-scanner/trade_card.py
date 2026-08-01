@@ -584,6 +584,32 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             if cost_per_lot:
                 card["option"]["theta_pct_of_cost"] = round(100 * per_day / cost_per_lot, 1)
 
+        # VEGA IN RUPEES - the IV crush, priced. Vega was computed from the first day and
+        # then thrown away: never gated, never shown, never acted on. Computed-and-unused
+        # is the same failure as a warning printed beside a wrong number.
+        #
+        # It matters here more than almost anywhere, because of WHAT this system buys.
+        # A momentum screen selects names that are moving on news, and a name moving on
+        # news carries elevated implied vol. When the move is done, IV normalises whether
+        # or not the stock does - and the position loses money with the underlying
+        # sitting still. The IV-vs-realised gate flags that the option is expensive; vega
+        # is the only thing that says how much it costs when it stops being expensive.
+        #
+        # Five points is a normal post-event normalisation, not a crash - the number is
+        # meant to be routine rather than dramatic.
+        if q.get("vega_1pct") is not None:
+            per_pt = abs(q["vega_1pct"]) * lot * lots
+            card["option"]["vega_rs_per_pt"] = round(per_pt)
+            card["option"]["iv_crush_rs_5pt"] = round(per_pt * 5)
+            if cost_per_lot:
+                card["option"]["iv_crush_pct_5pt"] = round(
+                    100 * per_pt * 5 / cost_per_lot, 1)
+        # Gamma is carried through for the same reason it was computed: for a same-day
+        # hold it is the Greek that pays, and the intraday engine will need it. It is
+        # NOT scored yet - see the expiry note in min_days_for_thesis().
+        if q.get("gamma") is not None:
+            card["option"]["gamma"] = q["gamma"]
+
         try:
             import risk_limits as RL
             ok_ml, why_ml = RL.per_trade_ok(risk_per_lot * lots, config)
