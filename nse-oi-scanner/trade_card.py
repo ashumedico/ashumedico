@@ -403,6 +403,17 @@ def build_card(point, closes, chain=None, expiry_label=None, days_to_expiry=25,
             "risk_pct_of_capital": round(100 * risk_per_lot / capital, 1) if capital else None,
             "affordable_lots": int(capital // cost_per_lot) if cost_per_lot else 0,
         })
+        # MAX_LOSS - the absolute rupee cap on one trade's worst case. It sat in config
+        # from the beginning and was enforced nowhere. The worst case is what this ticket
+        # itself says it can lose if the stop fills: (premium - stop) x qty, across the
+        # lots actually being bought.
+        try:
+            import risk_limits as RL
+            ok_ml, why_ml = RL.per_trade_ok(risk_per_lot * lots, config)
+        except Exception:      # noqa
+            ok_ml, why_ml = True, None
+        if not ok_ml:
+            card["size"]["max_loss_breach"] = why_ml
         # Cross-check the outlay against the contract it controls. SEBI sizes a stock
         # F&O lot so the contract is worth Rs 5-10 lakh, and a short-dated slightly-ITM
         # call costs a few percent of that - roughly Rs 20,000-40,000 per lot. An outlay

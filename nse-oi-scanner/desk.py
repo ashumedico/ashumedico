@@ -862,6 +862,22 @@ STRIP.markdown(
     f'<span><i>PASSING</i><b>{len(longs)}</b></span>'
     f'<span><i>BAR</i><b>{int(getattr(config, "BAR_MINUTES", 375))}min</b></span>'
     f'</div>', unsafe_allow_html=True)
+# ---- the drawdown halt, where he can see it before he presses anything -------
+# A halt that only announces itself at the moment an order is refused is a surprise. It
+# belongs above the tabs, beside the tape, all day.
+try:
+    import risk_limits as RL
+    RISK = RL.state()
+    if RISK.get("halted"):
+        st.markdown(f'<div class="hazard">⚠ RISK HALT — {RISK["reason"]}</div>',
+                    unsafe_allow_html=True)
+    if RISK.get("not_enforced"):
+        st.caption(f"**Not enforced:** {', '.join(RISK['not_enforced'])} — not set in "
+                   f"`config.py`, so they are not limits. Run `0 - UPDATE` to add them.")
+except Exception as e:      # noqa
+    RISK = None
+    st.caption(f"risk limits unavailable: {e}")
+
 if sel.get("band"):
     b = sel["band"]
     st.info(f"Price band ON: Rs {b['min']:.0f}–{b['max']:.0f} — {b['dropped']} names fell "
@@ -1244,6 +1260,10 @@ with T_SIG:
                 if sz.get("lot_absurd"):
                     blocked = (f"Quantity refused. {sz['lot_warning']}  "
                                f"Fix with Tools → Lot Audit before ordering this name.")
+                # MAX_LOSS is an absolute cap, so it BLOCKS the ticket rather than
+                # printing beside it. A cap that only warns is not a cap.
+                elif sz.get("max_loss_breach"):
+                    blocked = f"Over your MAX_LOSS cap — {sz['max_loss_breach']}."
 
                 st.markdown(
                     f'<div class="ticket hud">'

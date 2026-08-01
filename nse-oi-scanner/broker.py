@@ -114,6 +114,27 @@ def place(symbol, qty, side, kind="MARKET", limit_price=0.0, tag="", product=Non
         _log({"event": "dry", "req": req, "tag": tag})
         return False, "LIVE_TRADING off - order bheja nahi, sirf log kiya"
 
+    # THE FOURTH GATE: the drawdown halt. DAY_DD, WEEK_DD and MAX_LOSS sat in config.py
+    # from the beginning and were enforced nowhere - three settings that read like a
+    # safety net and did nothing. They are checked here because this is the single point
+    # every live order passes through; a limit enforced at the display layer is a limit
+    # any other caller walks around.
+    #
+    # ENTRIES ONLY. A halt must never trap him inside a position: the point of standing
+    # down is to be FLAT, and a rule that blocks the sell is not a risk limit, it is a
+    # trap. So a BUY is gated and a SELL is not.
+    if side == "BUY":
+        try:
+            import risk_limits as RL
+            allowed, why = RL.gate()
+        except Exception as e:      # noqa
+            # The gate itself failing must not silently open it. Say so and refuse.
+            allowed, why = False, f"risk limit check failed ({str(e)[:100]}) - refusing"
+        if not allowed:
+            _log({"event": "blocked", "why": "risk limit", "detail": why,
+                  "req": req, "tag": tag})
+            return False, f"RISK HALT - {why}"
+
     _log({"event": "sending", "req": req, "tag": tag})
     try:
         r = _client().place_order(req)

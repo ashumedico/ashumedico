@@ -116,6 +116,8 @@ New-Shortcut $tools "Journal"             "run_journal.bat"     "%SystemRoot%\Sy
 New-Shortcut $tools "Sector feed probe" "run_sectors.bat"     "%SystemRoot%\System32\shell32.dll" 18  "Kaunse index symbols resolve hote hain"
 New-Shortcut $tools "Watchlist (Q1)"      "run_watchlist.bat"   "%SystemRoot%\System32\shell32.dll" 70  "Q1 list mein se kaunse F&O mein hain"
 New-Shortcut $tools "Lot Audit"           "run_lot_audit.bat"   "%SystemRoot%\System32\shell32.dll" 77  "Har naam ka lot check"
+New-Shortcut $tools "Risk limits"         "run_risk_check.bat"  "%SystemRoot%\System32\shell32.dll" 131 "Aaj/is hafte kitna gaya - aur halt lagega ya nahi"
+New-Shortcut $tools "Risk halt test"      "run_risk_test.bat"   "%SystemRoot%\System32\shell32.dll" 23  "Halt sach mein rokta hai ya nahi"
 New-Shortcut $tools "Expiry Check"        "run_expiry_check.bat" "%SystemRoot%\System32\shell32.dll" 137 "Kaunsi expiry sasti"
 New-Shortcut $tools "Chart list (TradingView)" "run_pine_export.bat" "%SystemRoot%\System32\shell32.dll" 13 "Aaj ke naam -> Pine + watchlist"
 New-Shortcut $tools "Ticket math test"   "run_card_math_test.bat" "%SystemRoot%\System32\shell32.dll" 23 "Har number doosre se agree karta hai ya nahi"

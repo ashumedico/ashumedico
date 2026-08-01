@@ -109,6 +109,28 @@ It prints this system's previous close, today's open, the 20-day mean and every 
 verdict per name. The question stops being *whose list is right* and becomes *whose
 previous close is right*, which is answerable.
 
+## The drawdown halt — `risk_limits.py`
+`DAY_DD`, `WEEK_DD` and `MAX_LOSS` sat in `config.py` from the beginning and were enforced
+**nowhere** — three settings that read like a safety net and did nothing. They are real now,
+checked at `broker.place()`, which is the single point every live order passes through.
+
+| Limit | What it does |
+|---|---|
+| `DAY_DD` | booked losses today past this fraction of capital → no new entries |
+| `WEEK_DD` | same, Monday-to-now |
+| `MAX_LOSS` | absolute rupee cap on one ticket's worst case → the button blocks |
+
+**Entries only.** A halt must never trap you inside a position — the point of standing down
+is to be flat, so a BUY is gated and a SELL never is.
+
+Decided failure modes: a **missing** book is an empty day and trades normally; an
+**unreadable** book blocks, because not knowing today's loss is not the same as it being
+small; a limit **absent from config** is reported as not enforced rather than given an
+invented default.
+
+`python risk_limits.py` (Tools → Risk limits) shows where you stand. `test_risk_limits.py`
+(Tools → Risk halt test) proves the halt halts.
+
 ## On the chart — `tradingview/`
 | File | What it is |
 |---|---|
