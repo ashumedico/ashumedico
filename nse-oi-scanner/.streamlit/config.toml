@@ -1,12 +1,12 @@
-# Dark by default. The desk is read at 9:20am and again at 3:15pm; a white screen in a
-# dark room is the reason the last dashboard got closed instead of used.
+# Three neons on black. Blue = up / pass, pink = down / fail, green = attention.
+# Nothing else gets a colour, so a colour on this screen always means something.
 [theme]
-base                = "dark"
-primaryColor        = "#3fb950"
-backgroundColor     = "#0b0f14"
-secondaryBackgroundColor = "#121821"
-textColor           = "#e6edf3"
-font                = "sans serif"
+base                     = "dark"
+primaryColor             = "#39FF14"
+backgroundColor          = "#04060A"
+secondaryBackgroundColor = "#080C12"
+textColor                = "#D5E6F2"
+font                     = "monospace"
 
 [browser]
 gatherUsageStats = false

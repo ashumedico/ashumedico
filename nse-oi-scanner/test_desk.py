@@ -108,7 +108,7 @@ def main():
          ns, ns)
     bars_ = [[i, 100 + i, 102 + i, 98 + i, 101 + i, 1000] for i in range(40)]
     feat = {"r1": 130.0, "r2": 140.0, "s1": 95.0, "s2": 90.0, "atr": 2.0}
-    plan = [("STOP", 96.0, "#ff7b72"), ("T1", 125.0, "#56d364")]
+    plan = [("STOP", 96.0, "#FF2D8A"), ("T1", 125.0, "#00E5FF")]
     fig = ns["make_fig"]("X", [b[4] for b in bars_], bars_, ["d"] * 40, feat, plan)
     shapes = getattr(fig.layout, "shapes", ()) or ()
     check("chart draws all four levels plus the trade plan",
@@ -117,6 +117,43 @@ def main():
     check("levels are named on the chart",
           all(k in texts for k in ("R1", "R2", "S1", "S2", "STOP", "T1")))
     check("levels carry their touch count", "x" in texts)
+
+    # ---- the palette: three neons on black, and nothing else ----
+    # A stray colour is not a cosmetic slip. Every colour on this page is a claim - blue
+    # says up, pink says down, green says look here - so a fourth one is a claim nobody
+    # can read. This catches an old hex creeping back in through a copied line.
+    import re as _re
+    hexes = set(h.upper() for h in _re.findall(r"#[0-9a-fA-F]{6}", src))
+    OLD = {"#3FB950", "#56D364", "#F85149", "#FF7B72", "#D29922", "#E3B341",
+           "#58A6FF", "#0D2B18", "#3D1519", "#0B0F14", "#161B22"}
+    check("no pre-neon colours left", not (hexes & OLD), f"{sorted(hexes & OLD)}")
+
+    def _hue(h):
+        r, g, b = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)
+        if max(r, g, b) < 60:
+            return "black"                      # surfaces
+        if b >= r and b >= g:
+            return "blue"
+        if g > r and g > b:
+            return "green"
+        if r >= g and r >= b:
+            return "pink"
+        return "other"
+    fams = {}
+    for h in hexes:
+        fams.setdefault(_hue(h), []).append(h)
+    check("only black, blue, green and pink are used",
+          not (set(fams) - {"black", "blue", "green", "pink"}),
+          f"{ {k: len(v) for k, v in sorted(fams.items())} }")
+
+    # up must never be pink and down must never be blue - the swap he asked for is the
+    # whole point, and getting it backwards is worse than not doing it
+    check("candles: up is blue, down is pink",
+          'increasing_line_color="#00E5FF"' in src
+          and 'decreasing_line_color="#FF2D8A"' in src)
+    rule = src.split(".disclaim {", 1)[-1].split("}", 1)[0]
+    check("the disclaimer bar is pink, not red",
+          "#FF2D8A" in rule and "#FF8FC5" in rule, rule[:70].replace("\n", " "))
 
     # a source that cannot show NSE names must not be offered as one
     # StockCharts covers US/Canada, not NSE India. Offering it would be a dead link

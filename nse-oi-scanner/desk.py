@@ -27,84 +27,188 @@ st.set_page_config(page_title="AASHISH · Trading Desk", layout="wide",
 
 st.markdown("""
 <style>
-  .block-container {padding-top: 1rem; padding-bottom: 4.5rem; max-width: 1500px;}
-  [data-testid="stMetricValue"] {font-size: 1.35rem;}
-  [data-testid="stMetricLabel"] {font-size: .72rem; color: #8b949e; letter-spacing:.4px;
+  /* ===================================================================== */
+  /*  Three neons on black. Blue = up / pass. Pink = down / fail.           */
+  /*  Green = attention, headers, borders. Nothing else gets a colour, so   */
+  /*  a colour on this screen always means something.                       */
+  /* ===================================================================== */
+  .stApp {background:#04060A;}
+  /* faint grid, the way a terminal sits on one. Fixed, so it does not      */
+  /* scroll with content and turn into visual noise.                        */
+  .stApp::before {content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background-image:
+        linear-gradient(rgba(57,255,20,.030) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(57,255,20,.030) 1px, transparent 1px);
+      background-size: 44px 44px;}
+  .block-container {padding-top: 1rem; padding-bottom: 4.5rem; max-width: 1500px;
+                    position:relative; z-index:1;}
+
+  /* numbers are monospace everywhere - a price that shifts width as it     */
+  /* ticks is harder to read at a glance than one that does not.            */
+  [data-testid="stMetricValue"] {font-size: 1.35rem; color:#D5E6F2;
+      font-family: ui-monospace, Consolas, "SF Mono", monospace;
+      text-shadow: 0 0 14px rgba(0,229,255,.30);}
+  [data-testid="stMetricLabel"] {font-size: .72rem; color: #4E6072; letter-spacing:.4px;
                                  text-transform: uppercase;}
+  [data-testid="stMetricDelta"] {font-family: ui-monospace, Consolas, monospace;}
+
+  code, pre, .stCode {background:#080C12 !important; border:1px solid #14202C;
+      color:#39FF14 !important;}
+  ::selection {background:#39FF14; color:#04060A;}
+
+  /* buttons read as terminal keys, and light up on hover */
+  .stButton > button {background:#080C12; color:#5CF2FF; border:1px solid #0A6675;
+      border-radius:4px; font-weight:700; letter-spacing:.6px; font-size:.78rem;
+      text-transform:uppercase; transition:all .12s ease;}
+  .stButton > button:hover {border-color:#39FF14; color:#39FF14;
+      box-shadow:0 0 12px rgba(57,255,20,.35); background:#0A0E14;}
+  .stButton > button[kind="primary"] {background:#00222B; color:#00E5FF;
+      border-color:#00E5FF; box-shadow:0 0 14px rgba(0,229,255,.28);}
+
+  /* tables: black rows, neon rules */
+  [data-testid="stDataFrame"] {border:1px solid #14202C; border-radius:6px;}
+  [data-testid="stDataFrame"] * {font-family: ui-monospace, Consolas, monospace !important;}
 
   /* the pill tags used for mode / state */
-  .tag {display:inline-block; padding:3px 10px; border-radius:12px; margin-right:6px;
-        font-size:.71rem; font-weight:700; letter-spacing:.4px;}
-  .ok   {background:#0d2b18; color:#3fb950; border:1px solid #1c5c31;}
-  .warn {background:#3a2e12; color:#d29922; border:1px solid #6b5316;}
-  .bad  {background:#3d1519; color:#f85149; border:1px solid #7a2429;}
-  .muted{background:#161b22; color:#8b949e; border:1px solid #21262d;}
+  .tag {display:inline-block; padding:3px 10px; border-radius:3px; margin-right:6px;
+        font-size:.71rem; font-weight:700; letter-spacing:.8px;
+        font-family: ui-monospace, Consolas, monospace;}
+  .ok   {background:#00222B; color:#00E5FF; border:1px solid #0A6675;}
+  .warn {background:#0A2B05; color:#39FF14; border:1px solid #1E6610;}
+  .bad  {background:#2B0016; color:#FF2D8A; border:1px solid #7A0B3D;}
+  .muted{background:#0A0E14; color:#4E6072; border:1px solid #14202C;}
 
   /* green status banner - the one-line "is this thing trending" read */
-  .banner {padding:11px 16px; border-radius:8px; font-weight:700; font-size:.92rem;
-           margin:.35rem 0 .8rem 0; display:flex; align-items:center; gap:10px;}
-  .banner-ok  {background:#0d2b18; color:#56d364; border:1px solid #1c5c31;}
-  .banner-mid {background:#33280f; color:#e3b341; border:1px solid #6b5316;}
-  .banner-bad {background:#3d1519; color:#ff7b72; border:1px solid #7a2429;}
+  .banner {padding:11px 16px; border-radius:4px; font-weight:700; font-size:.92rem;
+           margin:.35rem 0 .8rem 0; display:flex; align-items:center; gap:10px;
+           letter-spacing:.6px; font-family: ui-monospace, Consolas, monospace;}
+  .banner-ok  {background:#00222B; color:#5CF2FF; border:1px solid #00E5FF;
+               box-shadow:0 0 18px rgba(0,229,255,.22) inset, 0 0 10px rgba(0,229,255,.18);}
+  .banner-mid {background:#0A2B05; color:#7CFF5E; border:1px solid #39FF14;
+               box-shadow:0 0 18px rgba(57,255,20,.20) inset;}
+  .banner-bad {background:#2B0016; color:#FF6BB0; border:1px solid #FF2D8A;
+               box-shadow:0 0 18px rgba(255,45,138,.20) inset;}
 
   /* blue ribbon carrying the live numbers for the selected name */
-  .ribbon {background:linear-gradient(90deg,#0d2847 0%,#123a63 60%,#0d2847 100%);
-           border:1px solid #1f4d80; border-radius:8px; padding:10px 16px;
+  .ribbon {background:linear-gradient(90deg,#00131A 0%,#002230 60%,#00131A 100%);
+           border:1px solid #0A6675; border-radius:4px; padding:10px 16px;
+           box-shadow:0 0 22px rgba(0,229,255,.10);
            display:flex; flex-wrap:wrap; gap:26px; align-items:center; margin-bottom:.9rem;}
-  .rb-k {color:#7fb6ee; font-size:.66rem; letter-spacing:.6px; text-transform:uppercase;}
-  .rb-v {color:#e6edf3; font-size:1.02rem; font-weight:700;}
-  .up   {color:#56d364;} .dn {color:#ff7b72;}
+  .rb-k {color:#4DE8FF; font-size:.66rem; letter-spacing:.6px; text-transform:uppercase;}
+  .rb-v {color:#D5E6F2; font-size:1.02rem; font-weight:700;
+         font-family: ui-monospace, Consolas, monospace;}
+  .up   {color:#5CF2FF;} .dn {color:#FF6BB0;}
 
   /* the "SCENARIO ANALYSIS [...] — rules used" strip */
-  .scen {background:#121821; border-left:4px solid #58a6ff; border-radius:6px;
-         padding:9px 14px; font-size:.8rem; color:#adbac7; margin:.2rem 0 .7rem 0;
+  .scen {background:#080C12; border-left:3px solid #39FF14; border-radius:4px;
+         padding:9px 14px; font-size:.8rem; color:#8FA9BF; margin:.2rem 0 .7rem 0;
          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
 
-  .sec {font-size:.72rem; letter-spacing:1.4px; text-transform:uppercase; color:#6e7781;
-        border-bottom:1px solid #21262d; padding-bottom:5px; margin:1.4rem 0 .7rem 0;}
+  .sec {font-size:.72rem; letter-spacing:2px; text-transform:uppercase; color:#39FF14;
+        border-bottom:1px solid #14202C; padding-bottom:5px; margin:1.4rem 0 .7rem 0;
+        font-family: ui-monospace, Consolas, monospace;
+        text-shadow:0 0 12px rgba(57,255,20,.40);}
+  .sec::before {content:"> "; color:#1E6610;}
 
   /* --- command deck: heatmap tiles, radar badges, trade cards --- */
-  .hm {border-radius:8px; padding:10px 13px; margin-bottom:8px; position:relative;
-       border:1px solid #21262d;}
-  .hm-n {font-size:.68rem; letter-spacing:1.1px; color:#c9d1d9; text-transform:uppercase;
+  .hm {border-radius:4px; padding:10px 13px; margin-bottom:8px; position:relative;
+       border:1px solid #14202C; transition:border-color .12s ease;}
+  .hm:hover {border-color:#39FF14;}
+  .hm-n {font-size:.68rem; letter-spacing:1.1px; color:#B8CEE0; text-transform:uppercase;
          font-weight:700;}
-  .hm-p {font-size:1.5rem; font-weight:800; font-family:ui-monospace,Consolas,monospace;}
-  .hm-r {position:absolute; top:8px; right:11px; font-size:.62rem; color:#6e7781;}
+  .hm-p {font-size:1.5rem; font-weight:800; font-family:ui-monospace,Consolas,monospace;
+         text-shadow:0 0 16px currentColor;}
+  .hm-r {position:absolute; top:8px; right:11px; font-size:.62rem; color:#3E5060;}
   .hm-t {font-size:.6rem; letter-spacing:1.4px; font-weight:800;}
 
-  .badge {display:inline-block; padding:5px 12px; border-radius:6px; margin:0 7px 7px 0;
-          font-size:.7rem; font-weight:800; letter-spacing:.7px;}
-  .b-up   {background:#0d2b18; color:#56d364; border:1px solid #1c5c31;}
-  .b-dn   {background:#3d1519; color:#ff7b72; border:1px solid #7a2429;}
-  .b-turn {background:#33280f; color:#e3b341; border:1px solid #6b5316;}
-  .b-bnc  {background:#0c2b3a; color:#56c8d3; border:1px solid #1b5566;}
-  .b-none {background:#161b22; color:#8b949e; border:1px solid #21262d;}
+  .badge {display:inline-block; padding:5px 12px; border-radius:3px; margin:0 7px 7px 0;
+          font-size:.7rem; font-weight:800; letter-spacing:1px;
+          font-family: ui-monospace, Consolas, monospace;
+          text-shadow:0 0 10px currentColor;}
+  .b-up   {background:#00222B; color:#5CF2FF; border:1px solid #0A6675;}
+  .b-dn   {background:#2B0016; color:#FF6BB0; border:1px solid #7A0B3D;}
+  .b-turn {background:#0A2B05; color:#7CFF5E; border:1px solid #1E6610;}
+  .b-bnc  {background:#00222B; color:#22D3EE; border:1px solid #0A6675;}
+  .b-none {background:#0A0E14; color:#4E6072; border:1px solid #14202C;}
 
-  .card {background:#121821; border:1px solid #21262d; border-left:4px solid #3fb950;
-         border-radius:8px; padding:11px 15px; margin-bottom:9px;}
+  .card {background:#080C12; border:1px solid #14202C; border-left:3px solid #00E5FF;
+         border-radius:4px; padding:11px 15px; margin-bottom:9px;
+         transition:box-shadow .12s ease;}
+  .card:hover {box-shadow:0 0 18px rgba(0,229,255,.16);}
   .card-h {display:flex; align-items:center; gap:10px; margin-bottom:6px;}
-  .side {font-size:.64rem; font-weight:800; letter-spacing:1px; padding:3px 9px;
-         border-radius:4px; background:#0d2b18; color:#56d364;}
-  .grade {font-size:.72rem; font-weight:800; color:#e3b341;}
-  .card-n {font-size:1.02rem; font-weight:800; color:#e6edf3; letter-spacing:.5px;}
+  .side {font-size:.64rem; font-weight:800; letter-spacing:1.2px; padding:3px 9px;
+         border-radius:3px; background:#00222B; color:#5CF2FF;
+         font-family: ui-monospace, Consolas, monospace;}
+  .grade {font-size:.72rem; font-weight:800; color:#7CFF5E;}
+  .card-n {font-size:1.02rem; font-weight:800; color:#D5E6F2; letter-spacing:1.2px;
+           font-family: ui-monospace, Consolas, monospace;}
   .lv {display:flex; flex-wrap:wrap; gap:20px; font-family:ui-monospace,Consolas,monospace;
        font-size:.82rem;}
-  .lv b {color:#6e7781; font-weight:600; font-size:.66rem; letter-spacing:.6px;
+  .lv b {color:#3E5060; font-weight:600; font-size:.66rem; letter-spacing:.6px;
          text-transform:uppercase; display:block;}
 
   /* the wordmark - his desk, with his name on it */
-  .mark {display:flex; align-items:baseline; gap:12px; margin-bottom:.1rem;}
-  .mark-name {font-size:2.05rem; font-weight:800; letter-spacing:5px;
-              background:linear-gradient(90deg,#3fb950 0%,#58a6ff 55%,#d29922 100%);
-              -webkit-background-clip:text; background-clip:text; color:transparent;}
-  .mark-sub {font-size:.82rem; color:#6e7781; letter-spacing:2.6px;
+  /* The glow renders ABOVE the cap height, so without room the top of the letters is
+     clipped by the container. Padding, not a smaller font. */
+  .mark {display:flex; align-items:baseline; gap:12px; margin:.55rem 0 .1rem 0;
+         padding-top:.35rem; line-height:1.25;}
+  .mark-name {font-size:2.05rem; font-weight:800; letter-spacing:7px;
+              font-family: ui-monospace, Consolas, monospace; color:#39FF14;
+              text-shadow: 0 0 8px rgba(57,255,20,.85), 0 0 28px rgba(0,229,255,.45),
+                           2px 0 0 rgba(255,45,138,.55), -2px 0 0 rgba(0,229,255,.55);}
+  .mark-sub {font-size:.82rem; color:#3E5060; letter-spacing:2.6px;
              text-transform:uppercase;}
 
   /* the disclaimer the reference keeps nailed to the bottom, and so does this */
   .disclaim {position:fixed; left:0; right:0; bottom:0; z-index:99;
-             background:#3d1519; color:#ff9a93; border-top:1px solid #7a2429;
-             text-align:center; padding:7px 10px; font-size:.74rem; font-weight:600;}
-  section[data-testid="stSidebar"] {border-right:1px solid #21262d;}
+             background:#2B0016; color:#FF8FC5; border-top:1px solid #FF2D8A;
+             text-align:center; padding:7px 10px; font-size:.74rem; font-weight:700;
+             letter-spacing:.6px; font-family: ui-monospace, Consolas, monospace;
+             box-shadow:0 0 22px rgba(255,45,138,.30);}
+  section[data-testid="stSidebar"] {border-right:1px solid #14202C; background:#06090E;}
+
+  /* Streamlit's own alert colours are its palette, not this one - an olive warning box
+     next to neon pink and blue reads as a fourth meaning nobody defined. Repainted so
+     error=pink, warning=green, info/success=blue, same as everywhere else. */
+  [data-testid="stAlert"] {border-radius:4px; border-width:1px; border-style:solid;
+      font-family: ui-monospace, Consolas, monospace; font-size:.84rem;}
+  [data-testid="stAlert"] p {font-family: ui-monospace, Consolas, monospace;}
+  [data-testid="stAlertContentError"], div[data-baseweb="notification"][kind="negative"] {
+      background:#2B0016 !important; color:#FF6BB0 !important; border-color:#FF2D8A !important;}
+  [data-testid="stAlertContentWarning"] {
+      background:#0A2B05 !important; color:#7CFF5E !important; border-color:#39FF14 !important;}
+  [data-testid="stAlertContentInfo"] {
+      background:#00222B !important; color:#5CF2FF !important; border-color:#0A6675 !important;}
+  [data-testid="stAlertContentSuccess"] {
+      background:#00222B !important; color:#00E5FF !important; border-color:#00E5FF !important;}
+  /* The fill lives on a nested div, not on the alert itself, so setting the wrapper
+     alone leaves Streamlit's maroon and olive showing through the middle. Paint the
+     wrapper AND everything inside it. */
+  [data-testid="stAlert"]:has([data-testid="stAlertContentError"]),
+  [data-testid="stAlert"]:has([data-testid="stAlertContentError"]) > div,
+  [data-testid="stAlert"]:has([data-testid="stAlertContentError"]) div[data-baseweb="notification"] {
+      background:#2B0016 !important; border-color:#FF2D8A !important; color:#FF6BB0 !important;}
+  [data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]),
+  [data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) > div,
+  [data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) div[data-baseweb="notification"] {
+      background:#0A2B05 !important; border-color:#39FF14 !important; color:#7CFF5E !important;}
+  [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]),
+  [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div,
+  [data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) div[data-baseweb="notification"] {
+      background:#00222B !important; border-color:#0A6675 !important; color:#5CF2FF !important;}
+  [data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]),
+  [data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) > div,
+  [data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) div[data-baseweb="notification"] {
+      background:#00222B !important; border-color:#00E5FF !important; color:#00E5FF !important;}
+  /* the icon svg inherits, so it stops being Streamlit red too */
+  [data-testid="stAlert"] svg {fill:currentColor !important; color:inherit !important;}
+
+  /* inputs and the select box, so the rail matches the rest */
+  [data-baseweb="select"] > div, .stTextInput input, .stNumberInput input {
+      background:#080C12 !important; border-color:#14202C !important; color:#D5E6F2 !important;
+      font-family: ui-monospace, Consolas, monospace !important;}
+  [data-baseweb="select"] > div:hover {border-color:#39FF14 !important;}
+  .stRadio label, .stCheckbox label {font-family: ui-monospace, Consolas, monospace;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -190,24 +294,29 @@ def make_fig(name, closes, bars_, dates_, feat, plan=None, height=440):
         fig.add_candlestick(x=list(range(len(bars_))),
                             open=[r[1] for r in bars_], high=[r[2] for r in bars_],
                             low=[r[3] for r in bars_], close=[r[4] for r in bars_],
-                            name=name, increasing_line_color="#3fb950",
-                            decreasing_line_color="#f85149")
+                            name=name,
+                            # up is blue, down is pink - the same two colours the rest
+                            # of the page uses, so a candle means what a number means
+                            increasing_line_color="#00E5FF",
+                            increasing_fillcolor="#00E5FF",
+                            decreasing_line_color="#FF2D8A",
+                            decreasing_fillcolor="#FF2D8A")
         try:
             import indicators as I
             vwl = I.vwap_session(bars_, (dates_ or [""] * len(bars_))[-len(bars_):])
             fig.add_scatter(x=list(range(len(bars_))), y=vwl, name="VWAP",
-                            line=dict(color="#d29922", width=2))
+                            line=dict(color="#39FF14", width=2))   # accent, not a signal
         except Exception:
             pass
     else:
         c = closes or []
         fig.add_scatter(x=list(range(len(c))), y=c, name=name,
-                        line=dict(color="#58a6ff"))
+                        line=dict(color="#39FF14"))
     atr = feat.get("atr")
-    for nm, lvl, col in (("R2", feat.get("r2"), "#f85149"),
-                         ("R1", feat.get("r1"), "#f85149"),
-                         ("S1", feat.get("s1"), "#3fb950"),
-                         ("S2", feat.get("s2"), "#3fb950")):
+    for nm, lvl, col in (("R2", feat.get("r2"), "#FF2D8A"),
+                         ("R1", feat.get("r1"), "#FF2D8A"),
+                         ("S1", feat.get("s1"), "#00E5FF"),
+                         ("S2", feat.get("s2"), "#00E5FF")):
         if not lvl:
             continue
         n = touches(bars_, lvl, atr)
@@ -222,7 +331,11 @@ def make_fig(name, closes, bars_, dates_, feat, plan=None, height=440):
                           annotation_font=dict(color=col, size=10))
     fig.update_layout(height=height, margin=dict(l=8, r=70, t=10, b=8),
                       xaxis_rangeslider_visible=False, template="plotly_dark",
-                      paper_bgcolor="#0b0f14", plot_bgcolor="#0b0f14",
+                      paper_bgcolor="#04060A", plot_bgcolor="#04060A",
+                      font=dict(family="ui-monospace, Consolas, monospace",
+                                color="#8FA9BF", size=11),
+                      xaxis=dict(gridcolor="rgba(57,255,20,.07)", zeroline=False),
+                      yaxis=dict(gridcolor="rgba(57,255,20,.07)", zeroline=False),
                       showlegend=False)
     return fig
 
@@ -261,9 +374,9 @@ def chart_window(name):
     plan = []
     for c in (_CARDS or {}).values():
         if c and c.get("name") == name:
-            plan = [("STOP", c["stock"]["stop"], "#ff7b72"),
-                    ("T1", c["stock"]["t1"], "#56d364"),
-                    ("T2", c["stock"]["t2"], "#56d364")]
+            plan = [("STOP", c["stock"]["stop"], "#FF6BB0"),
+                    ("T1", c["stock"]["t1"], "#5CF2FF"),
+                    ("T2", c["stock"]["t2"], "#5CF2FF")]
             break
     if not b:
         st.caption("Is naam ke OHLCV bars nahi aaye — sirf close line. "
@@ -279,10 +392,10 @@ def chart_window(name):
         st.warning(f"Feature calculation fail: {f['feature_error']}")
 
     links = "  ·  ".join(f'<a href="{u.format(name=name)}" target="_blank" '
-                         f'style="color:#58a6ff;text-decoration:none">{t} ↗</a>'
+                         f'style="color:#39FF14;text-decoration:none">{t} ↗</a>'
                          for t, u in EXTERNAL_CHARTS)
     st.markdown(f'<div class="scen">Poora chart kahin aur: {links}'
-                f'<br><span style="color:#6e7781">StockCharts.com yahan nahi hai — '
+                f'<br><span style="color:#3E5060">StockCharts.com yahan nahi hai — '
                 f'wo US/Canada listings cover karta hai, NSE India nahi. Jo source '
                 f'tere naam hi na dikhaye, uska link dena dead link dena hai.</span>'
                 f'</div>', unsafe_allow_html=True)
@@ -512,12 +625,12 @@ try:
         for i, r in enumerate(hm):
             f = min(1.0, abs(r["pct"]) / span)
             if r["pct"] > 0:
-                bg = f"rgba(63,185,80,{0.10 + 0.30*f})"; fg = "#56d364"
+                bg = f"rgba(0,229,255,{0.08 + 0.26*f})"; fg = "#5CF2FF"
             elif r["pct"] < 0:
-                bg = f"rgba(248,81,73,{0.10 + 0.30*f})"; fg = "#ff7b72"
+                bg = f"rgba(255,45,138,{0.08 + 0.26*f})"; fg = "#FF6BB0"
             else:
-                bg = "#161b22"; fg = "#8b949e"
-            tagc = "#56d364" if r["tag"] == "LEADER" else "#e3b341"
+                bg = "#0A0E14"; fg = "#4E6072"
+            tagc = "#5CF2FF" if r["tag"] == "LEADER" else "#7CFF5E"
             c = cols[i % 2]
             c.markdown(
                 f'<div class="hm" style="background:{bg}">'
@@ -690,12 +803,12 @@ if longs:
             # "9/10 STRONG" because the stock is strong is the worst kind of wrong.
             total = (s["of"] - s["total"]) if is_short else s["total"]
             g = grade(total)
-            gcol = {"A+": "#3fb950", "A": "#56d364", "B": "#d29922"}.get(g, "#8b949e")
-            pcol = "#56d364" if pts_now >= 0 else "#ff7b72"
+            gcol = {"A+": "#00E5FF", "A": "#5CF2FF", "B": "#39FF14"}.get(g, "#4E6072")
+            pcol = "#5CF2FF" if pts_now >= 0 else "#FF6BB0"
             _CARDS[c["name"]] = c
             side_txt = "SHORT · BUY PE" if is_short else "LONG · BUY CE"
-            side_bg = ("background:#3d1519;color:#ff7b72" if is_short
-                       else "background:#0d2b18;color:#56d364")
+            side_bg = ("background:#2B0016;color:#FF6BB0" if is_short
+                       else "background:#00222B;color:#5CF2FF")
             st.markdown(
                 f'<div class="card" style="border-left-color:{gcol}">'
                 f'<div class="card-h"><span class="side" style="{side_bg}">{side_txt}</span>'
@@ -704,10 +817,10 @@ if longs:
                 f'{total}/{s["of"]}</span></div>'
                 f'<div class="lv">'
                 f'<div><b>E</b>{e}</div>'
-                f'<div><b>SL</b><span style="color:#ff7b72">{sl}</span></div>'
-                f'<div><b>T1</b><span style="color:#56d364">{stk["t1"]}</span></div>'
-                f'<div><b>T2</b><span style="color:#56d364">{stk["t2"]}</span></div>'
-                f'<div><b>T3 · 2R</b><span style="color:#56d364">{t3}</span></div>'
+                f'<div><b>SL</b><span style="color:#FF6BB0">{sl}</span></div>'
+                f'<div><b>T1</b><span style="color:#5CF2FF">{stk["t1"]}</span></div>'
+                f'<div><b>T2</b><span style="color:#5CF2FF">{stk["t2"]}</span></div>'
+                f'<div><b>T3 · 2R</b><span style="color:#5CF2FF">{t3}</span></div>'
                 f'<div><b>R</b>{r:.2f}</div>'
                 f'<div><b>Pts ab</b><span style="color:{pcol}">{pts_now:+.2f}</span></div>'
                 f'</div></div>', unsafe_allow_html=True)
@@ -751,9 +864,9 @@ if P:
     try:
         plan = []
         if card and card["name"] == pick:
-            plan = [("STOP", card["stock"]["stop"], "#ff7b72"),
-                    ("T1", card["stock"]["t1"], "#56d364"),
-                    ("T2", card["stock"]["t2"], "#56d364")]
+            plan = [("STOP", card["stock"]["stop"], "#FF6BB0"),
+                    ("T1", card["stock"]["t1"], "#5CF2FF"),
+                    ("T2", card["stock"]["t2"], "#5CF2FF")]
         if not BARS:
             st.caption("OHLCV bars nahi mile — sirf close line. Levels tab bhi asli hain.")
         st.plotly_chart(make_fig(pick, prices.get(SYM, []), BARS, dates, F, plan),
