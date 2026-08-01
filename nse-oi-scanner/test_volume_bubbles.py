@@ -43,6 +43,17 @@ def test_legend_reaches_the_page():
           "st.plotly_chart(make_fig" not in src,
           "a direct plotly_chart(make_fig(...)) call would render the figure "
           "without its legend")
+    # Inserting the helper above chart_window detached @st.dialog from it: the decorator
+    # landed on the helper, so every chart opened a modal and the floating window stopped
+    # being one. AppTest reported the page fine - only a real browser found it, when the
+    # modal blocked the next tab click. Rendered and visible are different claims.
+    i_dec = src.find('@st.dialog("Chart"')
+    check("the chart dialog decorator sits on chart_window, not on the renderer",
+          i_dec > 0 and src[i_dec:i_dec + 200].split("\n")[1].startswith("def chart_window"),
+          src[i_dec:].split("\n")[1] if i_dec > 0 else "no @st.dialog found")
+    check("and the figure renderer is a plain function",
+          "@st.dialog" not in src[max(0, src.find("def _chart(") - 120):
+                                  src.find("def _chart(")])
 
 
 def main():

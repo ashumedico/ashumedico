@@ -450,7 +450,6 @@ def order_button(label, key, payload, fire, blocked=None, explain=True,
             st.rerun()
 
 
-@st.dialog("Chart", width="large")
 def _chart(fig, **kw):
     """Render a figure and the line that says what it does not know.
 
@@ -465,6 +464,7 @@ def _chart(fig, **kw):
         st.caption(f"volume · OI bubbles — {note}")
 
 
+@st.dialog("Chart", width="large")
 def chart_window(name):
     """The floating window. Opens over whatever you were reading, on any name, anywhere.
 
