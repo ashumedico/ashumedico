@@ -9,16 +9,21 @@ cost you have not written down is a cost you will discover from your ledger.
 VERIFIED RATES (checked 31 Jul 2026 - re-check after any Budget, they move):
 
   STT              0.15% of premium on the SELL side only.
-                   Raised from 0.125% in Budget 2026, effective 1 April 2026.
+                   Raised from 0.10% in Budget 2026, effective 1 April 2026.
                    Buying costs no STT. Letting an ITM option get EXERCISED costs
-                   0.125% of INTRINSIC value, which is why you square off instead.
+                   0.15% too (raised from 0.125% in the same Budget) - but of INTRINSIC
+                   VALUE, not of premium, and intrinsic on a deep-ITM option dwarfs the
+                   premium. The rates converged; the bases did not. Square off.
   Exchange txn     Rs 35.03 per lakh of premium turnover = 0.03503%, both sides. (NSE
                    equity options, rate effective Oct 2024.)
   SEBI turnover    0.0001% both sides.
   Stamp duty       0.003% on the BUY side only.
   GST              18% on brokerage + exchange txn + SEBI fees. NOT on STT.
-  Brokerage        Rs 20 per order flat at most discount brokers; Fyers charges the
-                   lower of Rs 20 or 0.03% of turnover.
+  Brokerage        Fyers OPTIONS: flat Rs 20 per executed order. No percentage
+                   alternative - the "lower of Rs 20 or 0.03%" rule is the FUTURES and
+                   intraday-equity one, and applying it here understated brokerage 26x on
+                   a one-lot trade. Rs 15 on the Rs 4,990/yr Prime plan (set
+                   FYERS_PRIME = True in config).
 
 The single most useful number this produces is the round-trip cost as a percentage of the
 premium paid, because that is what the trade has to clear before it earns anything.
@@ -39,19 +44,33 @@ except ImportError:
 
 # All rates as fractions of turnover unless noted.
 STT_SELL        = 0.0015      # 0.15% of premium, sell side only (from 1 Apr 2026)
-STT_EXERCISE    = 0.00125     # 0.125% of INTRINSIC if exercised at expiry
+STT_EXERCISE    = 0.0015      # 0.15% of INTRINSIC if exercised (raised 1 Apr 2026)
 EXCH_TXN        = 0.0003503   # Rs 35.03 per lakh of premium, both sides
 SEBI_FEES       = 0.000001    # 0.0001%, both sides
 STAMP_BUY       = 0.00003     # 0.003%, buy side only
 GST             = 0.18        # on brokerage + exchange + SEBI
-BROKERAGE_FLAT  = 20.0        # per order
-BROKERAGE_PCT   = 0.0003      # or 0.03% of turnover, whichever is lower
+BROKERAGE_FLAT  = 20.0        # per executed order - Fyers standard
+BROKERAGE_PRIME = 15.0        # per executed order on the Rs 4,990/yr Prime plan
 
 
 def brokerage(turnover):
-    flat = float(getattr(config, "BROKERAGE_FLAT", BROKERAGE_FLAT))
-    pct = float(getattr(config, "BROKERAGE_PCT", BROKERAGE_PCT))
-    return min(flat, pct * turnover)
+    """Fyers brokerage on ONE option order. Flat, and turnover does not enter it.
+
+    THIS USED TO BE min(Rs 20, 0.03% of turnover), and that is the futures and
+    intraday-equity rule, not the options one. Fyers charges options at a flat Rs 20 per
+    executed order with no percentage alternative - so on a small position the old formula
+    picked the percentage and reported a fraction of the real cost.
+
+    The error scaled the wrong way. On a one-lot trade with Rs 2,500 of premium turnover
+    it modelled 0.03% = Rs 0.75 a side against a true Rs 20 - understating brokerage 26x,
+    and understating the round trip by about Rs 39 on a Rs 2,500 position. That is ~1.5%
+    of the position, silently removed from the hurdle every trade had to clear. It mattered
+    least for the large positions nobody here trades and most for the small ones that are
+    the entire use case.
+    """
+    if getattr(config, "FYERS_PRIME", False):
+        return float(getattr(config, "BROKERAGE_FLAT", BROKERAGE_PRIME))
+    return float(getattr(config, "BROKERAGE_FLAT", BROKERAGE_FLAT))
 
 
 def round_trip(premium_in, qty, premium_out=None):
