@@ -63,6 +63,18 @@ def _ts(bar):
         return None
     if isinstance(t, datetime):
         return t if t.tzinfo else t.replace(tzinfo=IST)
+    # ISO strings FIRST. The engine hands dates through as '2025-01-20' while the Fyers
+    # history endpoint hands epoch seconds, and only the epoch shape was handled - so
+    # every bar on the real page reported "no timestamp" and the overlay drew nothing at
+    # all. The suite passed throughout because its fixtures were built from epochs. A
+    # test that feeds a shape production never sends is testing a different function.
+    if isinstance(t, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(t[:len(fmt) + 2].strip(), fmt).replace(tzinfo=IST)
+            except ValueError:
+                continue
+        return None
     try:
         return datetime.fromtimestamp(float(t), IST)
     except (TypeError, ValueError, OSError):

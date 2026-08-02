@@ -56,6 +56,16 @@ def _ts(bar):
         return None
     if isinstance(t, datetime):
         return t if t.tzinfo else t.replace(tzinfo=IST)
+    # ISO strings first. The engine passes dates through as '2025-01-20' while the Fyers
+    # history endpoint passes epoch seconds. Handling only the epoch shape means every bar
+    # reports "no timestamp" and the whole screen silently returns nothing.
+    if isinstance(t, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(t[:len(fmt) + 2].strip(), fmt).replace(tzinfo=IST)
+            except ValueError:
+                continue
+        return None
     try:                            # epoch seconds, which is what Fyers history returns
         return datetime.fromtimestamp(float(t), IST)
     except (TypeError, ValueError, OSError):

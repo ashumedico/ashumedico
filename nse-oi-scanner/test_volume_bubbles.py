@@ -64,6 +64,25 @@ def main():
 
     d0 = date(2026, 7, 31)
 
+    # ---- THE SHAPE THE ENGINE ACTUALLY SENDS -------------------------------
+    # Every fixture below is built from epoch floats, and that is how this suite passed
+    # while the real chart drew nothing at all: the engine hands dates through as ISO
+    # strings, only the epoch shape was parsed, and every bar reported "no timestamp".
+    # A test that feeds a shape production never sends is testing a different function.
+    for shape in ("2025-01-20", "2025-01-20 09:15:00", "2025-01-20T09:15:00"):
+        check(f"a bar timestamped {shape!r} is understood",
+              VB._ts({"t": shape}) is not None, VB._ts({"t": shape}))
+    check("and an epoch float still is", VB._ts({"t": 1737331200.0}) is not None)
+    check("while an unparseable one is None, not today",
+          VB._ts({"t": "not a date"}) is None)
+
+    iso = [{"t": f"2025-01-{d:02d}", "o": 100, "h": 101, "l": 99, "c": 100, "v": 1000}
+           for d in range(1, 12)]
+    iso.append({"t": "2025-01-12", "o": 100, "h": 101, "l": 99, "c": 100, "v": 3000})
+    res_iso = VB.bubbles(iso, intraday=False)
+    check("and a whole series of ISO-dated bars produces bubbles",
+          res_iso["measured"] > 0, f"{res_iso['measured']} of {res_iso['bars']}")
+
     # ---- the norm is bar-of-day, not a flat average ------------------------
     # Ten sessions where 9:15 trades 10,000 and 13:00 trades 1,000. A flat average over
     # all bars would sit near 5,500 - marking every morning as extraordinary and every

@@ -306,8 +306,17 @@ def make_fig(name, closes, bars_, dates_, feat, plan=None, height=330):
                           for b in res["bubbles"]],
                     hoverinfo="text")
                 fig._bubble_legend = VB.legend(res)
-        except Exception:      # noqa - a missing overlay must never cost him the chart
-            pass
+            else:
+                fig._bubble_legend = ("no bubbles — " + VB.legend(res)
+                                      + ". Nothing was measurable; that is a fact about "
+                                        "the data, not an empty chart.")
+        except Exception as e:      # noqa - a missing overlay must never cost him the chart
+            # ...but it must not vanish in silence either. This bare pass hid a real bug
+            # for a whole session: the timestamps arrive as ISO strings and only the epoch
+            # shape was parsed, so every bar reported "no timestamp", zero bubbles were
+            # drawn, and the chart looked entirely normal. A layer that can disappear
+            # without saying so is a layer nobody can trust is working.
+            fig._bubble_legend = f"overlay unavailable — {str(e)[:120]}"
 
     atr = feat.get("atr")
     for nm, lvl, col in (("R2", feat.get("r2"), T["down"]),
