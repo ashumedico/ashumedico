@@ -62,6 +62,14 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 `/hinglish` — talk to me in **Hinglish** (Hindi structure, English technical terms, Roman script).
 Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR content stay English.
 
+## Where the trading work lives
+His machine: **`C:\My project`** — a clone of branch `claude/aios-v2-scaffolder-warqsk`, and
+from now on the only place he runs the desk. I cannot see that folder (I run in a Linux
+container; his Windows machine is not visible), so the sync is git: **I push, he pulls.**
+Source of truth is the branch, never a copy on either side.
+`config.py`, the token, the books and the logs stay on his machine and are git-ignored —
+they are the reason the folder is not just a copy of the repo.
+
 ## Trading OS → `.claude/skills/universal-trading/`
 `/universal-trading` — the **Fable-class 24/7 pipeline** (Research → Scan → Signal → Trade Plan →
 Risk → Monitor) that unifies the NSE F&O OI scanner, chart-action confluence, RRG rotation, and

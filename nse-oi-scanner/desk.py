@@ -1646,13 +1646,31 @@ with T_SCORE:
             wins = [t for t in closed if t.get("pnl", 0) > 0]
             pnl = sum(t.get("pnl", 0) for t in closed)
             cap = float(getattr(config, "CAPITAL", 200000))
+
+            # A scorecard is the one screen built to be believed: it turns rows into a
+            # percentage, and the percentage carries no memory of where the rows came
+            # from. This book once read 86% won and +84% of capital off six copies of one
+            # trade. So the summary is EARNED - the rows stay visible either way, because
+            # he needs to see what is in there, but the two numbers that read as a verdict
+            # are withheld until they mean something.
+            import book_trust as BT
+            audit = BT.audit(bk, capital=cap)
+
             m = st.columns(4)
             m[0].metric("Open", len(open_))
             m[1].metric("Closed", len(closed),
-                        f"{100*len(wins)/len(closed):.0f}% won" if closed else "")
-            m[2].metric("P&L", f"Rs {pnl:+,.0f}", f"{pnl/cap*100:+.1f}% capital")
+                        (f"{100*len(wins)/len(closed):.0f}% won" if closed else "")
+                        if audit["trustworthy"] else f"{audit['distinct']} distinct")
+            m[2].metric("P&L", f"Rs {pnl:+,.0f}",
+                        f"{pnl/cap*100:+.1f}% capital" if audit["trustworthy"]
+                        else "not scored")
+            if not audit["trustworthy"]:
+                st.markdown(f'<div class="hazard">⚠ {BT.verdict_line(audit)}</div>',
+                            unsafe_allow_html=True)
+                for r in audit["reasons"]:
+                    st.markdown(f'<div class="refuse">{r}</div>', unsafe_allow_html=True)
             exp = PB.expectation()
-            if exp and closed:
+            if exp and closed and audit["trustworthy"]:
                 band = PB.binomial_band(len(closed), exp["win_rate"] / 100.0)
                 m[3].metric("Backtest claimed", f"{exp['win_rate']}%",
                             f"{band[0]:.0f}-{band[1]:.0f} wins expected")

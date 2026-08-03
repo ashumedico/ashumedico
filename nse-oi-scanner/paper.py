@@ -105,6 +105,23 @@ def take(bk, card, point, max_pos=None, modelled_ok=False):
         return None, f"{len(bk['open'])}/{cap} slot bhare hain"
     if any(p["name"] == card["name"] for p in bk["open"]):
         return None, f"{card['name']} pehle se book mein hai"
+    # ...AND NOT AGAIN TODAY AFTER IT CLOSED. The check above only ever looked at OPEN
+    # positions, so the moment a trade closed the same name was eligible again on the next
+    # run. Six identical PERSISTENT rows reached the scorecard that way - same entry
+    # premium, same reason - and the scorecard read them as six trades. It reported 86%
+    # won and +84% of capital from what was, at most, two distinct trades.
+    #
+    # One entry per name per day. That is what "one or two trades a day" means, and the
+    # book is the record the whole system is judged by: a duplicated row does not overstate
+    # the result a little, it multiplies whichever way that trade happened to go.
+    if not modelled_ok:
+        today_ = now().date().isoformat()
+        for p in (bk.get("closed") or []):
+            if p.get("name") != card["name"]:
+                continue
+            if str(p.get("opened") or "")[:10] == today_:
+                return None, (f"{card['name']} aaj pehle hi liya aur band ho gaya - "
+                              f"ek naam, ek din mein ek baar")
     o = card.get("option") or {}
     if not o:
         return None, "option leg nahi bana"
