@@ -63,7 +63,7 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR content stay English.
 
 ## Where the trading work lives
-His machine: **`C:\My project`** — a clone of branch `claude/aios-v2-scaffolder-warqsk`, and
+His machine: **`C:\My Project`** — a clone of branch `claude/aios-v2-scaffolder-warqsk`, and
 from now on the only place he runs the desk. I cannot see that folder (I run in a Linux
 container; his Windows machine is not visible), so the sync is git: **I push, he pulls.**
 Source of truth is the branch, never a copy on either side.
