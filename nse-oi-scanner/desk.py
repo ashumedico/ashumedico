@@ -788,6 +788,44 @@ with T_DECK:
     # The reference calls this the Intraday Command Deck. Everything in it is context - where
     # the money is today and which names just turned. None of it is a trigger, and none of it
     # has been walk-forward tested (there is no sector-index history here to test against).
+    # ------------------------------------------------------------- the money --
+    # Three numbers call themselves "my capital" and only one of them is money. The
+    # account balance is read from Fyers; config.CAPITAL is what he TOLD the system he
+    # has, and every position size is computed from it. Nothing else in this program is in
+    # a position to compare the two - sizing trusts config, the broker trusts the account -
+    # so the drift check lives here or nowhere.
+    try:
+        import capital_view as CV
+        _brk = None
+        try:
+            import broker as _b
+            _brk = _b if not NO_TOKEN else None
+        except Exception:      # noqa
+            _brk = None
+        cvv = CV.view(book=(__import__("paper").load() if not NO_TOKEN else None),
+                      cfg=config, broker=_brk)
+        mc = st.columns(4)
+        mc[0].metric("In the account",
+                     f"Rs {cvv['broker_balance']:,.0f}" if cvv["broker_balance"] is not None
+                     else "—",
+                     "from the broker" if cvv["broker_balance"] is not None else "unknown")
+        mc[1].metric("Committed", f"Rs {cvv['committed']:,.0f}",
+                     f"{cvv['open_positions']} open"
+                     + (f" · {cvv['deployed_pct']}% of {cvv['deployed_of']}"
+                        if cvv["deployed_pct"] is not None else ""))
+        mc[2].metric("Free",
+                     f"Rs {cvv['free']:,.0f}" if cvv["free"] is not None else "—",
+                     "account minus committed" if cvv["free"] is not None
+                     else "needs the account balance")
+        # Charges are the only figure here that does not come back. Kept apart from
+        # committed premium on purpose: adding them would report a lakh spent on a day one
+        # option was bought and Rs 53 was paid to do it.
+        mc[3].metric("Charges paid", f"Rs {cvv['charges_paid']:,.0f}", "does not come back")
+        for w in cvv["warnings"]:
+            st.markdown(f'<div class="refuse">{w}</div>', unsafe_allow_html=True)
+    except Exception as e:      # noqa - never let the money panel cost him the deck
+        st.caption(f"capital panel unavailable — {str(e)[:140]}")
+
     st.markdown('<div class="sec">Command deck — where the money is today</div>',
                 unsafe_allow_html=True)
 
