@@ -5,3 +5,6 @@ nse-oi-scanner/orders.jsonl
 # the results calendar - his data
 events.json
 events.json.tmp
+
+# --- personal finances: they live in a PRIVATE repo, never this public one ---
+aios/ledger/

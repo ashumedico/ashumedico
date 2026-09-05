@@ -62,6 +62,17 @@ The specialist minds live in `.claude/agents/`. `@t-bone` is the OS kernel — o
 `/hinglish` — talk to me in **Hinglish** (Hindi structure, English technical terms, Roman script).
 Auto-engage when I write in Hinglish. Code, commits, artifacts and UCPMP/MLR content stay English.
 
+## Where the money lives — NOT here
+`aios/ledger/` is **git-ignored**. It holds expense sheets, the finance audit, the
+credit-card tracker, loan schedules and prepayment logs, and this repo
+(`ashumedico/ashumedico`) is his GitHub PROFILE repo, which GitHub requires to be public.
+Those 33 files sat on a pushed public branch until 5 Sep 2026. They now live in a separate
+PRIVATE repo; the files stay on his machine and are never tracked here again.
+
+Never add anything under `aios/ledger/` to this repository. When he reports a payment,
+an EMI, a card statement or any rupee figure about his own finances, it goes to the
+private ledger — not into a commit here, not into a PR description.
+
 ## Where the trading work lives
 His machine: **`C:\My Project`** — a clone of branch `claude/aios-v2-scaffolder-warqsk`, and
 from now on the only place he runs the desk. I cannot see that folder (I run in a Linux
