@@ -8,3 +8,7 @@ events.json.tmp
 
 # --- personal finances: they live in a PRIVATE repo, never this public one ---
 aios/ledger/
+
+# --- Python bytecode: generated, never source ---
+__pycache__/
+*.py[cod]
