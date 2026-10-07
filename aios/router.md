@@ -39,6 +39,7 @@ QUALITY GATE:  @verifier (92% bar)
 | 4 | Debt-freedom + budget system | Life | Running | Monthly tracker upkeep | `aios/ledger/` |
 | 5 | Privacy / data removal | Life | Open | `aios/projects/privacy-data-removal.md` | — |
 | 6 | 60-day diet plan | Life | Running | `aios/projects/diet-plan-60day.md` | — |
+| 7 | **T-Amp** — Winamp-classic YouTube Music player (`t-amp/`) | Builder | Built; Windows CI on the PR | `RUN.bat` or the CI .exe; `SELFTEST.bat` if anything misbehaves | — |
 
 ## SKILLS REGISTRY
 | Skill | Where | Owner | Version | Notes |

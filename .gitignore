@@ -12,3 +12,10 @@ aios/ledger/
 # --- Python bytecode: generated, never source ---
 __pycache__/
 *.py[cod]
+
+# --- T-Amp build outputs: rebuilt by BUILD-EXE.bat / CI, never source ---
+t-amp/.venv/
+t-amp/build/
+t-amp/dist/
+t-amp/*.spec
+t-amp/shots/
