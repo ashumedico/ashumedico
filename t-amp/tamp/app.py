@@ -329,6 +329,17 @@ class Shell(QWidget):
         a = opts.addAction("Media keys control T-Amp", self._toggle_media_keys)
         a.setCheckable(True)
         a.setChecked(bool(s["media_keys"]))
+        signin = opts.addMenu("YouTube sign-in")
+        cur = s.get("cookies")
+        for label, value in (("Off (default)", None), ("Cookies from Firefox", "browser:firefox"),
+                             ("Cookies from Edge", "browser:edge"), ("Cookies from Chrome", "browser:chrome"),
+                             ("Cookies from Brave", "browser:brave")):
+            a = signin.addAction(label, lambda v=value: pl.set_cookies(v))
+            a.setCheckable(True)
+            a.setChecked(cur == value)
+        a = signin.addAction("cookies.txt file...", self._pick_cookie_file)
+        a.setCheckable(True)
+        a.setChecked(bool(cur) and not cur.startswith("browser:"))
         vis = m.addMenu("Visualization")
         self._fill_vis_menu(vis)
         m.addSeparator()
@@ -367,6 +378,12 @@ class Shell(QWidget):
         a = m.addAction("Peaks", lambda: s.__setitem__("vis_peaks", not s["vis_peaks"]))
         a.setCheckable(True)
         a.setChecked(bool(s["vis_peaks"]))
+
+    def _pick_cookie_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "YouTube cookies.txt (Netscape format)", "",
+                                              "Cookies (*.txt);;All files (*)")
+        if path:
+            self.player.set_cookies(path)
 
     def _toggle_time(self) -> None:
         s = self.player.settings

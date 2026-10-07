@@ -69,4 +69,9 @@ jobs:
           Expand-Archive T-Amp-windows.zip -DestinationPath .
           $p = Start-Process -FilePath T-Amp\T-Amp.exe -ArgumentList '--selftest','--no-audio' -Wait -PassThru
           Get-Content "$env:APPDATA\T-Amp\selftest.txt"
+          if ($p.ExitCode -eq 3) {
+            # Search passed; YouTube refused streams to this datacenter IP. Any other failure stays red.
+            Write-Output "::warning title=YouTube bot check::YouTube asked this GitHub runner (datacenter IP) to sign in before serving streams. Live search passed; run SELFTEST.bat on a home connection to check streaming."
+            exit 0
+          }
           exit $p.ExitCode

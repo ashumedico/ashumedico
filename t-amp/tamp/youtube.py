@@ -212,8 +212,14 @@ def find_ffmpeg() -> str | None:
         return shutil.which("ffmpeg")
 
 
+BOT_CHECK = re.compile(r"confirm you.?re not a bot|sign in to confirm", re.I)
+
+
 class ResolveError(RuntimeError):
-    pass
+    @property
+    def bot_check(self) -> bool:
+        """YouTube wants a signed-in session from this connection (datacenter IPs, VPNs, heavy use)."""
+        return bool(BOT_CHECK.search(str(self)))
 
 
 def _clean_error(msg: str) -> str:
@@ -240,8 +246,9 @@ class _Log:
 class StreamResolver:
     """videoId -> a direct audio URL (plus headers, bitrate, rate). Cached until it expires."""
 
-    def __init__(self, cache_dir: str | None = None):
+    def __init__(self, cache_dir: str | None = None, cookies: str | None = None):
         self.cache_dir = cache_dir
+        self.cookies = cookies      # None | "browser:<name>" | path to a cookies.txt
         self._ydl = None
         self._cache: dict[str, Stream] = {}
         self._lock = threading.Lock()
@@ -262,7 +269,17 @@ class StreamResolver:
         deno = find_deno()
         if deno:
             opts["js_runtimes"] = {"deno": {"path": deno}}
+        if self.cookies and self.cookies.startswith("browser:"):
+            opts["cookiesfrombrowser"] = (self.cookies[len("browser:"):],)
+        elif self.cookies:
+            opts["cookiefile"] = self.cookies
         return YoutubeDL(opts)
+
+    def set_cookies(self, cookies: str | None) -> None:
+        with self._lock:
+            self.cookies = cookies
+            self._ydl = None        # rebuilt with the new sign-in on the next resolve
+            self._cache.clear()
 
     def resolve(self, video_id: str, force: bool = False) -> Stream:
         with self._lock:  # one YoutubeDL instance, one caller at a time

@@ -18,7 +18,7 @@ display are working on real decoded audio.*
 | **Your own .exe** | `RUN.bat` once, then `BUILD-EXE.bat`: it builds `dist\T-Amp\T-Amp.exe` and puts **T-Amp** on the Desktop | Same as above, plus a shortcut |
 
 Something not working? `SELFTEST.bat` checks every part with real data and says
-which one failed: ffmpeg, the JavaScript runtime, your speakers, a live search, a stream,
+which one failed or was blocked: ffmpeg, the JavaScript runtime, your speakers, a live search, a stream,
 and 3 seconds of decoded audio. The report is saved to `%APPDATA%\T-Amp\selftest.txt`.
 
 ## What's in it
@@ -79,6 +79,12 @@ song's URL is prefetched halfway through the current one.
   *Update YouTube engine*.
 - **Some tracks need a signed-in account** (age-restricted, members-only, blocked in
   your region). T-Amp shows the reason in the title display and moves on to the next track.
+- **"Sign in to confirm you're not a bot"**: YouTube sends this check to datacenter and VPN
+  addresses (it's why the CI's stream check can't run on GitHub's servers). A home connection
+  normally doesn't get it. If you do, use *Options → YouTube sign-in* and choose cookies from
+  your browser (Firefox is the dependable one on Windows; Chrome and Edge lock their cookie
+  store) or a `cookies.txt` export. T-Amp then stops rather than skipping through the whole
+  playlist.
 - Search results are for region **IN** (`"region"` in `%APPDATA%\T-Amp\state.json`).
 - For personal listening. Streams come straight from YouTube, so YouTube's terms
   apply. Inspired by Winamp 2; not affiliated with Winamp or YouTube, and no Winamp

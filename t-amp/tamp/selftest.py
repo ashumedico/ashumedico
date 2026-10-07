@@ -3,7 +3,7 @@
 Checks, in order: ffmpeg (and that it speaks https), the JavaScript runtime yt-dlp needs,
 the sound device, a live YouTube Music search, resolving a stream, and decoding three
 seconds of it. Writes the report to stdout and to selftest.txt in the state folder.
-Exit code 0 only if every check passed.
+Exit code 0: all passed; 3: only YouTube's bot check stood in the way; 1: something failed.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import numpy as np
 
 from .engine import CREATE_NO_WINDOW, ffmpeg_command
 from .settings import state_dir
-from .youtube import MusicSearch, StreamResolver, find_deno, find_ffmpeg
+from .youtube import MusicSearch, ResolveError, StreamResolver, find_deno, find_ffmpeg
 
 
 def _run(cmd: list[str], timeout: float = 20) -> str:
@@ -31,14 +31,25 @@ def run(argv: list[str]) -> int:
         query = argv[argv.index("--query") + 1]
     lines: list[str] = []
     ok_all = True
+    blocked = False
 
     def check(name: str, fn):
-        nonlocal ok_all
+        nonlocal ok_all, blocked
         t0 = time.monotonic()
         try:
             detail = fn()
             lines.append(f"[PASS] {name}: {detail}  ({time.monotonic() - t0:.1f}s)")
             return detail
+        except ResolveError as exc:
+            if not exc.bot_check:
+                ok_all = False
+                lines.append(f"[FAIL] {name}: {exc}")
+                return None
+            blocked = True
+            lines.append(f"[BLOCKED] {name}: YouTube asked this connection to sign in (bot check). "
+                         "It does this to datacenter and VPN addresses; on a home connection T-Amp normally "
+                         "plays without it. If you see this at home: menu > Options > YouTube sign-in.")
+            return None
         except Exception as exc:  # report every failure, keep checking the rest
             ok_all = False
             lines.append(f"[FAIL] {name}: {type(exc).__name__}: {exc}")
@@ -85,13 +96,15 @@ def run(argv: list[str]) -> int:
 
     stream = None
     if first is not None:
-        resolver = StreamResolver(cache_dir=os.path.join(state_dir(), "yt-dlp-cache"))
+        from .settings import Settings
+        resolver = StreamResolver(cache_dir=os.path.join(state_dir(), "yt-dlp-cache"),
+                                  cookies=Settings().get("cookies"))
         stream = check(f"resolve stream for '{first.label}'",
                        lambda: _resolve(resolver, first.video_id))
     if stream is not None and ffmpeg:
         check("decode 3 s of real audio", lambda: _decode(ffmpeg, stream[1]))
 
-    lines.append("RESULT: " + ("ALL PASS" if ok_all else "FAILED"))
+    lines.append("RESULT: " + ("FAILED" if not ok_all else "BLOCKED BY YOUTUBE BOT CHECK" if blocked else "ALL PASS"))
     report = "\n".join(lines)
     try:
         with open(os.path.join(state_dir(), "selftest.txt"), "w", encoding="utf-8") as fh:
@@ -102,7 +115,7 @@ def run(argv: list[str]) -> int:
         print(report, flush=True)
     except (OSError, ValueError, AttributeError):  # windowed exe: no console attached
         pass
-    return 0 if ok_all else 1
+    return 1 if not ok_all else 3 if blocked else 0
 
 
 class _Detail(tuple):

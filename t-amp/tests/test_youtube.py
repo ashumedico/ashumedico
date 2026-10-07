@@ -134,3 +134,23 @@ def test_update_fetches_verifies_and_activates(tmp_path, monkeypatch):
     info = json.load(urllib.request.urlopen("https://pypi.org/pypi/yt-dlp-ejs/json", timeout=10))
     whl = next(f for f in info["urls"] if f["filename"].endswith("-py3-none-any.whl"))
     assert len(whl["digests"]["sha256"]) == len(hashlib.sha256().hexdigest())
+
+
+def test_bot_check_is_recognised():
+    from tamp.youtube import ResolveError
+    assert ResolveError("Sign in to confirm you’re not a bot. Use --cookies-from-browser").bot_check
+    assert ResolveError("Sign in to confirm you're not a bot").bot_check
+    assert not ResolveError("Video unavailable").bot_check
+
+
+def test_cookies_reach_yt_dlp(tmp_path):
+    from tamp.youtube import StreamResolver
+    r = StreamResolver(cache_dir=None, cookies="browser:firefox")
+    assert r._make().params["cookiesfrombrowser"] == ("firefox",)
+    jar = tmp_path / "cookies.txt"
+    jar.write_text("# Netscape HTTP Cookie File\n")
+    r.set_cookies(str(jar))
+    ydl = r._make()
+    assert ydl.params["cookiefile"] == str(jar) and "cookiesfrombrowser" not in ydl.params
+    r.set_cookies(None)
+    assert "cookiefile" not in r._make().params

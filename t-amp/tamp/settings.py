@@ -34,6 +34,7 @@ DEFAULTS = {
     "media_keys": True,
     "region": "IN",
     "engine_checked": 0,
+    "cookies": None,            # YouTube sign-in: None | "browser:firefox" | path to cookies.txt
     "playlist": [],
     "current": -1,
 }

@@ -309,3 +309,30 @@ def test_full_desk_screenshot(rig):
     p.end()
     img.save(os.path.join(SHOTS, "00-desk.png"))
     shell.toggle_panel("eq")
+
+
+class BotCheckResolver:
+    """YouTube's answer to a datacenter IP: every resolve asks for a sign-in."""
+
+    def __init__(self):
+        self.calls = []
+
+    def resolve(self, video_id, force=False):
+        from tamp.youtube import ResolveError
+        self.calls.append(video_id)
+        raise ResolveError("Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies")
+
+
+def test_bot_check_stops_instead_of_skipping_through_the_list(app, tmp_path):
+    settings = Settings(str(tmp_path / "state.json"))
+    engine = AudioEngine(FFMPEG, samplerate=SR, output=lambda e: Device(e))
+    resolver = BotCheckResolver()
+    player = Player(settings, engine=engine, music=CannedSearch(), resolver=resolver)
+    _alive.append((player, engine))
+    player.add_tracks(tracks())
+    player.play_index(0)
+    assert pump(app, 2, until=lambda: player.status == "stopped" and player.message)
+    assert "SIGN-IN" in player.message
+    pump(app, 3.0)  # longer than the 2.5 s skip-after-fail delay
+    assert resolver.calls == ["id000000000"], "a bot check must not walk the whole playlist"
+    player.shutdown()

@@ -36,7 +36,7 @@ class Player(QObject):
         ffmpeg = find_ffmpeg()
         self.engine = engine or AudioEngine(ffmpeg or "ffmpeg")
         self.music = music or MusicSearch(location=s.get("region") or "IN")
-        self.resolver = resolver or StreamResolver(cache_dir=f"{state_dir()}/yt-dlp-cache")
+        self.resolver = resolver or StreamResolver(cache_dir=f"{state_dir()}/yt-dlp-cache", cookies=s.get("cookies"))
         self.vis = Visualizer(self.engine.samplerate)
         self.scope = np.zeros(76)
 
@@ -253,7 +253,11 @@ class Player(QObject):
         try:
             stream = fut.result()
         except ResolveError as exc:
-            self._fail(str(exc))
+            if exc.bot_check:  # every track would fail the same way: stop and say what fixes it
+                self._fail("YOUTUBE ASKS THIS CONNECTION TO SIGN IN (BOT CHECK) - "
+                           "MENU > OPTIONS > YOUTUBE SIGN-IN", skip=False)
+            else:
+                self._fail(str(exc))
             return
         except Exception as exc:  # network down, yt-dlp internals: report, don't crash
             self._fail(f"{type(exc).__name__}: {exc}")
@@ -268,14 +272,14 @@ class Player(QObject):
         self._fails = 0
         self.changed.emit()
 
-    def _fail(self, msg: str) -> None:
+    def _fail(self, msg: str, skip: bool = True) -> None:
         self._fails += 1
         self.engine.stop()
         self.status = "stopped"
         self.stream = None
-        self.flash(f"ERROR: {msg}", 6.0)
+        self.flash(f"ERROR: {msg}", 6.0 if skip else 15.0)
         req = self._req
-        if self._fails < max(2, len(self.tracks)) and len(self.tracks) > 1:
+        if skip and self._fails < max(2, len(self.tracks)) and len(self.tracks) > 1:
             QTimer.singleShot(2500, lambda: self._skip_after_fail(req))
 
     def _skip_after_fail(self, req: int) -> None:
@@ -407,6 +411,15 @@ class Player(QObject):
         self.engine.eq.set(self.eq_on, self.eq_preamp, self.eq_gains)
         s = self.settings
         s.update(eq_on=self.eq_on, eq_auto=self.eq_auto, eq_preamp=self.eq_preamp, eq_gains=list(self.eq_gains))
+
+    def set_cookies(self, cookies: str | None) -> None:
+        """YouTube sign-in for yt-dlp: None, "browser:<name>", or a cookies.txt path."""
+        self.settings["cookies"] = cookies
+        if hasattr(self.resolver, "set_cookies"):
+            self.resolver.set_cookies(cookies)
+        self._schedule_save()
+        self.flash("YOUTUBE SIGN-IN: " + ("OFF" if not cookies else
+                   cookies[len("browser:"):].upper() + " COOKIES" if cookies.startswith("browser:") else "COOKIES.TXT"))
 
     def toggle(self, what: str) -> None:
         if what == "shuffle":
