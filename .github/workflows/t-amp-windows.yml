@@ -8,6 +8,11 @@ on:
   pull_request:
     paths: ['t-amp/**', '.github/workflows/t-amp-windows.yml']
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Also publish this build as release t-amp-v<version>, e.g. 1.0.0 (empty = just build)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -79,8 +84,9 @@ jobs:
           exit $p.ExitCode
 
   release:
-    # Only for a t-amp-v* tag, and only after the exe built, passed its tests and its live check.
-    if: startsWith(github.ref, 'refs/tags/t-amp-v')
+    # For a t-amp-v* tag, or a manual run given a version; only after the exe built, passed its
+    # tests and its live check. A manual run creates the tag on the exact commit it built.
+    if: startsWith(github.ref, 'refs/tags/t-amp-v') || (github.event_name == 'workflow_dispatch' && inputs.release != '')
     needs: [build, live-youtube]
     runs-on: ubuntu-latest
     permissions:
@@ -92,8 +98,17 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
         run: |
-          version="${GITHUB_REF_NAME#t-amp-v}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if ! [[ "$RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::release must look like 1.0.0, got '$RELEASE'"; exit 1
+            fi
+            tag="t-amp-v$RELEASE"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          version="${tag#t-amp-v}"
           cat > notes.md <<'EOF'
           A classic Winamp-style player for YouTube Music, for Windows 10/11 (64-bit).
 
@@ -107,5 +122,5 @@ jobs:
           Built and tested on a Windows runner, where live YouTube Music search passed; YouTube's bot
           check blocks streams to GitHub's servers, so home-connection playback is what that self-test proves.
           EOF
-          gh release create "$GITHUB_REF_NAME" T-Amp-windows.zip \
+          gh release create "$tag" T-Amp-windows.zip --target "$GITHUB_SHA" \
             --repo "$GITHUB_REPOSITORY" --title "T-Amp $version" --notes-file notes.md
