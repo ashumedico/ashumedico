@@ -1,7 +1,7 @@
 """`T-Amp --selftest`: prove every moving part works on this machine, with real data.
 
 Checks, in order: ffmpeg (and that it speaks https), the JavaScript runtime yt-dlp needs,
-the sound device, a live YouTube Music search, resolving a stream, and decoding three
+the sound device, a live YouTube Music search, fetching a song, and decoding three
 seconds of it. Writes the report to stdout and to selftest.txt in the state folder.
 Exit code 0: all passed; 3: only YouTube's bot check stood in the way; 1: something failed.
 """
@@ -17,7 +17,7 @@ import numpy as np
 
 from .engine import CREATE_NO_WINDOW, ffmpeg_command
 from .settings import state_dir
-from .youtube import MusicSearch, ResolveError, StreamResolver, find_deno, find_ffmpeg
+from .youtube import AudioFetcher, MusicSearch, ResolveError, find_deno, find_ffmpeg
 
 
 def _run(cmd: list[str], timeout: float = 20) -> str:
@@ -108,11 +108,10 @@ def run(argv: list[str]) -> int:
 
     stream = None
     if first is not None:
-        from .settings import Settings
-        resolver = StreamResolver(cache_dir=os.path.join(state_dir(), "yt-dlp-cache"),
-                                  cookies=Settings().get("cookies"))
-        stream = check(f"resolve stream for '{first.label}'",
-                       lambda: _resolve(resolver, first.video_id))
+        from .settings import Settings, audio_cache_dir
+        fetcher = AudioFetcher(audio_cache_dir(), cookies=Settings().get("cookies"))
+        stream = check(f"fetch the audio of '{first.label}' (yt-dlp, the way the player does)",
+                       lambda: _fetch(fetcher, first.video_id))
     if stream is not None and ffmpeg:
         check("decode 3 s of real audio", lambda: _decode(ffmpeg, stream[1]))
         if "--no-audio" not in argv:
@@ -147,10 +146,21 @@ def _search(music: MusicSearch, query: str):
     return _Detail((f"{len(res)} songs · first: {res[0].label} ({res[0].duration}s)", res[0]))
 
 
-def _resolve(resolver: StreamResolver, vid: str):
-    st = resolver.resolve(vid)
+def _fetch(fetcher: AudioFetcher, vid: str):
+    t0 = time.monotonic()
+    st = fetcher.fetch(vid, force=True)          # a real download, not yesterday's cached copy
+    first_bytes = time.monotonic() - t0
+    if st.pending is not None:
+        st.pending.finished.wait(180)
+        if st.pending.error:
+            raise ResolveError(st.pending.error)
+        if not st.pending.finished.is_set():
+            raise RuntimeError(f"download still running after 180 s ({st.pending.bytes} bytes)")
+    size = os.path.getsize(st.path)
+    secs = time.monotonic() - t0
     return _Detail((f"{st.codec} · {round(st.abr or 0)} kbps · {st.asr} Hz · {st.duration}s · "
-                    f"expires in {int((st.expires - time.time()) / 60)} min", st))
+                    f"{size / 1e6:.1f} MB in {secs:.1f} s (first bytes after {first_bytes:.1f} s)",
+                    st))
 
 
 def _play(ffmpeg: str, st) -> str:
@@ -160,7 +170,7 @@ def _play(ffmpeg: str, st) -> str:
     eng.volume = 0.5
     try:
         t0 = time.monotonic()
-        eng.open(st.url, st.headers, 30.0, st.duration)
+        eng.open(st.path, None, 30.0, st.duration)
         started = None
         while time.monotonic() - t0 < 25:
             for ev in eng.poll():
@@ -178,7 +188,7 @@ def _play(ffmpeg: str, st) -> str:
 
 
 def _decode(ffmpeg: str, st) -> str:
-    cmd = ffmpeg_command(ffmpeg, st.url, 48000, 30.0, st.headers)
+    cmd = ffmpeg_command(ffmpeg, st.path, 48000, 30.0)
     cmd = cmd[:-1] + ["-t", "3", "pipe:1"]
     out = subprocess.run(cmd, capture_output=True, timeout=60, creationflags=CREATE_NO_WINDOW)
     pcm = np.frombuffer(out.stdout[: len(out.stdout) // 8 * 8], dtype="<f4").reshape(-1, 2)

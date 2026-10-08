@@ -55,15 +55,14 @@ class Device:
 
 
 class LocalResolver:
-    """Stands in for yt-dlp: every video id resolves to the same local file."""
+    """Stands in for yt-dlp: every video id "downloads" to the same local file."""
 
     def __init__(self, path):
         self.path, self.calls = path, []
 
-    def resolve(self, video_id, force=False):
+    def fetch(self, video_id, force=False):
         self.calls.append((video_id, force))
-        return Stream(url=self.path, headers={}, duration=20.0, abr=129.6, asr=48000, channels=2,
-                      codec="opus", expires=time.time() + 3600)
+        return Stream(path=self.path, duration=20.0, abr=129.6, asr=48000, channels=2, codec="opus")
 
 
 class CannedSearch:
@@ -107,7 +106,7 @@ def rig(app, audio_file, tmp_path):
     engine = AudioEngine(FFMPEG, samplerate=SR, output=lambda e: Device(e))
     resolver = LocalResolver(audio_file)
     music = CannedSearch()
-    player = Player(settings, engine=engine, music=music, resolver=resolver)
+    player = Player(settings, engine=engine, music=music, fetcher=resolver)
     shell = Shell(player)
     shell.show()
     app.processEvents()
@@ -317,7 +316,7 @@ class BotCheckResolver:
     def __init__(self):
         self.calls = []
 
-    def resolve(self, video_id, force=False):
+    def fetch(self, video_id, force=False):
         from tamp.youtube import ResolveError
         self.calls.append(video_id)
         raise ResolveError("Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies")
@@ -327,7 +326,7 @@ def test_bot_check_stops_instead_of_skipping_through_the_list(app, tmp_path):
     settings = Settings(str(tmp_path / "state.json"))
     engine = AudioEngine(FFMPEG, samplerate=SR, output=lambda e: Device(e))
     resolver = BotCheckResolver()
-    player = Player(settings, engine=engine, music=CannedSearch(), resolver=resolver)
+    player = Player(settings, engine=engine, music=CannedSearch(), fetcher=resolver)
     _alive.append((player, engine))
     player.add_tracks(tracks())
     player.play_index(0)
@@ -386,17 +385,16 @@ class DeadStreamResolver:
     def __init__(self):
         self.calls = []
 
-    def resolve(self, video_id, force=False):
+    def fetch(self, video_id, force=False):
         self.calls.append(video_id)
-        return Stream(url="/nonexistent/dead.m4a", headers={}, duration=200.0, abr=128, asr=44100,
-                      channels=2, codec="opus", expires=time.time() + 3600)
+        return Stream(path="/nonexistent/dead.m4a", duration=200.0, abr=128, asr=44100, channels=2, codec="opus")
 
 
 def test_dead_streams_on_repeat_stop_after_one_pass(app, tmp_path):
     settings = Settings(str(tmp_path / "state.json"))
     engine = AudioEngine(FFMPEG, samplerate=SR, output=lambda e: Device(e))
     resolver = DeadStreamResolver()
-    player = Player(settings, engine=engine, music=CannedSearch(), resolver=resolver)
+    player = Player(settings, engine=engine, music=CannedSearch(), fetcher=resolver)
     player.SKIP_DELAY_MS = 30
     _alive.append((player, engine))
     player.add_tracks(tracks(3))
@@ -410,16 +408,16 @@ def test_dead_streams_on_repeat_stop_after_one_pass(app, tmp_path):
 
 
 class SlowResolver(LocalResolver):
-    def resolve(self, video_id, force=False):
+    def fetch(self, video_id, force=False):
         time.sleep(0.4)
-        return super().resolve(video_id, force)
+        return super().fetch(video_id, force)
 
 
 def test_clicks_the_user_has_moved_past_never_reach_youtube(app, audio_file, tmp_path):
     settings = Settings(str(tmp_path / "state.json"))
     engine = AudioEngine(FFMPEG, samplerate=SR, output=lambda e: Device(e))
     resolver = SlowResolver(audio_file)
-    player = Player(settings, engine=engine, music=CannedSearch(), resolver=resolver)
+    player = Player(settings, engine=engine, music=CannedSearch(), fetcher=resolver)
     _alive.append((player, engine))
     player.add_tracks(tracks())
     for i in range(5):        # Next, Next, Next... faster than YouTube answers

@@ -21,10 +21,11 @@ decoded, from a local test file.*
 
 Something not working? `SELFTEST.bat` checks every part with real data and says
 which one failed or was blocked: ffmpeg, the JavaScript runtime, your sound device, a
-live search, a stream, 3 seconds of decoded audio, and 3 seconds played aloud through
+live search, downloading a song, 3 seconds of decoded audio, and 3 seconds played aloud through
 the player's own engine (you will hear the song). The report is saved to
-`%APPDATA%\T-Amp\selftest.txt`. If T-Amp ever closes on its own, the reason is in
-`%APPDATA%\T-Amp\crash.log`.
+`%APPDATA%\T-Amp\selftest.txt`. If a song won't play, the full reason is in
+`%APPDATA%\T-Amp\playback.log` (the title display scrolls it too). If T-Amp ever closes
+on its own, the reason is in `%APPDATA%\T-Amp\crash.log`.
 
 ## What's in it
 
@@ -67,18 +68,24 @@ In the search box: `↑` `↓` choose, `Enter` play, `Shift+Enter` enqueue,
 ## How it works
 
 ```
-type -> ytmusicapi (YouTube Music search) -> pick -> yt-dlp + Deno (direct audio URL)
-     -> ffmpeg (decode to PCM) -> buffer -> EQ (scipy biquads) -> visualiser tap
-     -> volume / balance -> PortAudio -> speakers
+type -> ytmusicapi (YouTube Music search) -> pick -> yt-dlp + Deno downloads the audio
+     -> local cache file (played while it is still arriving) -> ffmpeg (decode to PCM)
+     -> buffer -> EQ (scipy biquads) -> visualiser tap -> volume / balance -> PortAudio
 ```
+
+yt-dlp does all the talking to YouTube: finding the song *and* fetching its audio, with
+its own headers, chunked requests, retries, cookies and your Windows proxy settings.
+ffmpeg only ever reads a local file. Playback starts as soon as the first bytes land in
+`%LOCALAPPDATA%\T-Amp\cache`; the rest arrives while it plays. Finished songs stay in
+that cache, so playing one again is instant and seeking is always immediate. The
+least recently played songs are removed past 1 GB (`"cache_mb"` in `state.json`).
 
 In `tamp/engine.py`, decoding runs in a thread and playback runs in the sound card's
 callback. YouTube lookups also run in background threads, and a click you've already
 moved past is cancelled before it reaches YouTube. The sound device stays open between
-songs, so changing tracks doesn't stall the window or leave a gap. A 20-second buffer
-absorbs network hiccups. If a stream URL expires or a connection is cut, a fresh URL is
-fetched and playback resumes where it stopped. The next song's URL is prefetched
-halfway through the current one.
+songs, so changing tracks doesn't stall the window or leave a gap. If a download is cut
+off, the song is fetched again and resumes where it stopped. The next song is downloaded
+in the background halfway through the current one.
 
 ## Things to know
 

@@ -35,6 +35,7 @@ DEFAULTS = {
     "region": "IN",
     "engine_checked": 0,
     "cookies": None,            # YouTube sign-in: None | "browser:firefox" | path to cookies.txt
+    "cache_mb": 1024,           # songs kept for instant replay; least recently played go first
     "playlist": [],
     "current": -1,
 }
@@ -48,6 +49,14 @@ def state_dir() -> str:
         path = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "t-amp")
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def audio_cache_dir() -> str:
+    """Downloaded songs: %LOCALAPPDATA% on Windows (not the roaming profile), ~/.cache elsewhere."""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "T-Amp", "cache")
+    return os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "t-amp")
 
 
 class Settings(dict):

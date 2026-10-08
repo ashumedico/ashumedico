@@ -40,12 +40,29 @@ def ffmpeg_command(ffmpeg: str, source: str, samplerate: int, start: float = 0.0
         extra = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
         if extra:
             cmd += ["-headers", extra]
-    if start > 0:
-        cmd += ["-ss", f"{start:.3f}"]
-    cmd += ["-i", source, "-vn", "-sn", "-dn", "-map", "0:a:0",
+    piped = source == "pipe:0"
+    if piped:  # don't sit on the first seconds of a download just to analyse it
+        cmd += ["-probesize", "262144", "-analyzeduration", "1500000"]
+    if start > 0 and not piped:
+        cmd += ["-ss", f"{start:.3f}"]       # seekable input: jump straight there
+    cmd += ["-i", source]
+    if start > 0 and piped:
+        cmd += ["-ss", f"{start:.3f}"]       # a pipe can't seek: decode and discard up to `start`
+    cmd += ["-vn", "-sn", "-dn", "-map", "0:a:0",
             "-f", "f32le", "-acodec", "pcm_f32le", "-ac", str(CHANNELS), "-ar", str(samplerate),
             "pipe:1"]
     return cmd
+
+
+def _reason(dec: "Decoder") -> str:
+    """The most telling line ffmpeg printed (the cause, not the generic 'Error opening input')."""
+    lines = list(dec.stderr)
+    for key in ("Server returned", "HTTP error", "No such file", "Invalid data", "Permission denied",
+                "Connection", "timed out", "Error opening input:"):
+        for line in reversed(lines):
+            if key.lower() in line.lower():
+                return line.split("] ", 1)[-1]
+    return lines[-1] if lines else f"ffmpeg exited with code {dec.returncode}"
 
 
 class PcmBuffer:
@@ -92,10 +109,11 @@ class PcmBuffer:
 class Decoder(threading.Thread):
     """Runs one ffmpeg process and pours its PCM into a PcmBuffer."""
 
-    def __init__(self, cmd: list[str], buf: PcmBuffer):
+    def __init__(self, cmd: list[str], buf: PcmBuffer, feed=None):
         super().__init__(daemon=True, name="t-amp-decoder")
         self.cmd = cmd
         self.buf = buf
+        self.feed = feed            # a download still arriving: its bytes go to ffmpeg's stdin
         self.stop_event = threading.Event()
         self.done = False
         self.returncode: int | None = None
@@ -106,14 +124,16 @@ class Decoder(threading.Thread):
     def run(self) -> None:
         try:
             self._proc = subprocess.Popen(
-                self.cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, bufsize=0, creationflags=CREATE_NO_WINDOW)
+                self.cmd, stdin=subprocess.PIPE if self.feed else subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, creationflags=CREATE_NO_WINDOW)
         except OSError as exc:
             self.stderr.append(f"cannot start ffmpeg: {exc}")
             self.returncode = -1
             self.done = True
             return
         threading.Thread(target=self._drain_stderr, daemon=True).start()
+        if self.feed is not None:
+            threading.Thread(target=self._pump, daemon=True).start()
         frame_bytes = 4 * CHANNELS
         pending = b""
         try:
@@ -141,6 +161,23 @@ class Decoder(threading.Thread):
                 self._kill()
                 self.returncode = self._proc.wait()
             self.done = True
+
+    def _pump(self) -> None:
+        """Copy the growing download into ffmpeg; closing stdin at the true end is ffmpeg's EOF."""
+        out = self._proc.stdin
+        try:
+            for chunk in self.feed.chunks(self.stop_event):
+                view = memoryview(chunk)
+                while view:
+                    n = out.write(view)
+                    view = view[n:]
+        except (OSError, ValueError):
+            pass  # ffmpeg was stopped (seek, next song): nothing left to feed
+        finally:
+            try:
+                out.close()
+            except OSError:
+                pass
 
     def _drain_stderr(self) -> None:
         try:
@@ -200,6 +237,7 @@ class AudioEngine:
         self.duration: float | None = None
         self.source: str | None = None
         self._headers: dict | None = None
+        self._feed = None
         self._session: _Session | None = None
         self._gen = 0
         self._paused = False
@@ -215,9 +253,13 @@ class AudioEngine:
 
     # ---- transport -------------------------------------------------------------------------
     def open(self, source: str, headers: dict | None = None, start: float = 0.0,
-             duration: float | None = None) -> None:
-        """Start playing `source` from `start` seconds."""
-        self.source, self._headers, self.duration = source, headers, duration
+             duration: float | None = None, feed=None) -> None:
+        """Start playing `source` from `start` seconds.
+
+        `feed` is a download still being written to `source`: while it is incomplete, ffmpeg
+        reads its bytes as they arrive; once complete, the file itself (seeks become instant).
+        """
+        self.source, self._headers, self.duration, self._feed = source, headers, duration, feed
         self._paused = False
         self._start_session(max(0.0, start))
         self._ensure_stream()
@@ -314,8 +356,7 @@ class AudioEngine:
                 s.drained = True
                 out.append(("finished",))
             else:
-                msg = dec.stderr[-1] if dec.stderr else f"ffmpeg exited with code {dec.returncode}"
-                out.append(("error", msg, self.position))
+                out.append(("error", _reason(dec), self.position))
         elif not s.reported and s.drained:
             s.reported = True
             if self.duration and self.position < self.duration - 5:
@@ -334,7 +375,9 @@ class AudioEngine:
     def _start_session(self, start: float) -> None:
         self._gen += 1
         buf = PcmBuffer(int(MAX_AHEAD_S * self.samplerate))
-        dec = Decoder(ffmpeg_command(self.ffmpeg, self.source, self.samplerate, start, self._headers), buf)
+        feed = self._feed if self._feed is not None and not self._feed.done() else None
+        src = "pipe:0" if feed is not None else self.source
+        dec = Decoder(ffmpeg_command(self.ffmpeg, src, self.samplerate, start, self._headers), buf, feed)
         old, self._session = self._session, _Session(self._gen, dec, start)
         self._fade = 0.0
         dec.start()

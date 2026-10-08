@@ -16,8 +16,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from .dsp import PRESETS, Visualizer
 from .engine import AudioEngine
-from .settings import Settings, state_dir
-from .youtube import Album, MusicSearch, ResolveError, StreamResolver, Track, find_ffmpeg, fmt_time
+from .settings import Settings, audio_cache_dir, state_dir
+from .youtube import Album, AudioFetcher, MusicSearch, ResolveError, Track, find_ffmpeg, fmt_time
 
 
 class _Superseded(Exception):
@@ -35,14 +35,15 @@ class Player(QObject):
     SKIP_DELAY_MS = 2500          # show a failed song's error this long before moving on
 
     def __init__(self, settings: Settings | None = None, engine: AudioEngine | None = None,
-                 music: MusicSearch | None = None, resolver: StreamResolver | None = None):
+                 music: MusicSearch | None = None, fetcher: AudioFetcher | None = None):
         super().__init__()
         self.settings = settings or Settings()
         s = self.settings
         ffmpeg = find_ffmpeg()
         self.engine = engine or AudioEngine(ffmpeg or "ffmpeg")
         self.music = music or MusicSearch(location=s.get("region") or "IN")
-        self.resolver = resolver or StreamResolver(cache_dir=f"{state_dir()}/yt-dlp-cache", cookies=s.get("cookies"))
+        self.fetcher = fetcher or AudioFetcher(audio_cache_dir(), cookies=s.get("cookies"),
+                                               cache_mb=int(s.get("cache_mb") or 1024))
         self.vis = Visualizer(self.engine.samplerate)
         self.scope = np.zeros(76)
 
@@ -266,7 +267,7 @@ class Player(QObject):
         def job():
             if req != self._req:
                 raise _Superseded()  # the user clicked on: don't spend 3-10 s asking YouTube
-            return self.resolver.resolve(t.video_id, force)
+            return self.fetcher.fetch(t.video_id, force)
         fut = self._pool.submit(job)
         fut.add_done_callback(lambda f: self._resolved.emit(req, t, f, start))
 
@@ -291,11 +292,12 @@ class Player(QObject):
         if not t.duration and stream.duration:
             t.duration = int(stream.duration)
             self.playlist_changed.emit()
-        self.engine.open(stream.url, stream.headers, start, self.duration)
+        self.engine.open(stream.path, None, start, self.duration, feed=stream.pending)
         self.status = "playing"
         self.changed.emit()
 
     def _fail(self, msg: str, skip: bool = True) -> None:
+        self._log(msg)
         self._fails += 1
         self.engine.halt()
         self.status = "stopped"
@@ -305,6 +307,16 @@ class Player(QObject):
         req = self._req
         if skip and self._fails < max(2, len(self.tracks)) and len(self.tracks) > 1:
             QTimer.singleShot(self.SKIP_DELAY_MS, lambda: self._skip_after_fail(req))
+
+    def _log(self, msg: str) -> None:
+        """Full error text to playback.log - the title display only has room for the start of it."""
+        t = self.playing or self.track
+        try:
+            with open(f"{state_dir()}/playback.log", "a", encoding="utf-8") as fh:
+                fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {t.video_id if t else '-'}  "
+                         f"{t.label if t else ''}  |  {msg}\n")
+        except OSError:
+            pass
 
     def _skip_after_fail(self, req: int) -> None:
         if req == self._req and self.status == "stopped":
@@ -450,8 +462,8 @@ class Player(QObject):
     def set_cookies(self, cookies: str | None) -> None:
         """YouTube sign-in for yt-dlp: None, "browser:<name>", or a cookies.txt path."""
         self.settings["cookies"] = cookies
-        if hasattr(self.resolver, "set_cookies"):
-            self.resolver.set_cookies(cookies)
+        if hasattr(self.fetcher, "set_cookies"):
+            self.fetcher.set_cookies(cookies)
         self._schedule_save()
         self.flash("YOUTUBE SIGN-IN: " + ("OFF" if not cookies else
                    cookies[len("browser:"):].upper() + " COOKIES" if cookies.startswith("browser:") else "COOKIES.TXT"))
@@ -531,6 +543,7 @@ class Player(QObject):
                 else:
                     self.play_index(nxt)
             elif ev[0] == "error" and self.status == "playing":
+                self._log(f"playback: {ev[1]} (at {fmt_time(ev[2])})")
                 if not self._retried and self.playing is not None:
                     self._retried = True  # most often an expired URL: fetch a fresh one, carry on
                     self._req += 1
@@ -568,7 +581,7 @@ class Player(QObject):
         vid = self.tracks[nxt].video_id
         if self._prefetched != vid:
             self._prefetched = vid
-            self._pool.submit(self.resolver.resolve, vid, False)
+            self._pool.submit(self.fetcher.fetch, vid, False)  # download it in the background
 
     # ---- persistence -------------------------------------------------------------------------
     def _schedule_save(self) -> None:

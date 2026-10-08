@@ -1,4 +1,4 @@
-"""YouTube Music: live search (ytmusicapi) and stream resolution (yt-dlp).
+"""YouTube Music: live search (ytmusicapi) and fetching the audio (yt-dlp).
 
 Search goes to the YouTube Music catalogue only (songs, music videos, albums), so the
 results are music by construction, not general YouTube. No API key and no login.
@@ -9,9 +9,9 @@ import os
 import re
 import shutil
 import sys
+import json
 import threading
 import time
-import urllib.parse
 from dataclasses import asdict, dataclass, field
 
 
@@ -57,14 +57,14 @@ class Album:
 
 @dataclass
 class Stream:
-    url: str
-    headers: dict
+    """A song's audio as a local file in the cache - complete, or still arriving (`pending`)."""
+    path: str
     duration: float | None
     abr: float | None           # kbps
     asr: int | None             # Hz
     channels: int | None
     codec: str
-    expires: float              # epoch seconds
+    pending: "Download | None" = None
 
 
 def fmt_time(seconds) -> str:
@@ -257,28 +257,173 @@ class _Log:
         self.last_error = _clean_error(msg)
 
 
-class StreamResolver:
-    """videoId -> a direct audio URL (plus headers, bitrate, rate). Cached until it expires."""
+class Download:
+    """One song being written into the cache by yt-dlp. Readable while it grows.
 
-    def __init__(self, cache_dir: str | None = None, cookies: str | None = None):
+    The engine plays it through `chunks()` as the bytes land, so a song starts within
+    a second of the first bytes instead of after the whole file.
+    """
+
+    def __init__(self, video_id: str):
+        self.video_id = video_id
+        self.path: str | None = None
+        self.info: dict | None = None
+        self.bytes = 0
+        self.total: int | None = None
+        self.error: str | None = None
+        self.started = threading.Event()    # the file exists and the format is known
+        self.finished = threading.Event()   # yt-dlp returned (check `error`)
+
+    def done(self) -> bool:
+        return self.finished.is_set() and self.error is None
+
+    def chunks(self, stop: threading.Event, size: int = 65536):
+        """The file's bytes in order, waiting for more until the download ends (or `stop`)."""
+        while not self.started.wait(0.1):
+            if stop.is_set() or self.finished.is_set():
+                return
+        with open(self.path, "rb") as fh:
+            while not stop.is_set():
+                data = fh.read(size)
+                if data:
+                    yield data
+                    continue
+                if self.finished.is_set():
+                    rest = fh.read()
+                    if rest:
+                        yield rest
+                    return  # complete - or failed, which the player sees as a song cut short
+                time.sleep(0.05)
+
+
+class AudioFetcher:
+    """videoId -> the song's audio in a local cache, fetched by yt-dlp itself.
+
+    yt-dlp does the downloading - with its own headers, chunked requests, retries,
+    cookies and your Windows proxy settings - so whatever lets it find the song also
+    lets it fetch the song. ffmpeg then only ever reads a local file. Finished songs stay
+    in the cache (least recently played are pruned past `cache_mb`), so replays are instant.
+    """
+
+    def __init__(self, cache_dir: str, cookies: str | None = None, cache_mb: int = 1024, url_for=None):
         self.cache_dir = cache_dir
         self.cookies = cookies      # None | "browser:<name>" | path to a cookies.txt
-        self._local = threading.local()   # one YoutubeDL per worker: a prefetch never blocks a click
-        self._gen = 0                     # bumped when the sign-in changes: rebuild every YoutubeDL
-        self._cache: dict[str, Stream] = {}
-        self._lock = threading.Lock()     # guards the cache only
+        self.cache_mb = cache_mb
+        self.url_for = url_for or (lambda vid: f"https://www.youtube.com/watch?v={vid}")
+        os.makedirs(cache_dir, exist_ok=True)
+        self._lock = threading.Lock()
+        self._active: dict[str, Download] = {}
+        self._index_path = os.path.join(cache_dir, "index.json")
+        try:
+            with open(self._index_path, encoding="utf-8") as fh:
+                self._index: dict = json.load(fh)
+        except (OSError, ValueError):
+            self._index = {}
 
-    def _make(self):
-        from yt_dlp import YoutubeDL
+    def set_cookies(self, cookies: str | None) -> None:
+        self.cookies = cookies      # used by every download started from now on
+
+    # ---- the cache ---------------------------------------------------------------------------
+    def _cached(self, video_id: str) -> Stream | None:
+        ent = self._index.get(video_id)
+        if not ent:
+            return None
+        path = os.path.join(self.cache_dir, ent["file"])
+        if not os.path.isfile(path) or os.path.getsize(path) != ent.get("size"):
+            self._index.pop(video_id, None)
+            return None
+        ent["used"] = time.time()
+        return Stream(path=path, duration=ent.get("duration"), abr=ent.get("abr"), asr=ent.get("asr"),
+                      channels=ent.get("channels"), codec=ent.get("codec", ""))
+
+    def _save_index(self) -> None:
+        tmp = self._index_path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self._index, fh)
+            os.replace(tmp, self._index_path)
+        except OSError:
+            pass
+
+    def _prune(self) -> None:
+        total = sum(e.get("size", 0) for e in self._index.values())
+        active = {d.path for d in self._active.values()}
+        for vid, ent in sorted(self._index.items(), key=lambda kv: kv[1].get("used", 0)):
+            if total <= self.cache_mb * 1024 * 1024:
+                break
+            path = os.path.join(self.cache_dir, ent["file"])
+            if path in active:
+                continue
+            try:
+                os.remove(path)
+            except OSError:
+                continue
+            total -= ent.get("size", 0)
+            del self._index[vid]
+
+    def forget(self, video_id: str) -> None:
+        with self._lock:
+            ent = self._index.pop(video_id, None)
+            if ent:
+                try:
+                    os.remove(os.path.join(self.cache_dir, ent["file"]))
+                except OSError:
+                    pass
+                self._save_index()
+
+    # ---- fetching ----------------------------------------------------------------------------
+    def fetch(self, video_id: str, force: bool = False) -> Stream:
+        """Returns as soon as the audio starts arriving (or at once, if it is cached)."""
+        if force:
+            self.forget(video_id)
+        with self._lock:
+            hit = None if force else self._cached(video_id)
+            if hit is not None:
+                return hit
+            dl = self._active.get(video_id)
+            if dl is None or dl.finished.is_set():
+                dl = Download(video_id)
+                self._active[video_id] = dl
+                threading.Thread(target=self._run, args=(dl,), daemon=True,
+                                 name=f"t-amp-fetch-{video_id}").start()
+        while not dl.started.wait(0.1):
+            if dl.finished.is_set():
+                break
+        if dl.error:
+            raise ResolveError(dl.error)
+        if not dl.path:
+            raise ResolveError("yt-dlp finished without writing the audio")
+        info = dl.info or {}
+        return Stream(path=dl.path, duration=info.get("duration"), abr=info.get("abr") or info.get("tbr"),
+                      asr=info.get("asr"), channels=info.get("audio_channels"), codec=info.get("acodec") or "",
+                      pending=None if dl.done() else dl)
+
+    def _opts(self, dl: Download) -> dict:
+        def hook(d):
+            path = d.get("filename") or d.get("tmpfilename")
+            if path:
+                dl.path = path
+            if d.get("info_dict"):
+                dl.info = d["info_dict"]
+            dl.bytes = d.get("downloaded_bytes") or dl.bytes
+            dl.total = d.get("total_bytes") or d.get("total_bytes_estimate") or dl.total
+            if dl.path and os.path.exists(dl.path):
+                dl.started.set()
         opts = {
             "format": "bestaudio/best",
+            "outtmpl": {"default": os.path.join(self.cache_dir, "%(id)s.%(ext)s")},
+            "nopart": True,             # write in place, so the song can play while it arrives
+            "fixup": "never",           # no rewrite-and-replace of a file the player is reading
+            "continuedl": True,
+            "retries": 10,
+            "fragment_retries": 10,
+            "socket_timeout": 20,
+            "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
             "noprogress": True,
-            "skip_download": True,
-            "noplaylist": True,
-            "socket_timeout": 20,
-            "cachedir": self.cache_dir or False,
+            "progress_hooks": [hook],
+            "cachedir": os.path.join(self.cache_dir, "yt-dlp"),
             "logger": _Log(),
         }
         deno = find_deno()
@@ -288,52 +433,34 @@ class StreamResolver:
             opts["cookiesfrombrowser"] = (self.cookies[len("browser:"):],)
         elif self.cookies:
             opts["cookiefile"] = self.cookies
-        return YoutubeDL(opts)
+        return opts
 
-    def set_cookies(self, cookies: str | None) -> None:
-        with self._lock:
-            self.cookies = cookies
-            self._gen += 1          # every thread rebuilds its YoutubeDL with the new sign-in
-            self._cache.clear()
-
-    def _ydl(self):
-        loc = self._local
-        if getattr(loc, "gen", None) != self._gen:
-            loc.ydl, loc.gen = self._make(), self._gen
-        return loc.ydl
-
-    def resolve(self, video_id: str, force: bool = False) -> Stream:
-        with self._lock:
-            hit = self._cache.get(video_id)
-        if hit and not force and hit.expires - time.time() > 300:
-            return hit
+    def _run(self, dl: Download) -> None:
         try:
-            info = self._ydl().extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-        except Exception as exc:  # yt-dlp raises DownloadError/ExtractorError with the reason
-            raise ResolveError(_clean_error(exc)) from exc
-        if info.get("requested_formats"):
-            fmt = next((f for f in info["requested_formats"] if f.get("acodec") not in (None, "none")),
-                       info["requested_formats"][0])
-        else:
-            fmt = info
-        url = fmt.get("url")
-        if not url:
-            raise ResolveError("no playable audio format for this track")
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-        try:
-            expires = float(q.get("expire", [0])[0]) or time.time() + 3600
-        except ValueError:
-            expires = time.time() + 3600
-        stream = Stream(
-            url=url,
-            headers=dict(fmt.get("http_headers") or info.get("http_headers") or {}),
-            duration=info.get("duration"),
-            abr=fmt.get("abr") or fmt.get("tbr"),
-            asr=fmt.get("asr"),
-            channels=fmt.get("audio_channels"),
-            codec=fmt.get("acodec") or "",
-            expires=expires,
-        )
-        with self._lock:
-            self._cache[video_id] = stream
-        return stream
+            from yt_dlp import YoutubeDL
+            with YoutubeDL(self._opts(dl)) as ydl:
+                info = ydl.extract_info(self.url_for(dl.video_id), download=True)
+            done = (info.get("requested_downloads") or [{}])[0]
+            path = done.get("filepath") or dl.path
+            if not path or not os.path.isfile(path):
+                raise RuntimeError("yt-dlp reported success but wrote no file")
+            fmt = done if done.get("acodec") else info
+            dl.info, dl.path = {**info, **{k: fmt.get(k) for k in ("abr", "tbr", "asr", "audio_channels",
+                                                                   "acodec") if fmt.get(k)}}, path
+            with self._lock:
+                self._index[dl.video_id] = {
+                    "file": os.path.basename(path), "size": os.path.getsize(path), "used": time.time(),
+                    "duration": info.get("duration"), "abr": dl.info.get("abr") or dl.info.get("tbr"),
+                    "asr": dl.info.get("asr"), "channels": dl.info.get("audio_channels"),
+                    "codec": dl.info.get("acodec") or ""}
+                self._prune()
+                self._save_index()
+        except Exception as exc:  # DownloadError and friends carry yt-dlp's own reason
+            dl.error = _clean_error(exc) or type(exc).__name__
+        finally:
+            if dl.path and os.path.exists(dl.path):
+                dl.started.set()
+            dl.finished.set()
+            with self._lock:
+                if self._active.get(dl.video_id) is dl:
+                    del self._active[dl.video_id]

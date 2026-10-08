@@ -272,3 +272,64 @@ def test_real_device_playback(tone):
     finally:
         eng.stop()
     assert eng._stream is None
+
+
+def _growing_copy(src, dst, seconds=1.5):
+    """Write `src` into `dst` bit by bit over `seconds`, the way a download arrives."""
+    from tamp.youtube import Download
+    dl = Download("growing")
+    data = open(src, "rb").read()
+    dl.path = dst
+
+    def write():
+        step = max(1, len(data) // 30)
+        with open(dst, "wb") as fh:
+            for i in range(0, len(data), step):
+                fh.write(data[i:i + step])
+                fh.flush()
+                dl.started.set()
+                time.sleep(seconds / 30)
+        dl.finished.set()
+    threading.Thread(target=write, daemon=True).start()
+    return dl
+
+
+@pytest.fixture(scope="module")
+def opus_song():
+    """8 s of Opus in WebM - the format YouTube Music serves most."""
+    p = os.path.join(tempfile.mkdtemp(), "song.webm")
+    subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=330:sample_rate=48000:duration=8", "-c:a", "libopus", "-b:a", "128k",
+                    p], check=True)
+    return p
+
+
+def test_plays_a_song_while_it_is_still_downloading(opus_song, tmp_path):
+    eng, devs = make_engine()
+    dst = str(tmp_path / "arriving.webm")
+    dl = _growing_copy(opus_song, dst, seconds=3.0)
+    t0 = time.monotonic()
+    eng.open(dst, duration=8.0, feed=dl)
+    assert wait_for(lambda: eng.position > 0.2, 5)
+    assert not dl.finished.is_set(), f"playback started {time.monotonic() - t0:.1f} s in, after the download"
+    events = []
+    assert wait_for(lambda: events.extend(eng.poll()) or ("finished",) in events, 15), events
+    played = np.abs(devs[0].audio()).max(axis=1) > 1e-4
+    assert abs(int(played.sum()) - 8 * SR) < 0.05 * SR, "every second of the song came through the pipe"
+    eng.close()
+
+
+def test_seek_while_downloading_then_from_the_finished_file(tone, tmp_path):
+    eng, devs = make_engine()
+    dst = str(tmp_path / "arriving2.wav")
+    dl = _growing_copy(tone, dst, seconds=1.0)
+    eng.open(dst, duration=3.0, feed=dl)
+    assert wait_for(lambda: eng.state == "playing", 5)
+    eng.seek(1.5)                                   # pipe: decode-and-discard to 1.5 s
+    assert 1.45 <= eng.position <= 1.8
+    assert wait_for(lambda: dl.finished.is_set(), 5)
+    eng.seek(2.0)                                   # complete now: ffmpeg opens the file directly
+    assert eng._session.decoder.feed is None
+    events = []
+    assert wait_for(lambda: events.extend(eng.poll()) or ("finished",) in events, 10), events
+    eng.close()

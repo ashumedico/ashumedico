@@ -210,15 +210,13 @@ class MainPanel(SkinPanel):
             self._marquee_t0 = time.monotonic()
         if width <= TITLE_BOX.width():
             return 0
-        if self.player.message:
-            return 0
         n = int((time.monotonic() - self._marquee_t0) / SCROLL_STEP_S)
         return (n * step) % width
 
     def _render_marquee(self, p: QPainter) -> None:
         text = self._title_text()
         width = skin.text_width(text)
-        if width > TITLE_BOX.width() and not self.player.message:
+        if width > TITLE_BOX.width():  # long titles and long errors scroll, so all of it can be read
             text = text + "  ***  "
             width = skin.text_width(text)
         off = self._scroll_offset(text, width, skin.CHAR_W)

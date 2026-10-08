@@ -147,16 +147,17 @@ def test_bot_check_is_recognised():
 
 
 def test_cookies_reach_yt_dlp(tmp_path):
-    from tamp.youtube import StreamResolver
-    r = StreamResolver(cache_dir=None, cookies="browser:firefox")
-    assert r._make().params["cookiesfrombrowser"] == ("firefox",)
+    from tamp.youtube import AudioFetcher, Download
+    f = AudioFetcher(str(tmp_path / "cache"), cookies="browser:firefox")
+    assert f._opts(Download("x"))["cookiesfrombrowser"] == ("firefox",)
     jar = tmp_path / "cookies.txt"
     jar.write_text("# Netscape HTTP Cookie File\n")
-    r.set_cookies(str(jar))
-    ydl = r._make()
-    assert ydl.params["cookiefile"] == str(jar) and "cookiesfrombrowser" not in ydl.params
-    r.set_cookies(None)
-    assert "cookiefile" not in r._make().params
+    f.set_cookies(str(jar))
+    opts = f._opts(Download("x"))
+    assert opts["cookiefile"] == str(jar) and "cookiesfrombrowser" not in opts
+    f.set_cookies(None)
+    assert "cookiefile" not in f._opts(Download("x"))
+    assert f._opts(Download("x"))["nopart"] is True, "the file must be written in place to play while arriving"
 
 
 def test_plain_youtube_links_are_refused_not_searched():
@@ -182,3 +183,80 @@ def test_activate_uses_any_newer_package_and_prunes_stale_ones(tmp_path, monkeyp
     assert sys.path[0] == str(tmp_path)
     assert (tmp_path / "ytmusicapi").is_dir() and not (tmp_path / "yt_dlp").exists()
     assert list(json.loads((tmp_path / "versions.json").read_text())) == ["ytmusicapi"]
+
+
+# ---- the fetcher, end to end: real yt-dlp downloading from a local, deliberately slow server ----------
+import http.server  # noqa: E402
+import subprocess  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def slow_server(tmp_path_factory):
+    from tamp.youtube import find_ffmpeg
+    root = tmp_path_factory.mktemp("srv")
+    song = root / "abcdefghijk.webm"
+    subprocess.run([find_ffmpeg(), "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=330:sample_rate=48000:duration=8", "-c:a", "libopus", "-b:a", "96k",
+                    str(song)], check=True)
+    data = song.read_bytes()
+
+    class Slow(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_HEAD(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/webm")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+
+        def do_GET(self):
+            start = 0
+            rng = self.headers.get("Range")
+            if rng and rng.startswith("bytes="):
+                start = int(rng[6:].split("-")[0] or 0)
+            body = data[start:]
+            self.send_response(206 if start else 200)
+            self.send_header("Content-Type", "audio/webm")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            step = max(1, len(body) // 20)
+            for i in range(0, len(body), step):   # ~1.5 s for the whole song
+                self.wfile.write(body[i:i + step])
+                self.wfile.flush()
+                time.sleep(0.075)
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}", data
+    srv.shutdown()
+
+
+def test_fetcher_streams_while_downloading_then_serves_from_cache(slow_server, tmp_path):
+    from tamp.youtube import AudioFetcher
+    base, data = slow_server
+    f = AudioFetcher(str(tmp_path / "cache"), url_for=lambda vid: f"{base}/{vid}.webm")
+    t0 = time.monotonic()
+    st = f.fetch("abcdefghijk")
+    assert st.pending is not None and not st.pending.finished.is_set(), "returned before the download ended"
+    stop = threading.Event()
+    got = b"".join(st.pending.chunks(stop))          # follows the file as it grows, ends at the true end
+    assert st.pending.error is None, st.pending.error
+    assert got == data, "the bytes read while downloading are the whole song"
+    assert time.monotonic() - t0 > 1.0
+    again = f.fetch("abcdefghijk")
+    assert again.pending is None and again.path == st.path, "second play comes from the cache"
+    refetched = f.fetch("abcdefghijk", force=True)
+    assert refetched.pending is not None
+    refetched.pending.finished.wait(30)
+    assert open(refetched.path, "rb").read() == data
+
+
+def test_fetcher_reports_yt_dlp_errors(tmp_path):
+    from tamp.youtube import AudioFetcher, ResolveError
+    f = AudioFetcher(str(tmp_path / "cache"), url_for=lambda vid: "http://127.0.0.1:9/nothing-here.webm")
+    with pytest.raises(ResolveError):
+        f.fetch("zzzzzzzzzzz")
