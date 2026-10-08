@@ -1,7 +1,11 @@
 """The window that holds the stack (main / EQ / playlist), its menus, keys and docking."""
 from __future__ import annotations
 
+import os
 import sys
+import threading
+import time
+import traceback
 
 from PySide6.QtCore import QAbstractNativeEventFilter, QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon, QImage, QPainter, QPixmap
@@ -14,6 +18,7 @@ from .main_panel import MainPanel
 from .player import Player
 from .playlist_panel import PlaylistPanel
 from .search_window import SearchWindow
+from .settings import state_dir
 from .skin import C
 from .youtube import Track, fmt_time, parse_link
 
@@ -533,6 +538,9 @@ class Shell(QWidget):
             self.media_keys = None
         if on and sys.platform == "win32":
             self.media_keys = MediaKeys(self.player)
+            if len(self.media_keys.ids) < len(MEDIA_KEYS):
+                self.player.flash("SOME MEDIA KEYS ARE HELD BY ANOTHER APP - CLOSE IT AND TOGGLE "
+                                  "OPTIONS > MEDIA KEYS", 8.0)
 
     # ---- lifecycle -------------------------------------------------------------------------------
     def changeEvent(self, e) -> None:
@@ -550,8 +558,26 @@ class Shell(QWidget):
         QApplication.instance().quit()
 
 
+def _install_crash_log() -> str:
+    """pythonw and the windowed .exe have no console: unhandled errors go to crash.log instead."""
+    path = os.path.join(state_dir(), "crash.log")
+
+    def write(exc_type, exc, tb):
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} T-Amp {__version__} ---\n")
+                traceback.print_exception(exc_type, exc, tb, file=fh)
+        except OSError:
+            pass
+    sys.excepthook = write
+    threading.excepthook = lambda a: write(a.exc_type, a.exc_value, a.exc_traceback)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
+    from . import updater
+    updater.activate()  # newer yt-dlp / ytmusicapi fetched earlier win over the bundled ones
     if "--selftest" in argv:
         from .selftest import run
         return run(argv)
@@ -567,8 +593,7 @@ def main(argv: list[str] | None = None) -> int:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TBone.TAmp")
         except Exception:  # very old Windows: cosmetic only
             pass
-    from . import updater
-    updater.activate()  # newer yt-dlp / ytmusicapi fetched earlier win over the bundled ones
+    crash_log = _install_crash_log()
     app = QApplication(argv[:1])
     app.setApplicationName("T-Amp")
     app.setWindowIcon(app_icon())
@@ -578,8 +603,13 @@ def main(argv: list[str] | None = None) -> int:
     server = QLocalServer()
     QLocalServer.removeServer(INSTANCE_KEY)  # a crashed run can leave a stale socket behind
     server.listen(INSTANCE_KEY)
-    player = Player()
-    shell = Shell(player)
+    try:
+        player = Player()
+        shell = Shell(player)
+    except Exception as exc:  # say why on screen; a windowed app that silently vanishes helps no one
+        sys.excepthook(type(exc), exc, exc.__traceback__)
+        QMessageBox.critical(None, "T-Amp could not start", f"{type(exc).__name__}: {exc}\n\nDetails: {crash_log}")
+        return 1
 
     def bring_forward():
         conn = server.nextPendingConnection()
@@ -594,4 +624,7 @@ def main(argv: list[str] | None = None) -> int:
         QTimer.singleShot(300, shell.open_search)
     if updater.due(player.settings):
         QTimer.singleShot(4000, player.update_engine)
-    return app.exec()
+    code = app.exec()
+    # Everything is saved by now (closeEvent). Don't let a yt-dlp request still in flight keep
+    # an invisible T-Amp.exe alive for its 20-second timeout.
+    os._exit(code)

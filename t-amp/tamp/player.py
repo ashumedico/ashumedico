@@ -9,6 +9,7 @@ from __future__ import annotations
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 
 import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -19,14 +20,19 @@ from .settings import Settings, state_dir
 from .youtube import Album, MusicSearch, ResolveError, StreamResolver, Track, find_ffmpeg, fmt_time
 
 
+class _Superseded(Exception):
+    """A resolve nobody is waiting for any more."""
+
+
 class Player(QObject):
     changed = Signal()            # transport / track / options changed: repaint everything
     playlist_changed = Signal()
     tick = Signal()               # ~30 Hz heartbeat: time display, visualiser
     search_done = Signal(int, str, object, object)   # seq, query, results, error text
     tracks_ready = Signal(object, bool, object)      # tracks, play-now, error text
-    _resolved = Signal(int, int, object, float)      # request id, index, future, start
+    _resolved = Signal(int, object, object, float)   # request id, track, future, start
     engine_msg = Signal(str)
+    SKIP_DELAY_MS = 2500          # show a failed song's error this long before moving on
 
     def __init__(self, settings: Settings | None = None, engine: AudioEngine | None = None,
                  music: MusicSearch | None = None, resolver: StreamResolver | None = None):
@@ -49,6 +55,7 @@ class Player(QObject):
         self.current = s["current"] if 0 <= s["current"] < len(self.tracks) else (0 if self.tracks else -1)
         self.selected: set[int] = set()
         self.status = "stopped"           # stopped | connecting | playing | paused
+        self.playing: Track | None = None  # the song loaded in the engine (survives playlist edits)
         self.stream = None
         self.shuffle = bool(s["shuffle"])
         self.repeat = bool(s["repeat"])
@@ -61,13 +68,16 @@ class Player(QObject):
         self._message = ("", 0.0)
         self._req = 0
         self._retried = False
-        self._fails = 0
+        self._proven = False          # has this song actually played for a few seconds?
+        self._orphaned = False        # the playing song was removed from the list
+        self._fails = 0               # failures in a row; reset only by real playback
         self._start_at = 0.0
         self._prefetched: str | None = None
-        self._played_order: list[int] = []
+        self._played_order: list[Track] = []
         self._sseq = 0
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="t-amp-resolve")
         self._search_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="t-amp-search")
+        self._bg_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="t-amp-bg")  # albums, updates
         self._resolved.connect(self._on_resolved)
         self.engine_msg.connect(lambda m: self.flash(m, 12.0))
 
@@ -85,6 +95,7 @@ class Player(QObject):
     # ---- read-only views ---------------------------------------------------------------------
     @property
     def track(self) -> Track | None:
+        """The playlist cursor (what Play would start)."""
         return self.tracks[self.current] if 0 <= self.current < len(self.tracks) else None
 
     @property
@@ -99,7 +110,7 @@ class Player(QObject):
     def duration(self) -> float | None:
         if self.stream and self.stream.duration:
             return float(self.stream.duration)
-        t = self.track
+        t = self.playing or self.track
         return float(t.duration) if t and t.duration else None
 
     @property
@@ -116,18 +127,23 @@ class Player(QObject):
         self._message = (text, time.monotonic() + seconds)
         self.changed.emit()
 
+    def index_of(self, t: Track | None) -> int:
+        return next((i for i, x in enumerate(self.tracks) if x is t), -1) if t is not None else -1
+
     def title_line(self) -> str:
-        t = self.track
+        t = self.playing if self.status != "stopped" else self.track
         if t is None:
             return "T-AMP - YOUTUBE MUSIC  ***  PRESS L OR EJECT TO SEARCH"
         dur = self.duration
         tail = f" ({fmt_time(dur)})" if dur else ""
-        return f"{self.current + 1}. {t.label}{tail}"
+        i = self.index_of(t)
+        return f"{i + 1}. {t.label}{tail}" if i >= 0 else f"{t.label}{tail}"
 
     # ---- playlist editing ------------------------------------------------------------------------
     def add_tracks(self, tracks: list[Track], play: bool = False, at: int | None = None) -> None:
         if not tracks:
             return
+        tracks = [replace(t) for t in tracks]  # own copies: the same search hit added twice is two rows
         at = len(self.tracks) if at is None else max(0, min(at, len(self.tracks)))
         self.tracks[at:at] = tracks
         if self.current == -1:
@@ -144,21 +160,22 @@ class Player(QObject):
         drop = sorted({i for i in indices if 0 <= i < len(self.tracks)})
         if not drop:
             return
-        cur_track = self.track
-        playing_removed = self.current in drop
+        if self.current in drop:
+            # The row under the cursor goes; if it is the song playing, the music carries on
+            # (as in Winamp) and Next continues with the row that took its place.
+            self._orphaned = self.playing is self.tracks[self.current] and self.status != "stopped"
+        newcur = self.current - sum(1 for i in drop if i < self.current)
         for i in reversed(drop):
             del self.tracks[i]
-        if playing_removed:
-            self.current = min(drop[0], len(self.tracks) - 1)
-        elif cur_track is not None:
-            self.current = self.current - sum(1 for i in drop if i < self.current)
+        self.current = min(newcur, len(self.tracks) - 1) if self.tracks else -1
         self.selected = set()
-        if not self.tracks:
-            self.current = -1
         self.playlist_changed.emit()
         self.changed.emit()
 
     def crop(self) -> None:
+        if not self.selected:
+            self.flash("CROP: SELECT THE ROWS TO KEEP FIRST")
+            return
         self.remove([i for i in range(len(self.tracks)) if i not in self.selected])
 
     def clear(self) -> None:
@@ -178,7 +195,7 @@ class Player(QObject):
         to = max(0, min(to, len(rest)))
         self.tracks = rest[:to] + moving + rest[to:]
         if cur is not None:
-            self.current = next(i for i, t in enumerate(self.tracks) if t is cur)
+            self.current = self.index_of(cur)
         self.selected = set(range(to, to + len(moving)))
         self.playlist_changed.emit()
         self.changed.emit()
@@ -203,7 +220,7 @@ class Player(QObject):
 
     def _after_reorder(self, cur) -> None:
         if cur is not None:
-            self.current = next(i for i, t in enumerate(self.tracks) if t is cur)
+            self.current = self.index_of(cur)
         self.selected = set()
         self.playlist_changed.emit()
         self.changed.emit()
@@ -227,31 +244,39 @@ class Player(QObject):
         self.current = i
         t = self.tracks[i]
         self._req += 1
-        req = self._req
-        self.engine.stop()
+        self.engine.halt()  # keep the sound device open between songs: no gap, no UI hitch
         self.status = "connecting"
+        self.playing = t
         self.stream = None
+        self._orphaned = False
         self._retried = False
+        self._proven = False
         self._start_at = start
         self._prefetched = None
         if self.eq_auto:
             self._load_track_eq(t.video_id)
-        if not self._played_order or self._played_order[-1] != i:
-            self._played_order.append(i)
+        if not self._played_order or self._played_order[-1] is not t:
+            self._played_order.append(t)
             del self._played_order[:-200]
-        self._submit_resolve(req, i, t.video_id, start, force=False)
+        self._submit_resolve(self._req, t, start, force=False)
         self.changed.emit()
         self.playlist_changed.emit()
 
-    def _submit_resolve(self, req: int, i: int, video_id: str, start: float, force: bool) -> None:
-        fut = self._pool.submit(self.resolver.resolve, video_id, force)
-        fut.add_done_callback(lambda f: self._resolved.emit(req, i, f, start))
+    def _submit_resolve(self, req: int, t: Track, start: float, force: bool) -> None:
+        def job():
+            if req != self._req:
+                raise _Superseded()  # the user clicked on: don't spend 3-10 s asking YouTube
+            return self.resolver.resolve(t.video_id, force)
+        fut = self._pool.submit(job)
+        fut.add_done_callback(lambda f: self._resolved.emit(req, t, f, start))
 
-    def _on_resolved(self, req: int, i: int, fut, start: float) -> None:
+    def _on_resolved(self, req: int, t: Track, fut, start: float) -> None:
         if req != self._req:
             return  # the user has moved on
         try:
             stream = fut.result()
+        except _Superseded:
+            return
         except ResolveError as exc:
             if exc.bot_check:  # every track would fail the same way: stop and say what fixes it
                 self._fail("YOUTUBE ASKS THIS CONNECTION TO SIGN IN (BOT CHECK) - "
@@ -263,24 +288,23 @@ class Player(QObject):
             self._fail(f"{type(exc).__name__}: {exc}")
             return
         self.stream = stream
-        t = self.tracks[i] if 0 <= i < len(self.tracks) else None
-        if t is not None and not t.duration and stream.duration:
+        if not t.duration and stream.duration:
             t.duration = int(stream.duration)
             self.playlist_changed.emit()
         self.engine.open(stream.url, stream.headers, start, self.duration)
         self.status = "playing"
-        self._fails = 0
         self.changed.emit()
 
     def _fail(self, msg: str, skip: bool = True) -> None:
         self._fails += 1
-        self.engine.stop()
+        self.engine.halt()
         self.status = "stopped"
         self.stream = None
+        self.playing = None
         self.flash(f"ERROR: {msg}", 6.0 if skip else 15.0)
         req = self._req
         if skip and self._fails < max(2, len(self.tracks)) and len(self.tracks) > 1:
-            QTimer.singleShot(2500, lambda: self._skip_after_fail(req))
+            QTimer.singleShot(self.SKIP_DELAY_MS, lambda: self._skip_after_fail(req))
 
     def _skip_after_fail(self, req: int) -> None:
         if req == self._req and self.status == "stopped":
@@ -313,6 +337,8 @@ class Player(QObject):
         self.engine.stop()
         self.status = "stopped"
         self.stream = None
+        self.playing = None
+        self._orphaned = False
         self.changed.emit()
 
     def next(self) -> None:
@@ -323,10 +349,13 @@ class Player(QObject):
     def prev(self) -> None:
         if not self.tracks:
             return
-        if self.shuffle and len(self._played_order) > 1:
-            self._played_order.pop()
-            target = self._played_order.pop()
-        else:
+        target = -1
+        if self.shuffle:
+            if self._played_order:
+                self._played_order.pop()  # the song playing now
+            while self._played_order and target < 0:
+                target = self.index_of(self._played_order.pop())  # skips songs removed since
+        if target < 0:
             target = (self.current - 1) % len(self.tracks)
         self._go(target)
 
@@ -335,6 +364,7 @@ class Player(QObject):
             self.play_index(i)
         else:
             self.current = i
+            self._orphaned = False
             self.changed.emit()
             self.playlist_changed.emit()
 
@@ -343,15 +373,19 @@ class Player(QObject):
         if n == 0:
             return None
         if self.shuffle and n > 1:
-            recent = set(self._played_order[-max(1, n - 1):])
-            pool = [i for i in range(n) if i not in recent and i != self.current]
+            recent = {id(t) for t in self._played_order[-max(1, n - 1):]}
+            here = self.playing or self.track
+            pool = [i for i, t in enumerate(self.tracks) if id(t) not in recent and t is not here]
             if not pool:
                 if not (self.repeat or manual):
                     return None
-                pool = [i for i in range(n) if i != self.current]
+                pool = [i for i, t in enumerate(self.tracks) if t is not here]
             return random.choice(pool)
-        nxt = self.current + 1
-        if nxt >= n:
+        if self._orphaned:  # the playing song was removed: its successor already sits at `current`
+            nxt = self.current
+        else:
+            nxt = self.current + 1
+        if not 0 <= nxt < n:
             return 0 if (self.repeat or manual) else None
         return nxt
 
@@ -390,8 +424,9 @@ class Player(QObject):
         if band is not None and value is not None:
             self.eq_gains[band] = max(-12.0, min(12.0, value))
         self._apply_eq()
-        if self.eq_auto and self.track and (gains is not None or band is not None or preamp is not None):
-            self.settings["eq_per_track"][self.track.video_id] = [self.eq_preamp, list(self.eq_gains)]
+        t = self.playing or self.track
+        if self.eq_auto and t and (gains is not None or band is not None or preamp is not None):
+            self.settings["eq_per_track"][t.video_id] = [self.eq_preamp, list(self.eq_gains)]
         self._schedule_save()
         self.changed.emit()
 
@@ -463,7 +498,7 @@ class Player(QObject):
         if all(isinstance(it, Track) for it in items):
             self.add_tracks(list(items), play=play)
         else:
-            self._search_pool.submit(work)
+            self._bg_pool.submit(work)
 
     # ---- keeping yt-dlp current -----------------------------------------------------------------
     def update_engine(self, manual: bool = False) -> None:
@@ -484,7 +519,7 @@ class Player(QObject):
                     self.engine_msg.emit(f"ENGINE UPDATE FAILED: {type(exc).__name__}: {exc}")
         if manual:
             self.flash("CHECKING FOR A NEWER YOUTUBE ENGINE...", 10.0)
-        self._search_pool.submit(work)
+        self._bg_pool.submit(work)
 
     # ---- heartbeat ---------------------------------------------------------------------------
     def _on_tick(self) -> None:
@@ -496,19 +531,23 @@ class Player(QObject):
                 else:
                     self.play_index(nxt)
             elif ev[0] == "error" and self.status == "playing":
-                if not self._retried and self.track is not None:
+                if not self._retried and self.playing is not None:
                     self._retried = True  # most often an expired URL: fetch a fresh one, carry on
                     self._req += 1
-                    self.engine.stop()
+                    self.engine.halt()
                     self.status = "connecting"
                     self._start_at = ev[2]
-                    self._submit_resolve(self._req, self.current, self.track.video_id, ev[2], force=True)
+                    self._submit_resolve(self._req, self.playing, ev[2], force=True)
                 else:
                     self._fail(ev[1])
             elif ev[0] == "device":
-                self.flash(f"AUDIO DEVICE: {ev[1]}", 8.0)
+                self.stop()
+                self.flash(f"AUDIO DEVICE: {ev[1]}", 10.0)
         if self.status == "playing":
             mono = self.engine.audible_samples(2048)
+            if not self._proven and self.engine.state == "playing" and self.position > self._start_at + 3:
+                self._proven = True
+                self._fails = 0  # audio really came out: the failure streak is over
             self._prefetch_next()
         else:
             mono = None
@@ -545,5 +584,5 @@ class Player(QObject):
         self.timer.stop()
         self.save()
         self.engine.close()
-        self._pool.shutdown(wait=False, cancel_futures=True)
-        self._search_pool.shutdown(wait=False, cancel_futures=True)
+        for pool in (self._pool, self._search_pool, self._bg_pool):
+            pool.shutdown(wait=False, cancel_futures=True)

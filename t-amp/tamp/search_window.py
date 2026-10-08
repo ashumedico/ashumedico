@@ -302,6 +302,7 @@ class SearchWindow(QWidget):
         q = self.box.text().strip()
         if len(q) < 2:
             self.enter_pending = None
+            self._seq = -1  # an answer still in flight must not refill the list
             self.results.set_items([])
             self.status = "YOUTUBE MUSIC"
             self.update()

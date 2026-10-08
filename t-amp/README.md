@@ -6,20 +6,25 @@ need an API key, a login or a browser.
 
 ![T-Amp: main window, equalizer, playlist and the docked YouTube Music search](docs/t-amp.png)
 
-*Rendered by the test suite with a sample playlist. The equalizer, analyser and time
-display are working on real decoded audio.*
+*A test-suite render, not a live session. The playlist titles and search results are
+sample data (the search results are canned, hence "Test Artist"), and the kbps/kHz are
+stubbed. The analyser, EQ curve and time display are running on audio that was really
+decoded, from a local test file.*
 
 ## Run it
 
 | Way | What you do | Good for |
 |---|---|---|
-| **Ready-made .exe** | Actions tab → **T-Amp Windows build** → latest run → download **T-Amp-windows** → unzip → `T-Amp\T-Amp.exe` | No Python needed |
+| **Ready-made .exe** | Actions tab → **T-Amp Windows build** → latest run → download **T-Amp-windows** (signed in to GitHub) → unzip → `T-Amp\T-Amp.exe`. It isn't code-signed, so Windows may say *"Windows protected your PC"*: **More info → Run anyway** | No Python needed |
 | **From this folder** | Double-click `RUN.bat` (first run sets up `.venv`, about 3 min, once) | You have Python 3.10+ |
 | **Your own .exe** | `RUN.bat` once, then `BUILD-EXE.bat`: it builds `dist\T-Amp\T-Amp.exe` and puts **T-Amp** on the Desktop | Same as above, plus a shortcut |
 
 Something not working? `SELFTEST.bat` checks every part with real data and says
-which one failed or was blocked: ffmpeg, the JavaScript runtime, your speakers, a live search, a stream,
-and 3 seconds of decoded audio. The report is saved to `%APPDATA%\T-Amp\selftest.txt`.
+which one failed or was blocked: ffmpeg, the JavaScript runtime, your sound device, a
+live search, a stream, 3 seconds of decoded audio, and 3 seconds played aloud through
+the player's own engine (you will hear the song). The report is saved to
+`%APPDATA%\T-Amp\selftest.txt`. If T-Amp ever closes on its own, the reason is in
+`%APPDATA%\T-Amp\crash.log`.
 
 ## What's in it
 
@@ -35,8 +40,9 @@ and 3 seconds of decoded audio. The report is saved to `%APPDATA%\T-Amp\selftest
   the selection in blue. Drag rows to reorder, use the ADD / REM / SEL / MISC / LIST OPTS
   menus, save and load `.m3u8`, and resize in 29-px steps.
 - **YouTube Music search:** results follow your typing. **SONGS / VIDEOS / ALBUMS**
-  (Tab switches); pick an album and its tracks are added in order. Paste a YouTube
-  Music link (song, album or playlist) to add it.
+  (Tab switches); pick an album and its tracks are added in order. Paste a
+  `music.youtube.com` link (song, album or playlist) to add it. Plain youtube.com
+  links are refused, because they can point at any video.
 - **Windowshade** (double-click the title bar), **double size** (Ctrl+D), always on top,
   snapping to screen edges, and the search window docking beside the player.
 - **Media keys** (Play/Pause, Next, Previous, Stop) work even when T-Amp isn't focused.
@@ -51,7 +57,7 @@ and 3 seconds of decoded audio. The report is saved to `%APPDATA%\T-Amp\selftest
 | `Z` `X` `C` `V` `B` | Prev, Play, Pause, Stop, Next | `L` / `J` / `Ins` | Search YouTube Music |
 | `←` `→` | Seek 5 s | `↑` `↓` | Volume |
 | `S` / `R` | Shuffle / Repeat | `Ctrl+D` | 1x / 2x size |
-| `Ctrl+W` | Windowshade | `Ctrl+A` | Always on top |
+| `Ctrl+W` | Windowshade | `Ctrl+A` | Always on top (in the playlist: select all, as in Winamp) |
 | `Alt+G` / `Alt+E` | Equalizer / Playlist | `Alt+3` | Track info |
 | `Del` | Remove selected rows | `Alt+↑` `Alt+↓` | Move selected rows |
 
@@ -66,10 +72,13 @@ type -> ytmusicapi (YouTube Music search) -> pick -> yt-dlp + Deno (direct audio
      -> volume / balance -> PortAudio -> speakers
 ```
 
-`tamp/engine.py` never blocks the window: decoding runs in a thread and playback
-in the sound card's callback. Network hiccups are absorbed by a 20-second buffer. An
-expired stream URL is fetched again and playback resumes where it stopped. The next
-song's URL is prefetched halfway through the current one.
+In `tamp/engine.py`, decoding runs in a thread and playback runs in the sound card's
+callback. YouTube lookups also run in background threads, and a click you've already
+moved past is cancelled before it reaches YouTube. The sound device stays open between
+songs, so changing tracks doesn't stall the window or leave a gap. A 20-second buffer
+absorbs network hiccups. If a stream URL expires or a connection is cut, a fresh URL is
+fetched and playback resumes where it stopped. The next song's URL is prefetched
+halfway through the current one.
 
 ## Things to know
 

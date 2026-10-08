@@ -212,3 +212,63 @@ def test_visualizer_bars_fall_and_peaks_hang():
     vis.step(None, 19)
     assert vis.bars.max() < top_bar
     assert vis.peaks.max() == pytest.approx(top_peak, abs=0.01)
+
+
+def test_stream_cut_short_is_an_error_not_the_end(tone):
+    eng, devs = make_engine()
+    eng.open(tone, duration=60.0)          # the file stops at 3 s of a "60 s" song
+    events = []
+    assert wait_for(lambda: events.extend(eng.poll()) or any(e[0] == "error" for e in events), 15)
+    assert ("finished",) not in events
+    assert next(e for e in events if e[0] == "error")[1] == "stream ended early"
+    eng.close()
+
+
+def test_halt_keeps_the_device_stop_releases_it(tone):
+    eng, devs = make_engine()
+    eng.open(tone, duration=3.0)
+    assert wait_for(lambda: eng.state == "playing")
+    eng.halt()
+    assert eng._stream is not None and eng.state == "stopped"
+    eng.open(tone, duration=3.0)
+    assert len(devs) == 1, "the next song reuses the open device"
+    eng.stop()
+    assert eng._stream is None
+
+
+def _has_output_device() -> bool:
+    try:
+        import sounddevice as sd
+        sd.query_devices(kind="output")
+        return True
+    except Exception:  # no PortAudio, or no device on this machine (CI runners)
+        return False
+
+
+@pytest.mark.skipif(not _has_output_device(), reason="no audio output device here")
+def test_real_device_playback(tone):
+    """The production path: sounddevice.OutputStream, not the fake. Play, pause, seek, next song, stop."""
+    eng = AudioEngine(FFMPEG)                 # real device, its own sample rate
+    try:
+        eng.open(tone, duration=3.0)
+        assert wait_for(lambda: eng.position > 0.8, 10), eng.state
+        assert eng._stream is not None and eng._stream.active
+        eng.pause()
+        time.sleep(0.3)
+        p = eng.position
+        time.sleep(0.4)
+        assert abs(eng.position - p) < 0.05
+        eng.resume()
+        eng.seek(2.0)
+        events = []
+        assert wait_for(lambda: events.extend(eng.poll()) or ("finished",) in events, 10), events
+        stream = eng._stream
+        eng.halt()
+        eng.open(tone, duration=3.0)          # next song on the same open device
+        assert eng._stream is stream
+        assert wait_for(lambda: eng.position > 0.3, 10)
+        samples = eng.audible_samples(2048)
+        assert samples is not None and float(np.abs(samples).max()) > 0.02, "the vis tap sees the tone"
+    finally:
+        eng.stop()
+    assert eng._stream is None

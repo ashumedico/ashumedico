@@ -204,6 +204,7 @@ class AudioEngine:
         self._gen = 0
         self._paused = False
         self._paused_at = 0.0
+        self._idle_since = time.monotonic()
         self._fade = 0.0
         self._stream = None
         self._latency = 0.0
@@ -239,11 +240,17 @@ class AudioEngine:
             self._paused = False
             self._ensure_stream()
 
-    def stop(self) -> None:
+    def halt(self) -> None:
+        """End the current song but keep the sound device open (between songs: no gap, no rescan)."""
         old, self._session = self._session, None
         self._paused = False
+        self._idle_since = time.monotonic()
         if old is not None:
             old.decoder.stop()
+
+    def stop(self) -> None:
+        """End the song and release the sound device."""
+        self.halt()
         self._close_stream()
         self._vis[:] = 0.0
 
@@ -290,11 +297,14 @@ class AudioEngine:
         return self._vis[idx]
 
     def poll(self) -> list[tuple]:
-        """Called by the UI ~30x/s. Returns ('finished',) or ('error', message, position) once each."""
+        """Called by the UI ~30x/s. Returns ('finished',), ('error', message, position) or
+        ('device', message), each once."""
         s = self._session
         out = list(self._events)
         self._events.clear()
         if s is None:
+            if self._stream is not None and time.monotonic() - self._idle_since > IDLE_CLOSE_S / 4:
+                self._close_stream()  # nothing queued for a while: let Windows have the device back
             return out
         dec = s.decoder
         if not s.reported and dec.done and dec.returncode not in (0, None) and s.buf.frames == 0:
@@ -308,7 +318,11 @@ class AudioEngine:
                 out.append(("error", msg, self.position))
         elif not s.reported and s.drained:
             s.reported = True
-            out.append(("finished",))
+            if self.duration and self.position < self.duration - 5:
+                # ffmpeg said "done" but the song isn't: the connection was cut, not the music
+                out.append(("error", "stream ended early", self.position))
+            else:
+                out.append(("finished",))
         if self._paused and self._stream is not None and time.monotonic() - self._paused_at > IDLE_CLOSE_S:
             self._close_stream()
         if self._stream is not None and not self._paused and self._stream_died():
@@ -365,7 +379,9 @@ class AudioEngine:
 
     def _callback(self, outdata, frames, time_info, status) -> None:
         s = self._session
-        if s is None or frames > len(self._scratch):
+        if frames > len(self._scratch):  # a driver asked for a bigger block than ever before
+            self._scratch = np.zeros((frames, CHANNELS), dtype=np.float32)
+        if s is None:
             outdata.fill(0)
             self._tap(None, frames)
             return

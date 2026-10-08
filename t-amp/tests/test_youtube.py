@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tamp import updater  # noqa: E402
-from tamp.youtube import Album, MusicSearch, _clean_error, _track, fmt_time, parse_link  # noqa: E402
+from tamp.youtube import Album, MusicSearch, NotMusicLink, _clean_error, _track, fmt_time, parse_link  # noqa: E402,E501
 
 # Shapes copied from ytmusicapi's own search() docstring.
 SONG = {"category": "Songs", "resultType": "song", "videoId": "ZrOKjDZOtkA", "title": "Wonderwall",
@@ -69,12 +69,14 @@ def test_album_artist_in_either_shape(row):
 
 @pytest.mark.parametrize("text,expect", [
     ("https://music.youtube.com/watch?v=ZrOKjDZOtkA&si=abc", ("video", "ZrOKjDZOtkA")),
-    ("https://www.youtube.com/watch?v=ZrOKjDZOtkA&list=PL123", ("video", "ZrOKjDZOtkA")),
-    ("https://youtu.be/ZrOKjDZOtkA?t=30", ("video", "ZrOKjDZOtkA")),
-    ("youtube.com/shorts/ZrOKjDZOtkA", ("video", "ZrOKjDZOtkA")),
+    ("music.youtube.com/watch?v=ZrOKjDZOtkA&list=RDAMVM", ("video", "ZrOKjDZOtkA")),
     ("https://music.youtube.com/playlist?list=OLAK5uy_kunInnOpcKECWIBQGB0Qj6ZjquxDvfckg",
      ("playlist", "OLAK5uy_kunInnOpcKECWIBQGB0Qj6ZjquxDvfckg")),
     ("https://music.youtube.com/browse/MPREb_IInSY5QXXrW", ("album", "MPREb_IInSY5QXXrW")),
+    # plain YouTube can point at any video at all: not accepted
+    ("https://www.youtube.com/watch?v=ZrOKjDZOtkA", None),
+    ("https://youtu.be/ZrOKjDZOtkA?t=30", None),
+    ("youtube.com/shorts/ZrOKjDZOtkA", None),
     ("wonderwall oasis", None),
     ("beautifully", None),
     ("https://example.com/watch?v=ZrOKjDZOtkA", None),
@@ -128,7 +130,8 @@ def test_update_fetches_verifies_and_activates(tmp_path, monkeypatch):
     changed = updater.update()
     assert changed and changed[0].startswith("yt-dlp-ejs 0 -> ")
     man = json.loads((tmp_path / "versions.json").read_text())
-    assert man["yt-dlp-ejs"] == changed[0].split(" -> ")[1]
+    assert man["yt-dlp-ejs"]["version"] == changed[0].split(" -> ")[1]
+    assert "yt_dlp_ejs" in man["yt-dlp-ejs"]["paths"]
     assert (tmp_path / "yt_dlp_ejs").is_dir()
     assert updater.update() == []  # second run: already current
     info = json.load(urllib.request.urlopen("https://pypi.org/pypi/yt-dlp-ejs/json", timeout=10))
@@ -154,3 +157,28 @@ def test_cookies_reach_yt_dlp(tmp_path):
     assert ydl.params["cookiefile"] == str(jar) and "cookiesfrombrowser" not in ydl.params
     r.set_cookies(None)
     assert "cookiefile" not in r._make().params
+
+
+def test_plain_youtube_links_are_refused_not_searched():
+    ms = MusicSearch()
+    ms._yt = FakeYT([SONG])
+    with pytest.raises(NotMusicLink, match="music.youtube.com"):
+        ms.search("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+
+def test_activate_uses_any_newer_package_and_prunes_stale_ones(tmp_path, monkeypatch):
+    """A newer ytmusicapi alone must be loaded; a copy the shipped build has caught up with is removed."""
+    monkeypatch.setattr(updater, "pylib_dir", lambda: str(tmp_path))
+    bundled = {"yt-dlp": "2026.8.19", "ytmusicapi": "1.12.3", "yt-dlp-ejs": "0.8.0"}
+    monkeypatch.setattr(updater, "_bundled", lambda pkg: bundled[pkg])
+    (tmp_path / "ytmusicapi").mkdir()
+    (tmp_path / "yt_dlp").mkdir()
+    (tmp_path / "versions.json").write_text(json.dumps({
+        "ytmusicapi": {"version": "1.13.0", "paths": ["ytmusicapi"]},     # newer: keep
+        "yt-dlp": {"version": "2026.1.1", "paths": ["yt_dlp"]},           # older than shipped: prune
+    }))
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    updater.activate()
+    assert sys.path[0] == str(tmp_path)
+    assert (tmp_path / "ytmusicapi").is_dir() and not (tmp_path / "yt_dlp").exists()
+    assert list(json.loads((tmp_path / "versions.json").read_text())) == ["ytmusicapi"]

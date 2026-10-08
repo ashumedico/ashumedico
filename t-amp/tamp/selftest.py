@@ -81,9 +81,21 @@ def run(argv: list[str]) -> int:
     check("javascript runtime", t_deno)
 
     def t_audio():
+        """Open the real output device and prove PortAudio calls us back (silence, nothing audible)."""
         import sounddevice as sd
         dev = sd.query_devices(kind="output")
-        return f"{dev['name']} · {int(dev['default_samplerate'])} Hz"
+        rate = int(dev["default_samplerate"])
+        calls = []
+
+        def cb(outdata, frames, t, status):
+            outdata.fill(0)
+            calls.append(frames)
+        with sd.OutputStream(samplerate=rate, channels=2, dtype="float32", latency="high", callback=cb) as st:
+            time.sleep(0.5)
+            latency = st.latency
+        if not calls:
+            raise RuntimeError("the device opened but never asked for audio")
+        return f"{dev['name']} · {rate} Hz · {len(calls)} callbacks in 0.5 s · latency {latency * 1000:.0f} ms"
     if "--no-audio" in argv:
         lines.append("[SKIP] sound device: --no-audio")
     else:
@@ -103,6 +115,9 @@ def run(argv: list[str]) -> int:
                        lambda: _resolve(resolver, first.video_id))
     if stream is not None and ffmpeg:
         check("decode 3 s of real audio", lambda: _decode(ffmpeg, stream[1]))
+        if "--no-audio" not in argv:
+            check("play 3 s through the speakers (you should hear the song)",
+                  lambda: _play(ffmpeg, stream[1]))
 
     lines.append("RESULT: " + ("FAILED" if not ok_all else "BLOCKED BY YOUTUBE BOT CHECK" if blocked else "ALL PASS"))
     report = "\n".join(lines)
@@ -136,6 +151,30 @@ def _resolve(resolver: StreamResolver, vid: str):
     st = resolver.resolve(vid)
     return _Detail((f"{st.codec} · {round(st.abr or 0)} kbps · {st.asr} Hz · {st.duration}s · "
                     f"expires in {int((st.expires - time.time()) / 60)} min", st))
+
+
+def _play(ffmpeg: str, st) -> str:
+    """The app's own engine on the real device: what the player does when you press Play."""
+    from .engine import AudioEngine
+    eng = AudioEngine(ffmpeg)
+    eng.volume = 0.5
+    try:
+        t0 = time.monotonic()
+        eng.open(st.url, st.headers, 30.0, st.duration)
+        started = None
+        while time.monotonic() - t0 < 25:
+            for ev in eng.poll():
+                if ev[0] in ("error", "device"):
+                    raise RuntimeError(ev[1])
+            if started is None and eng.state == "playing":
+                started = time.monotonic() - t0
+            if eng.position >= 33.0:
+                return (f"{eng.position - 30:.1f} s played at {eng.samplerate} Hz · "
+                        f"sound started {started:.1f} s after Play")
+            time.sleep(0.05)
+        raise RuntimeError(f"only reached {eng.position:.1f} s in 25 s (state: {eng.state})")
+    finally:
+        eng.close()
 
 
 def _decode(ffmpeg: str, st) -> str:

@@ -336,3 +336,96 @@ def test_bot_check_stops_instead_of_skipping_through_the_list(app, tmp_path):
     pump(app, 3.0)  # longer than the 2.5 s skip-after-fail delay
     assert resolver.calls == ["id000000000"], "a bot check must not walk the whole playlist"
     player.shutdown()
+
+
+# ---- playlist edits while music plays (the verifier's findings 3, 4, 9) ----------------------------
+def test_removing_the_playing_song_keeps_it_playing_and_next_continues(rig):
+    app, player, shell, *_ = rig
+    player.add_tracks(tracks())
+    player.play_index(2)
+    assert pump(app, 5, until=lambda: player.status == "playing")
+    song = player.playing
+    player.remove([2])
+    assert player.playing is song and player.status == "playing"
+    assert player.title_line().startswith("Daft Punk - Get Lucky"), "no stale row number for a removed song"
+    player.next()
+    assert player.playing.title == "Teri Ore", "Next continues with the row after the removed song"
+
+
+def test_removing_rows_above_the_cursor_shifts_it(rig):
+    app, player, shell, *_ = rig
+    player.add_tracks(tracks())
+    player.play_index(3)
+    player.remove([0, 1])
+    assert player.current == 1 and player.track is player.playing
+
+
+def test_crop_without_a_selection_keeps_everything(rig):
+    app, player, shell, *_ = rig
+    player.add_tracks(tracks())
+    player.selected = set()
+    player.crop()
+    assert len(player.tracks) == 6
+
+
+def test_the_same_result_added_twice_is_two_independent_rows(rig):
+    app, player, shell, *_ = rig
+    hit = tracks(1)[0]
+    player.add_tracks([hit])
+    player.add_tracks([hit])
+    assert player.tracks[0] is not player.tracks[1] and hit not in player.tracks[:0]
+    player.current = 1
+    player.reverse()
+    assert player.current == 0, "the cursor follows its own row, not the first copy"
+
+
+# ---- failure streaks and stale clicks (findings 2 and 8) -----------------------------------------
+class DeadStreamResolver:
+    """Every song resolves, but the URL is dead - the 403 case."""
+
+    def __init__(self):
+        self.calls = []
+
+    def resolve(self, video_id, force=False):
+        self.calls.append(video_id)
+        return Stream(url="/nonexistent/dead.m4a", headers={}, duration=200.0, abr=128, asr=44100,
+                      channels=2, codec="opus", expires=time.time() + 3600)
+
+
+def test_dead_streams_on_repeat_stop_after_one_pass(app, tmp_path):
+    settings = Settings(str(tmp_path / "state.json"))
+    engine = AudioEngine(FFMPEG, samplerate=SR, output=lambda e: Device(e))
+    resolver = DeadStreamResolver()
+    player = Player(settings, engine=engine, music=CannedSearch(), resolver=resolver)
+    player.SKIP_DELAY_MS = 30
+    _alive.append((player, engine))
+    player.add_tracks(tracks(3))
+    player.repeat = True
+    player.play_index(0)
+    pump(app, 6.0)
+    # each song: one resolve + one fresh-URL retry; then the streak ends instead of looping forever
+    assert player.status == "stopped"
+    assert len(resolver.calls) <= 2 * 3, resolver.calls
+    player.shutdown()
+
+
+class SlowResolver(LocalResolver):
+    def resolve(self, video_id, force=False):
+        time.sleep(0.4)
+        return super().resolve(video_id, force)
+
+
+def test_clicks_the_user_has_moved_past_never_reach_youtube(app, audio_file, tmp_path):
+    settings = Settings(str(tmp_path / "state.json"))
+    engine = AudioEngine(FFMPEG, samplerate=SR, output=lambda e: Device(e))
+    resolver = SlowResolver(audio_file)
+    player = Player(settings, engine=engine, music=CannedSearch(), resolver=resolver)
+    _alive.append((player, engine))
+    player.add_tracks(tracks())
+    for i in range(5):        # Next, Next, Next... faster than YouTube answers
+        player.play_index(i)
+    assert pump(app, 5, until=lambda: player.status == "playing")
+    asked = [vid for vid, _ in resolver.calls]
+    assert player.playing.title == "Blinding Lights"
+    assert "id000000002" not in asked and "id000000003" not in asked, asked
+    player.shutdown()

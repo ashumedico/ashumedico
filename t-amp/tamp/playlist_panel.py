@@ -177,7 +177,8 @@ class PlaylistPanel(SkinPanel):
             y = area.y() + k * rh
             if i in pl.selected:
                 p.fillRect(QRectF(area.x(), y, area.width(), rh), skin.PL_SELECTED)
-            p.setPen(skin.PL_CURRENT if i == pl.current else skin.PL_NORMAL)
+            now = t is pl.playing if pl.playing is not None else i == pl.current
+            p.setPen(skin.PL_CURRENT if now else skin.PL_NORMAL)
             dur = fmt_time(t.duration)
             dw = fm.horizontalAdvance(dur) if dur else 0
             base = y + (rh + fm.ascent() - fm.descent()) / 2

@@ -103,10 +103,22 @@ _LIST_ID = re.compile(r"[?&]list=([A-Za-z0-9_-]+)")
 _BROWSE_ID = re.compile(r"/browse/(MPREb_[A-Za-z0-9_-]+)")
 
 
+class NotMusicLink(ValueError):
+    pass
+
+
+def is_youtube_link(text: str) -> bool:
+    return bool(re.match(r"^(https?://)?([a-z0-9-]+\.)*(youtube\.com|youtu\.be)/", text.strip(), re.I))
+
+
 def parse_link(text: str) -> tuple[str, str] | None:
-    """('video'|'playlist'|'album', id) for a YouTube / YouTube Music link, else None."""
+    """('video'|'playlist'|'album', id) for a YouTube *Music* link, else None.
+
+    Plain youtube.com / youtu.be links are not accepted: T-Amp plays the YouTube Music
+    catalogue only, and those links can point at any video at all.
+    """
     text = text.strip()
-    if not re.match(r"^(https?://)?([a-z0-9-]+\.)*(youtube\.com|youtu\.be)/", text, re.I):
+    if not re.match(r"^(https?://)?music\.youtube\.com/", text, re.I):
         return None
     if m := _BROWSE_ID.search(text):
         return ("album", m.group(1))
@@ -140,6 +152,8 @@ class MusicSearch:
         link = parse_link(query)
         if link:
             return self.from_link(*link)
+        if is_youtube_link(query):
+            raise NotMusicLink("only YouTube Music links (music.youtube.com) - or type the song name")
         raw = self._api().search(query, filter=kind, limit=limit)
         if kind == "albums":
             out = []
@@ -249,9 +263,10 @@ class StreamResolver:
     def __init__(self, cache_dir: str | None = None, cookies: str | None = None):
         self.cache_dir = cache_dir
         self.cookies = cookies      # None | "browser:<name>" | path to a cookies.txt
-        self._ydl = None
+        self._local = threading.local()   # one YoutubeDL per worker: a prefetch never blocks a click
+        self._gen = 0                     # bumped when the sign-in changes: rebuild every YoutubeDL
         self._cache: dict[str, Stream] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()     # guards the cache only
 
     def _make(self):
         from yt_dlp import YoutubeDL
@@ -278,42 +293,47 @@ class StreamResolver:
     def set_cookies(self, cookies: str | None) -> None:
         with self._lock:
             self.cookies = cookies
-            self._ydl = None        # rebuilt with the new sign-in on the next resolve
+            self._gen += 1          # every thread rebuilds its YoutubeDL with the new sign-in
             self._cache.clear()
 
+    def _ydl(self):
+        loc = self._local
+        if getattr(loc, "gen", None) != self._gen:
+            loc.ydl, loc.gen = self._make(), self._gen
+        return loc.ydl
+
     def resolve(self, video_id: str, force: bool = False) -> Stream:
-        with self._lock:  # one YoutubeDL instance, one caller at a time
+        with self._lock:
             hit = self._cache.get(video_id)
-            if hit and not force and hit.expires - time.time() > 300:
-                return hit
-            if self._ydl is None:
-                self._ydl = self._make()
-            try:
-                info = self._ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            except Exception as exc:  # yt-dlp raises DownloadError/ExtractorError with the reason
-                raise ResolveError(_clean_error(exc)) from exc
-            if info.get("requested_formats"):
-                fmt = next((f for f in info["requested_formats"] if f.get("acodec") not in (None, "none")),
-                           info["requested_formats"][0])
-            else:
-                fmt = info
-            url = fmt.get("url")
-            if not url:
-                raise ResolveError("no playable audio format for this track")
-            q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            try:
-                expires = float(q.get("expire", [0])[0]) or time.time() + 3600
-            except ValueError:
-                expires = time.time() + 3600
-            stream = Stream(
-                url=url,
-                headers=dict(fmt.get("http_headers") or info.get("http_headers") or {}),
-                duration=info.get("duration"),
-                abr=fmt.get("abr") or fmt.get("tbr"),
-                asr=fmt.get("asr"),
-                channels=fmt.get("audio_channels"),
-                codec=fmt.get("acodec") or "",
-                expires=expires,
-            )
+        if hit and not force and hit.expires - time.time() > 300:
+            return hit
+        try:
+            info = self._ydl().extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+        except Exception as exc:  # yt-dlp raises DownloadError/ExtractorError with the reason
+            raise ResolveError(_clean_error(exc)) from exc
+        if info.get("requested_formats"):
+            fmt = next((f for f in info["requested_formats"] if f.get("acodec") not in (None, "none")),
+                       info["requested_formats"][0])
+        else:
+            fmt = info
+        url = fmt.get("url")
+        if not url:
+            raise ResolveError("no playable audio format for this track")
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        try:
+            expires = float(q.get("expire", [0])[0]) or time.time() + 3600
+        except ValueError:
+            expires = time.time() + 3600
+        stream = Stream(
+            url=url,
+            headers=dict(fmt.get("http_headers") or info.get("http_headers") or {}),
+            duration=info.get("duration"),
+            abr=fmt.get("abr") or fmt.get("tbr"),
+            asr=fmt.get("asr"),
+            channels=fmt.get("audio_channels"),
+            codec=fmt.get("acodec") or "",
+            expires=expires,
+        )
+        with self._lock:
             self._cache[video_id] = stream
-            return stream
+        return stream

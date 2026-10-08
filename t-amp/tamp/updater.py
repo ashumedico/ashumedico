@@ -55,15 +55,29 @@ def _bundled(pkg: str) -> str:
         return "0"
 
 
+def _save_manifest(man: dict) -> None:
+    with open(os.path.join(pylib_dir(), "versions.json"), "w", encoding="utf-8") as fh:
+        json.dump(man, fh, indent=1)
+
+
 def activate() -> None:
-    """Call before importing yt_dlp / ytmusicapi."""
+    """Call before importing yt_dlp / ytmusicapi.
+
+    Each package in pylib is used only while it is newer than the copy T-Amp shipped with;
+    once a new .exe (or pip) catches up, the stale copy is deleted so it can't shadow it.
+    """
     path = pylib_dir()
     man = _manifest()
     if not man or not os.path.isdir(path):
         return
-    if _ver(man.get("yt-dlp", "0")) <= _ver(_bundled("yt-dlp")):
-        return  # what's installed is already as new: don't shadow it with an older copy
-    if path not in sys.path:
+    stale = [pkg for pkg, ent in man.items() if _ver(ent.get("version", "0")) <= _ver(_bundled(pkg))]
+    for pkg in stale:
+        for p in man[pkg].get("paths", []):
+            shutil.rmtree(os.path.join(path, p), ignore_errors=True)
+        del man[pkg]
+    if stale:
+        _save_manifest(man)
+    if man and path not in sys.path:
         sys.path.insert(0, path)
 
 
@@ -78,7 +92,7 @@ def update(log=lambda msg: None) -> list[str]:
     man = _manifest()
     changed = []
     for pkg in PACKAGES:
-        have = max(_ver(man.get(pkg, "0")), _ver(_bundled(pkg)))
+        have = max(_ver(man.get(pkg, {}).get("version", "0")), _ver(_bundled(pkg)))
         with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=20) as r:
             info = json.load(r)
         latest = info["info"]["version"]
@@ -94,12 +108,11 @@ def update(log=lambda msg: None) -> list[str]:
             data = r.read()
         if hashlib.sha256(data).hexdigest() != wheel["digests"]["sha256"]:
             raise RuntimeError(f"{wheel['filename']}: checksum mismatch, not installed")
-        _install_wheel(data, path)
-        old = man.get(pkg) or _bundled(pkg)
-        man[pkg] = latest
+        paths = _install_wheel(data, path)
+        old = man.get(pkg, {}).get("version") or _bundled(pkg)
+        man[pkg] = {"version": latest, "paths": paths}
+        _save_manifest(man)  # after each package: a later failure can't erase this one
         changed.append(f"{pkg} {old} -> {latest}")
-    with open(os.path.join(path, "versions.json"), "w", encoding="utf-8") as fh:
-        json.dump(man, fh, indent=1)
     return changed
 
 
@@ -108,7 +121,8 @@ def _dist_name(dist_info: str) -> str:
     return dist_info[: -len(".dist-info")].rsplit("-", 1)[0]
 
 
-def _install_wheel(data: bytes, dest: str) -> None:
+def _install_wheel(data: bytes, dest: str) -> list[str]:
+    """Unpack a wheel into dest, replacing any older copy; returns the top-level paths it owns."""
     os.makedirs(dest, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         whl = os.path.join(tmp, "pkg.whl")
@@ -131,3 +145,4 @@ def _install_wheel(data: bytes, dest: str) -> None:
                 elif os.path.isdir(target):
                     shutil.rmtree(target, ignore_errors=True)
             zf.extractall(dest)
+    return sorted(tops)
