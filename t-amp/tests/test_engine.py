@@ -267,8 +267,21 @@ def test_real_device_playback(tone):
         eng.open(tone, duration=3.0)          # next song on the same open device
         assert eng._stream is stream
         assert wait_for(lambda: eng.position > 0.3, 10)
-        samples = eng.audible_samples(2048)
-        assert samples is not None and float(np.abs(samples).max()) > 0.02, "the vis tap sees the tone"
+    finally:
+        eng.stop()
+    assert eng._stream is None
+    # The vis tap sees what reaches the device. A long tone, polled: a null sink has no clock and
+    # can swallow a short file between two looks.
+    long_tone = os.path.join(tempfile.mkdtemp(), "long.wav")
+    make_tone(long_tone, seconds=30.0)
+    eng = AudioEngine(FFMPEG)
+    try:
+        eng.open(long_tone, duration=30.0)
+
+        def tap_sees_tone():
+            s = eng.audible_samples(2048)
+            return s is not None and float(np.abs(s).max()) > 0.02
+        assert wait_for(tap_sees_tone, 10), "the vis tap sees the tone"
     finally:
         eng.stop()
     assert eng._stream is None
