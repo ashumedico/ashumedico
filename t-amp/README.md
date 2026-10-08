@@ -15,7 +15,7 @@ decoded, from a local test file.*
 
 | Way | What you do | Good for |
 |---|---|---|
-| **Ready-made .exe** | Actions tab → **T-Amp Windows build** → latest run → download **T-Amp-windows** (signed in to GitHub) → unzip → `T-Amp\T-Amp.exe`. It isn't code-signed, so Windows may say *"Windows protected your PC"*: **More info → Run anyway** | No Python needed |
+| **Ready-made .exe** | [Releases](https://github.com/ashumedico/ashumedico/releases) → latest **T-Amp** → download **T-Amp-windows.zip** → unzip → `T-Amp\T-Amp.exe`. It isn't code-signed, so Windows may say *"Windows protected your PC"*: **More info → Run anyway** | No Python needed |
 | **From this folder** | Double-click `RUN.bat` (first run sets up `.venv`, about 3 min, once) | You have Python 3.10+ |
 | **Your own .exe** | `RUN.bat` once, then `BUILD-EXE.bat`: it builds `dist\T-Amp\T-Amp.exe` and puts **T-Amp** on the Desktop | Same as above, plus a shortcut |
 
@@ -109,4 +109,5 @@ python -m tamp --selftest          # the end-to-end check
 ```
 
 CI (`.github/workflows/t-amp-windows.yml`) runs the tests on Windows and builds the
-.exe. It then runs the built .exe's self-test against live YouTube Music.
+.exe. It then runs the built .exe's self-test against live YouTube Music. Pushing a
+`t-amp-vX.Y.Z` tag also publishes that build as a GitHub Release.
