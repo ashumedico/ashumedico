@@ -1,0 +1,765 @@
+"""
+rrg_strategy.py  —  turning RRG from a picture into a system, then PROVING it.
+
+StockCharts are explicit: "RRGs are not a trading system... there are no predefined
+trading rules." So the edge is not the graph — it is the rules you bolt on. This module
+implements the candidate rule-sets and then BACKTESTS them walk-forward (no lookahead)
+so the best setup is chosen by evidence on YOUR data, not by assertion.
+
+Rule-sets tested (each is a full strategy):
+  A hold_leading      hold everything in LEADING                        (the naive way most lose)
+  B cross_leading     BUY on the cross INTO Leading                     (trend-follower)
+  C cross_improving   BUY on the cross INTO Improving (from Lagging)    (aggressive, earliest)
+  D dist_filter       C/B + skip the noise blob near (100,100)
+  E trend_filter      + the stock's OWN uptrend must agree              (fixes RRG's blind spot)
+  F heading_filter    + travelling north-east (heading 0-90 deg)
+  G combined          distance + own-trend + heading + OI buildup
+
+    python rrg_strategy.py --demo                 # mechanics proof on synthetic data
+    python rrg_strategy.py --sweep                # LIVE: find the best setup on your data
+    python rrg_strategy.py --sweep --days 500     # longer history
+
+NOT financial advice. A backtest is a hypothesis, not a promise.
+"""
+import argparse, math, json, os
+from datetime import datetime, timezone, timedelta
+
+import rrg_engine as E
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+# ---------------- point-in-time snapshot (no lookahead) ----------------
+def snapshot(prices, bench, t, tail=3, win=10, mom_win=5, bars=None, dates=None):
+    """RRG points computed ONLY from data up to index t (exclusive).
+
+    When bars are supplied the features are attached at the same cut-off. Without this the
+    feature-based arms would run against points that carry no features, every such filter
+    would reject everything, and the arm would report zero trades as though the idea had
+    been tested and failed. It would not have been tested at all.
+    """
+    sl_prices = {s: c[:t] for s, c in prices.items() if len(c) >= t}
+    sl_bench = bench[:t]
+    pts = E.build_points(sl_prices, sl_bench, tail=tail, win=win, mom_win=mom_win)
+    if bars:
+        try:
+            import features as F
+            pts = F.attach(pts, F.for_universe(bars, dates, t))
+        except Exception:
+            pass
+    return pts
+
+
+# ---------------- the rule-sets ----------------
+def _entry_ok(p, rule, params):
+    q, pq = p["quadrant"], p["prev_quadrant"]
+    dist = params.get("min_distance", 0.0)
+    need_trend = params.get("need_trend", False)
+    head = params.get("heading", None)
+
+    if rule == "hold_leading":
+        base = q == "LEADING"
+    elif rule == "cross_leading":
+        base = q == "LEADING" and pq != "LEADING"
+    elif rule == "cross_improving":
+        base = q == "IMPROVING" and pq == "LAGGING"
+    elif rule == "improving_or_leading":
+        base = (q == "IMPROVING" and pq == "LAGGING") or (q == "LEADING" and pq != "LEADING")
+    elif rule == "momentum_only":
+        # Deliberately ignores the rotation entirely. This is the ablation control:
+        # if it scores as well as the full machine, the rotation is decoration.
+        base = p["abs_trend"] > 0
+    else:
+        base = False
+    if not base:
+        return False
+    if p["distance"] < dist:
+        return False
+    if need_trend and p["abs_trend"] <= 0:
+        return False
+    if head is not None:
+        lo, hi = head
+        h = p["heading"]
+        if not (lo <= h <= hi):
+            return False
+    if params.get("need_buildup") and p.get("signal") not in ("LONG BUILDUP", "SHORT COVERING"):
+        return False
+    # VWAP / RVOL / squeeze / expansion / levels. Absent features fail a filter that
+    # needs them - an unknown is not a yes.
+    try:
+        import features as F
+        if not F.passes(p, params):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _entry_ok_short(p, rule, params):
+    """Mirror of the long rules for the short book.
+
+    Half the universe was unusable while this was long-only, and a long-only rotation
+    structurally loses in a falling market - which is exactly how the out-of-sample test
+    failed. Shorts come from the weak side of the rotation, with the same own-trend
+    filter inverted so a name must also be falling in absolute terms."""
+    q, pq = p["quadrant"], p["prev_quadrant"]
+    if rule == "momentum_only":
+        base = p["abs_trend"] < 0              # control, mirrored for the short book
+    elif rule == "hold_leading":               # mirror: hold everything Lagging
+        base = q == "LAGGING"
+    elif rule == "cross_leading":              # mirror: the cross INTO Lagging
+        base = q == "LAGGING" and pq != "LAGGING"
+    elif rule == "cross_improving":            # mirror: Leading -> Weakening
+        base = q == "WEAKENING" and pq == "LEADING"
+    elif rule == "improving_or_leading":
+        base = ((q == "WEAKENING" and pq == "LEADING") or
+                (q == "LAGGING" and pq != "LAGGING"))
+    else:
+        base = False
+    if not base:
+        return False
+    if p["distance"] < params.get("min_distance", 0.0):
+        return False
+    if params.get("need_trend", False) and p["abs_trend"] >= 0:
+        return False                            # must be falling on its own too
+    if params.get("need_buildup") and p.get("signal") not in ("SHORT BUILDUP", "LONG UNWINDING"):
+        return False
+    # The mirrored feature gate. Without this the short book runs unfiltered while the
+    # long book is gated, and any comparison between the two sides is meaningless.
+    try:
+        import features as F
+        if not F.passes_short(p, params):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _exit_ok_short(p, params):
+    """Cover when the rotation turns back up (or the downtrend breaks)."""
+    band = float(params.get("exit_band", 0.0))
+    if p["y"] > 100 + band:
+        return True
+    if params.get("need_trend", False) and p["abs_trend"] > 0:
+        return True
+    return False
+
+
+def _exit_ok(p, params):
+    """Exit when the rotation turns against us (or own trend breaks).
+
+    `exit_band` adds a no-trade buffer: the dot must travel that far PAST the axis
+    before we pay to exit, instead of churning every time it wobbles across 100.
+    Banding cuts turnover more efficiently than simply rebalancing less often,
+    because it keeps full exposure to the signal while dropping the noise trades."""
+    band = float(params.get("exit_band", 0.0))
+    if params.get("rule") == "momentum_only":
+        return p["abs_trend"] < 0              # control exits on trend alone
+    if params.get("exit_on_weaken", True):
+        # both WEAKENING and LAGGING sit below the momentum axis
+        if p["y"] < 100 - band:
+            return True
+    if params.get("need_trend", False) and p["abs_trend"] < 0:
+        return True
+    return False
+
+
+# How OFTEN you actually trade changes which setup is right. RRG is natively a
+# weekly/positional tool - running it on a 5-day rebalance with 10 slots generates
+# ~190 trades a year, which only suits someone at the screen daily. For an occasional
+# trader the same signal needs fewer slots, a longer hold, and far less churn.
+PROFILES = {
+    "active":     {"step": 5,  "max_pos": 10, "hold_min": 5,
+                   "note": "~190 trades/yr - screen every day"},
+    "swing":      {"step": 10, "max_pos": 6,  "hold_min": 10,
+                   "note": "~2 weeks per decision, a handful of positions"},
+    "positional": {"step": 20, "max_pos": 4,  "hold_min": 20,
+                   "note": "~monthly decisions, 4 slots - checks in when free"},
+}
+
+
+RULESETS = {
+    "A hold_leading":    ("hold_leading",   {}),
+    "B cross_leading":   ("cross_leading",  {}),
+    "C cross_improving": ("cross_improving", {}),
+    "D +distance":       ("improving_or_leading", {"min_distance": 1.0}),
+    "E +own-trend":      ("improving_or_leading", {"min_distance": 1.0, "need_trend": True}),
+    "F +heading NE":     ("improving_or_leading", {"min_distance": 1.0, "need_trend": True,
+                                                   "heading": (0, 90)}),
+    "G combined":        ("improving_or_leading", {"min_distance": 1.5, "need_trend": True,
+                                                   "heading": (-1, 100)}),
+    # H = E plus the two evidence-based upgrades: volatility targeting (Barroso &
+    # Santa-Clara 2015) to kill the crash tail, and a no-trade band to cut turnover.
+    "H +vol-target+band": ("improving_or_leading", {"min_distance": 1.0, "need_trend": True,
+                                                    "target_vol": 0.15, "exit_band": 0.5}),
+    "I H+regime":         ("improving_or_leading", {"min_distance": 1.0, "need_trend": True,
+                                                    "target_vol": 0.15, "exit_band": 0.5,
+                                                    "need_regime": True}),
+}
+
+
+# ---------------- walk-forward backtest ----------------
+def bench_uptrend(bench, t, fast=20, slow=50):
+    """Is the INDEX itself healthy at bar t? RRG is relative: a name can lead a falling
+    market and still lose money. This is the market-level gate that filter lacks."""
+    hist = bench[:t]
+    if len(hist) < slow + 2:
+        return True
+    f = E.ema(hist, fast)[-1]; sl = E.ema(hist, slow)[-1]
+    return f > sl and hist[-1] > sl
+
+
+def r_factor(closes, t, k=10, win=20):
+    """Move intensity: the recent move measured in units of the name's OWN noise.
+
+    This is the idea behind TradeFinder's R-Factor, adapted to daily bars - today's
+    activity judged against the same name's last ~20 days, so a 3% day in a sleepy stock
+    outranks a 3% day in one that moves 3% every session. Raw percent-change ranking, which
+    is what the strategy uses today, cannot tell those two apart and will keep picking the
+    noisiest names in the universe.
+
+    Theirs is intraday and proprietary; this is the daily, disclosed approximation. Signed,
+    because a long-only book wants up-intensity - the direction-agnostic version is for
+    intraday scalping, which is not this system.
+    """
+    h = closes[:t]
+    if len(h) < win + k + 2:
+        return 0.0
+    rets = [h[i] / h[i - 1] - 1 for i in range(len(h) - win, len(h))]
+    m = sum(rets) / len(rets)
+    sd = (sum((r - m) ** 2 for r in rets) / len(rets)) ** 0.5
+    if sd <= 0:
+        return 0.0
+    move = h[-1] / h[-1 - k] - 1
+    return move / (sd * (k ** 0.5))
+
+
+def r_factor_full(bars, t, k=10, win=20):
+    """R-factor with the two things the price-only version leaves out: VOLUME and RANGE.
+
+    Definedge describe their R-Factor as measuring the intensity of momentum AND
+    volatility - today's activity against the name's own last ~20 days. `r_factor` above
+    reads only close-to-close, so a 2-sigma move on half the usual volume and a 2-sigma
+    move on triple volume with a range three times normal score identically. For an option
+    BUYER that distinction is the trade: premium is paid for movement, and a move without
+    participation or range expansion is the one that stalls and bleeds theta.
+
+    The multiplier is bounded and CENTRED ON 1.0 - at normal volume and normal range it
+    reduces exactly to `r_factor`. That is deliberate: the two arms then differ only where
+    activity is abnormal, so the ablation measures the addition itself rather than two
+    unrelated rankings. Each ratio is capped at 3x so one freak print cannot dominate a
+    ranking across the whole universe.
+
+    NOT ENABLED. It exists to be measured against the price-only version by
+    `hypothesis.py`. A factor that has not been walk-forward tested does not go in the
+    live selector - that is exactly how RRG cost -6.3% after costs.
+    """
+    if not bars or t is None or t < win + k + 2 or len(bars) < t:
+        return 0.0
+    h = bars[:t]
+    closes = [b[4] for b in h]
+    base = r_factor(closes, len(closes), k=k, win=win)
+    if base == 0.0:
+        return 0.0
+
+    vols = [float(b[5] or 0) for b in h[-win:]]
+    mean_v = sum(vols) / len(vols) if vols else 0.0
+    v_ratio = (float(h[-1][5] or 0) / mean_v) if mean_v > 0 else 1.0
+
+    trs = []
+    for i in range(len(h) - win, len(h)):
+        hi, lo, pc = float(h[i][2]), float(h[i][3]), float(h[i - 1][4])
+        trs.append(max(hi - lo, abs(hi - pc), abs(lo - pc)))
+    mean_tr = sum(trs) / len(trs) if trs else 0.0
+    r_ratio = (trs[-1] / mean_tr) if mean_tr > 0 else 1.0
+
+    mult = 0.5 + 0.25 * min(v_ratio, 3.0) + 0.25 * min(r_ratio, 3.0)
+    return base * mult
+
+
+def backtest(prices, bench, rule, params, start=60, step=5, max_pos=10,
+             hold_min=5, cost_bps=15, tail=3, win=10, mom_win=5, side=None):
+    """Equal-weight rotation. Rebalance every `step` bars.
+    side: "long" (default), "short", or "both" - "both" splits the slots and lets the
+    short book carry the falling half of the universe, which a long-only version cannot.
+    cost_bps = round-trip slippage+brokerage per trade in basis points."""
+    params = dict(params); params.setdefault("rule", rule)
+    side = side or params.get("side", "long")
+    want_long = side in ("long", "both")
+    want_short = side in ("short", "both")
+    n = len(bench)
+    if n <= start + step * 3:
+        return None
+    equity = [1.0]
+    held = {}                       # name -> {entry_px, bars}
+    by_name = {s.split(":")[-1].replace("-EQ", ""): c for s, c in prices.items()}
+    entries, closed_rs = 0, []      # count entries; record every realised trade return
+    period_rets, exposure = [], []  # for volatility targeting
+
+    # Market-regime context, built once. params["regime"]: None/"off" | "gate" | "strict".
+    # Separate from the older need_regime flag, which was only the index's own trend -
+    # this adds breadth, volatility and drawdown, i.e. the channels global sentiment
+    # actually arrives through.
+    regime_ctx = None
+    if params.get("regime") in ("gate", "strict"):
+        try:
+            import market_regime as MR
+            regime_ctx = MR.Regime(prices, bench)
+        except Exception:
+            regime_ctx = None
+
+    t = start
+    while t + step < n:
+        pts = snapshot(prices, bench, t, tail=tail, win=win, mom_win=mom_win,
+                       bars=params.get("_bars"), dates=params.get("_dates"))
+        if not pts:
+            t += step; continue
+        pmap = {p["name"]: p for p in pts}
+
+        # --- exits ---
+        for name in list(held):
+            p = pmap.get(name)
+            held[name]["bars"] += step
+            if p is None:
+                continue
+            h = held[name]
+            gone = (_exit_ok_short(p, params) if h["dir"] < 0 else _exit_ok(p, params))
+            if h["bars"] >= hold_min and gone:
+                px = by_name[name][t - 1]
+                closed_rs.append((px / h["entry_px"] - 1) * h["dir"])
+                del held[name]
+
+        # --- entries. The regime gate only ever blocked LONGS; shorts are exactly what
+        # a weak index calls for, so they are never gated on it. ---
+        regime_ok = bench_uptrend(bench, t) if params.get("need_regime") else True
+        if regime_ctx is not None:
+            regime_ok = regime_ok and regime_ctx.tradeable(t, params["regime"])
+        usable = lambda p: p["name"] not in held and p["name"] in by_name and len(by_name[p["name"]]) > t
+        if params.get("rank") == "rfactor_full":
+            # the composite needs OHLCV, which the backtest already threads through
+            _b = params.get("_bars") or {}
+            _bysym = {s.split(":")[-1].replace("-EQ", ""): v for s, v in _b.items()}
+            rank = lambda p: r_factor_full(_bysym.get(p["name"]), t, k=mom_win * 2)
+        elif params.get("rank") == "rfactor":
+            rank = lambda p: r_factor(by_name[p["name"]], t, k=mom_win * 2)
+        else:
+            rank = rank_key(rule, params)      # same definition the live selector uses
+
+        if len(held) < max_pos:
+            slots = max_pos - len(held)
+            picks = []
+            if want_long and regime_ok:
+                longs = sorted([p for p in pts if usable(p) and _entry_ok(p, rule, params)],
+                               key=rank, reverse=True)
+                picks += [(p, +1) for p in longs[:(slots // 2 if want_short else slots)]]
+            if want_short:
+                taken = {p["name"] for p, _ in picks}
+                # ASCENDING. The rank is a bullishness score - higher is stronger - so
+                # sorting shorts the same way the longs are sorted put the STRONGEST name
+                # at the top of the short list and shorted it. Every earlier measurement
+                # of the short book was made through that, so "shorts do not work" was a
+                # statement about a broken short book, not about shorting.
+                shorts = sorted([p for p in pts if usable(p) and p["name"] not in taken
+                                 and _entry_ok_short(p, rule, params)], key=rank)
+                picks += [(p, -1) for p in shorts[:slots - len(picks)]]
+            for p, d in picks[:slots]:
+                held[p["name"]] = {"entry_px": by_name[p["name"]][t - 1], "bars": 0, "dir": d}
+                entries += 1
+
+        # --- mark to market over the next `step` bars ---
+        if held:
+            rets = []
+            for name, h in held.items():
+                c = by_name[name]
+                if t + step - 1 < len(c):
+                    rets.append((c[t + step - 1] / c[t - 1] - 1) * h["dir"])
+            gross = sum(rets) / len(rets) if rets else 0.0
+        else:
+            gross = 0.0
+        turnover_cost = (cost_bps / 10000.0) * (len(held) / max(max_pos, 1))
+
+        # --- volatility targeting (Barroso & Santa-Clara): cut exposure when the
+        # strategy's own recent volatility spikes. Momentum crashes arrive with high
+        # vol, so de-risking into them removes the worst of the drawdown. Capped at
+        # 1.0 so this can only ever REDUCE risk - never lever up. ---
+        tvol = params.get("target_vol")
+        scale = 1.0
+        if tvol:
+            look = period_rets[-12:]
+            if len(look) >= 6:
+                m = sum(look) / len(look)
+                sd = (sum((x - m) ** 2 for x in look) / len(look)) ** 0.5
+                ann = sd * math.sqrt(252 / step)
+                if ann > 1e-6:
+                    scale = min(1.0, float(tvol) / ann)
+        net = (gross - turnover_cost) * scale
+        period_rets.append(gross)
+        exposure.append(scale)
+        equity.append(equity[-1] * (1 + net))
+        t += step
+
+    # --- close anything still open, at the last bar, so accounting is complete ---
+    for name, h in held.items():
+        c = by_name.get(name)
+        if c:
+            closed_rs.append((c[min(t, len(c)) - 1] / h["entry_px"] - 1) * h["dir"])
+
+    # --- metrics (honest: no annualising a sample too small to support it) ---
+    # A longer rebalance step means fewer periods for the same history, so a flat
+    # period floor silently dropped the whole positional profile from the sweep.
+    # Require a meaningful SPAN of bars instead, and flag thin samples rather than
+    # hiding them.
+    periods = len(equity) - 1
+    if periods < 12 or periods * step < 180:
+        return None
+    low_sample = periods < 25
+    total = equity[-1] - 1
+    per_year = 252 / step
+    years = periods / per_year
+    cagr = (equity[-1] ** (1 / years) - 1) if years >= 0.75 and equity[-1] > 0 else None
+    rets = [equity[i] / equity[i - 1] - 1 for i in range(1, len(equity))]
+    mu = sum(rets) / len(rets)
+    sd = (sum((r - mu) ** 2 for r in rets) / len(rets)) ** 0.5 or 1e-9
+    sharpe = mu / sd * math.sqrt(per_year)
+    peak, mdd = equity[0], 0.0
+    for e in equity:
+        peak = max(peak, e); mdd = min(mdd, e / peak - 1)
+    wins = sum(1 for r in closed_rs if r > 0)
+    # ---- THE NUMBER THAT WAS NEVER COMPUTED ---------------------------------
+    # Everything above measures the STOCK. The money goes into an option, and an option
+    # is not a scaled copy of the stock: leverage multiplies the move, the bid-ask is
+    # charged on the premium (not the notional) and twice, and theta is charged every
+    # calendar day whether the thesis works or not. option_pnl.py was written for exactly
+    # this translation and was called from nowhere - a comment three lines below pointed
+    # at it. So the headline of this system has always been the underlying's move, and
+    # the trader's P&L was never reported at all.
+    #
+    # This is a MODEL, not a measurement: it assumes an average premium, an average delta
+    # and an average spread rather than the chain that existed on each day. It is a
+    # first-order answer to "does the stock edge survive being traded as an option", and
+    # a first-order answer is what a stock-only headline never gave.
+    opt = None
+    try:
+        import option_pnl as OP
+        import trade_card as _TC
+        try:
+            import config
+        except ImportError:                 # noqa - defaults below are then used
+            class config:                   # noqa
+                pass
+        hold_d = _TC.hold_days(hold_bars=step)
+        dte = float(getattr(config, "MIN_EXPIRY_DAYS", 15))
+
+        # PREMIUM AS A FRACTION OF SPOT: derived, not assumed.
+        # config carried OPT_PREMIUM_PCT = 0.012 as a proxy. Leverage is delta/premium,
+        # so that one constant sets the whole translation - and 1.2% is about half what a
+        # 15-day ATM option on a 30%-vol name really costs (0.4*sigma*sqrt(T) ~ 2.4%).
+        # Halving the premium DOUBLES the leverage and doubles the apparent edge. So it
+        # is priced properly: Black-Scholes at the money, on the volatility this universe
+        # has actually been running, for the expiry actually being bought.
+        prem_pct = getattr(config, "OPT_PREMIUM_PCT", None)
+        prem_src = "config OPT_PREMIUM_PCT"
+        try:
+            import option_metrics as OM
+            sigma = OM.realised_vol_annual(bench, window=20) or 0.25
+            prem_pct = OM.price(1.0, 1.0, OM.years_to_expiry(dte), sigma, "CE")
+            prem_src = (f"Black-Scholes ATM at {sigma*100:.0f}% vol, {dte:.0f}d "
+                        f"= {prem_pct*100:.2f}% of spot")
+        except Exception:      # noqa - fall back to the config proxy, and say which
+            prem_pct = float(prem_pct or 0.012)
+
+        o_rs, meta = OP.translate(
+            closed_rs,
+            premium_pct=float(prem_pct),
+            delta=float(getattr(config, "OPT_DELTA", 0.5)),
+            spread_pct=float(getattr(config, "OPTION_SPREAD_PCT", 0.02)),
+            days_to_expiry=dte,
+            hold_days=hold_d)
+        if meta.get("invalid"):
+            # The hold and the expiry do not fit each other. Reporting a number here
+            # would be reporting the price of a contract that expired inside the trade.
+            opt = {"invalid": meta["invalid"], "hold_days": round(hold_d, 2),
+                   "days_to_expiry": float(getattr(config, "MIN_EXPIRY_DAYS", 15))}
+        else:
+            o_wins = sum(1 for r in o_rs if r > 0)
+            opt = {
+                "avg_per_trade_pct": round(100 * sum(o_rs) / len(o_rs), 2) if o_rs else None,
+                "win_rate": round(100 * o_wins / len(o_rs), 1) if o_rs else None,
+                "sum_of_trades_pct": round(100 * sum(o_rs), 1) if o_rs else None,
+                "hold_days": round(hold_d, 2),
+                "drag_per_trade_pct": round(100 * meta["drag"], 2),
+                "theta_pct": round(100 * meta["theta_pct"], 2),
+                "spread_pct": round(100 * meta["spread_pct"], 2),
+                "leverage": round(meta["leverage"], 1),
+                "premium_pct": round(100 * float(prem_pct), 2),
+                "premium_src": prem_src,
+                "note": ("modelled, not measured: average premium/delta/spread, not the "
+                         "chain that existed each day. Directionally right, not a P&L "
+                         "statement."),
+            }
+    except Exception as e:      # noqa - a failed translation must not hide the stock result
+        opt = {"error": str(e)[:160]}
+
+    return {"total_return": round(total * 100, 2),
+            "cagr": round(cagr * 100, 2) if cagr is not None else None,
+            "sharpe": round(sharpe, 2), "max_dd": round(mdd * 100, 2),
+            "trades": len(closed_rs), "entries": entries,
+            # what the OPTION would have paid, which is the only number he can spend
+            "option": opt,
+            "avg_exposure": round(sum(exposure) / len(exposure), 2) if exposure else 1.0,
+            "win_rate": round(wins / len(closed_rs) * 100, 1) if closed_rs else 0,
+            "years": round(years, 2), "low_sample": low_sample,
+            # every realised trade's STOCK return. The book is traded in options, so this
+            # is the input option_pnl.py needs to say what the trader would actually have
+            # been paid - the headline above is the underlying's move, not his P&L.
+            "trade_returns": [round(r, 6) for r in closed_rs],
+            "equity": [round(e, 4) for e in equity]}
+
+
+def benchmark_stats(bench, start=60, step=5):
+    eq = [1.0]
+    t = start
+    while t + step < len(bench):
+        eq.append(eq[-1] * (bench[t + step - 1] / bench[t - 1]))
+        t += step
+    total = eq[-1] - 1
+    per_year = 252 / step; periods = len(eq) - 1
+    years = periods / per_year
+    cagr = (eq[-1] ** (1 / years) - 1) if years >= 0.75 and eq[-1] > 0 else None
+    peak, mdd = eq[0], 0.0
+    for e in eq:
+        peak = max(peak, e); mdd = min(mdd, e / peak - 1)
+    return {"total_return": round(total * 100, 2),
+            "cagr": round(cagr * 100, 2) if cagr is not None else None,
+            "max_dd": round(mdd * 100, 2), "equity": [round(e, 4) for e in eq]}
+
+
+# ---------------- the sweep: which setup wins? ----------------
+def sweep(prices, bench, step=5, max_pos=10, verbose=True, hold_min=5, profile=None):
+    rows = []
+    for label, (rule, params) in RULESETS.items():
+        r = backtest(prices, bench, rule, params, step=step, max_pos=max_pos,
+                     hold_min=hold_min)
+        if r:
+            r["setup"] = label; r["rule"] = rule; r["params"] = params
+            rows.append(r)
+    bm = benchmark_stats(bench, step=step)
+    rows.sort(key=lambda r: r["sharpe"], reverse=True)
+    if verbose:
+        head = f"  RRG SETUP SWEEP  ·  walk-forward, no lookahead  ·  rebalance every {step} bars"
+        if profile:
+            head += f"  ·  profile: {profile.upper()}"
+        print("\n" + head)
+        print("  " + "-" * 78)
+        print(f"  {'SETUP':<20}{'RETURN%':>9}{'CAGR%':>8}{'SHARPE':>8}{'MAXDD%':>9}"
+              f"{'TRADES':>8}{'WIN%':>7}{'EXP':>6}")
+        print("  " + "-" * 78)
+        for r in rows:
+            cagr = f"{r['cagr']:>8.1f}" if r.get("cagr") is not None else f"{'n/a':>8}"
+            exp = r.get("avg_exposure", 1.0)
+            flag = " *" if r.get("low_sample") else ""
+            print(f"  {r['setup']:<20}{r['total_return']:>9.1f}{cagr}"
+                  f"{r['sharpe']:>8.2f}{r['max_dd']:>9.1f}{r['trades']:>8}{r['win_rate']:>7.1f}"
+                  f"{exp:>6.2f}{flag}")
+        print("  " + "-" * 78)
+        bcagr = f"{bm['cagr']:>8.1f}" if bm.get("cagr") is not None else f"{'n/a':>8}"
+        print(f"  {'NIFTY (buy & hold)':<20}{bm['total_return']:>9.1f}{bcagr}"
+              f"{'—':>8}{bm['max_dd']:>9.1f}")
+        print("  " + "-" * 78)
+        if rows:
+            best = rows[0]
+            print(f"  BEST BY SHARPE: {best['setup']}   "
+                  f"(return {best['total_return']:.1f}% vs NIFTY {bm['total_return']:.1f}%, "
+                  f"maxDD {best['max_dd']:.1f}%)")
+            beat = "beats" if best["total_return"] > bm["total_return"] else "does NOT beat"
+            print(f"  -> this setup {beat} buy-and-hold on this sample.")
+
+            # ---- the same edge, TRADED AS AN OPTION ------------------------
+            # Every number above is the underlying's move. He buys a call. Printing only
+            # the stock line is how a validated backtest becomes an account that bleeds:
+            # the direction was right and the contract still lost, because leverage,
+            # spread and theta sit between the two and on a short hold they are not small.
+            o = best.get("option") or {}
+            print("  " + "-" * 78)
+            if o.get("error"):
+                print(f"  AS AN OPTION: could not translate — {o['error']}")
+            elif o.get("invalid"):
+                print(f"  AS AN OPTION: NOT COMPARABLE")
+                print(f"    {o['invalid']}")
+                print(f"    This is a finding about the SETUP, not a missing number: a "
+                      f"{o['hold_days']:.0f}-day hold\n    cannot be expressed in a "
+                      f"{o['days_to_expiry']:.0f}-day option. Either the cadence or "
+                      f"MIN_EXPIRY_DAYS is wrong.")
+            elif o.get("avg_per_trade_pct") is not None:
+                print(f"  AS AN OPTION  (the number he can actually spend)")
+                print(f"    per trade      {o['avg_per_trade_pct']:+.2f}%   "
+                      f"win rate {o['win_rate']:.1f}%   "
+                      f"(stock win rate {best['win_rate']:.1f}%)")
+                print(f"    drag/trade     {o['drag_per_trade_pct']:.2f}%   "
+                      f"= theta {o['theta_pct']:.2f}% + spread {o['spread_pct']:.2f}%   "
+                      f"over a {o['hold_days']:.2f}-day hold")
+                print(f"    leverage       {o['leverage']:.1f}x   "
+                      f"(premium {o['premium_pct']:.2f}% of spot — {o['premium_src']})")
+                verdict = ("SURVIVES the option" if o["avg_per_trade_pct"] > 0
+                           else "DOES NOT survive the option")
+                print(f"    -> the stock edge {verdict}.")
+                print(f"    {o['note']}")
+        print("  " + "-" * 78)
+        if any(r.get("low_sample") for r in rows):
+            print("  * = thin sample (few rebalances). Direction is informative,")
+            print("      the exact Sharpe is not - get more history to firm it up.")
+        print("  EXP = average exposure. Below 1.00 means volatility targeting was")
+        print("  de-risking - lower return there is the PRICE of a smaller drawdown.")
+        print("  A backtest is a hypothesis, not a promise. Costs assumed 15bps/trade.\n")
+    return rows, bm
+
+
+def save_best(rows, path="rrg_best_setup.json"):
+    if not rows:
+        return None
+    best = rows[0]
+    out = {"setup": best["setup"], "rule": best["rule"], "params": best["params"],
+           "metrics": {k: best[k] for k in ("total_return", "cagr", "sharpe", "max_dd",
+                                            "trades", "win_rate")},
+           "saved_at": datetime.now(IST).isoformat()}
+    with open(path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"  [saved] best setup -> {path}")
+    return out
+
+
+def load_best(path="rrg_best_setup.json"):
+    """The live app uses this so it trades the setup your own data validated."""
+    if os.path.exists(path):
+        with open(path) as f:
+            b = json.load(f)
+        return b.get("rule"), b.get("params", {}), b
+    # Default is the ablation winner, not the elaborate one. On real NSE data the
+    # rotation layer cost 6.3% after costs and tripled turnover, while the plain
+    # own-trend filter won every walk-forward fold on a third of the trades.
+    return "momentum_only", {"need_trend": True}, None
+
+
+# ---------------- live signal selection ----------------
+def rank_key(rule, params, prices=None, t=None):
+    """The ranking the CHOSEN rule uses - one definition, shared by live and backtest.
+
+    These had drifted apart. The backtest ranked momentum_only by the name's own trailing
+    return, which is what produced the validated result; the live selector always ranked
+    by RRG distance x velocity. So the system traded a different stock than the one it had
+    been tested on - and by the one measure the ablation had already shown to be
+    decoration. A ranking that differs between test and live invalidates the test.
+    """
+    params = params or {}
+    if params.get("rank") == "rfactor" and prices:
+        by_name = {s.split(":")[-1].replace("-EQ", ""): c for s, c in prices.items()}
+        end = t if t is not None else None
+        return lambda p: r_factor(by_name.get(p["name"], []),
+                                  end if end is not None else len(by_name.get(p["name"], [])),
+                                  k=10)
+    if rule == "momentum_only":
+        return lambda p: p.get("abs_pct", 0)
+    return lambda p: p["distance"] * (1 + p["velocity"])
+
+
+def price_band(points):
+    """Drop names outside PRICE_MIN..PRICE_MAX. Off unless both are set.
+
+    This is a UNIVERSE filter, not a signal: it changes which names are eligible, and it
+    has not been walk-forward tested, so it stays off by default and is stated wherever it
+    is on. The honest case for it is practical rather than statistical - a Rs 60 stock and
+    a Rs 6,000 stock need very different lot sizes to make one lot affordable, and one of
+    them will not fit the account.
+    """
+    try:
+        import config
+        lo = float(getattr(config, "PRICE_MIN", 0) or 0)
+        hi = float(getattr(config, "PRICE_MAX", 0) or 0)
+    except Exception:
+        return points, None
+    if lo <= 0 and hi <= 0:
+        return points, None
+    kept = [p for p in points
+            if (lo <= 0 or (p.get("close") or 0) >= lo)
+            and (hi <= 0 or (p.get("close") or 0) <= hi)]
+    return kept, {"min": lo, "max": hi, "dropped": len(points) - len(kept)}
+
+
+def select(points, rule=None, params=None, max_pos=10, prices=None):
+    """Rank today's candidates under the chosen setup -> the names to trade."""
+    if rule is None:
+        rule, params, _ = load_best()
+    params = params or {}
+    points, band = price_band(points)
+    longs = [p for p in points if _entry_ok(p, rule, params)]
+    longs.sort(key=rank_key(rule, params, prices), reverse=True)
+    exits = [p for p in points if _exit_ok(p, params)]
+    # The short book was already in the backtest and reachable from nothing live. Ranked
+    # by the same key, inverted - the weakest name is the best short, and using the long
+    # ranking unchanged would have put the strongest name at the top of the short list.
+    shorts = [p for p in points if _entry_ok_short(p, rule, params)]
+    shorts.sort(key=rank_key(rule, params, prices))
+    return {"longs": longs[:max_pos], "shorts": shorts[:max_pos], "exits": exits,
+            "rule": rule, "params": params, "band": band}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--demo", action="store_true", help="synthetic data (mechanics proof)")
+    ap.add_argument("--sweep", action="store_true", help="live data sweep (needs Fyers token)")
+    ap.add_argument("--days", type=int, default=300)
+    ap.add_argument("--step", type=int, default=None, help="rebalance every N bars")
+    ap.add_argument("--max-pos", type=int, default=None)
+    ap.add_argument("--profile", default="positional",
+                    choices=list(PROFILES), help="how often you actually trade")
+    ap.add_argument("--all-profiles", action="store_true",
+                    help="compare active vs swing vs positional")
+    a = ap.parse_args()
+    prof = PROFILES[a.profile]
+    step = a.step or prof["step"]
+    max_pos = a.max_pos or prof["max_pos"]
+    hold_min = prof["hold_min"]
+
+    if a.demo:
+        print("  [DEMO] synthetic universe — proves the harness, NOT a real edge.")
+        _, prices, bench = E.demo_points()
+    else:
+        def prog(i, n):
+            print(f"    fetching {i}/{n}…", end="\r")
+        from fno_universe import fno_stocks
+        prices, bench, _dates = E.fetch_history(fno_stocks(), days=a.days, progress=prog)
+        print(f"\n  history: {len(prices)} names, {len(bench)} bars")
+
+    if a.all_profiles:
+        print("\n  COMPARING TRADING PROFILES  (best setup within each)")
+        print("  " + "-" * 74)
+        print(f"  {'PROFILE':<14}{'BEST SETUP':<22}{'RETURN':>9}{'SHARPE':>8}{'MAXDD':>9}{'TRADES':>8}")
+        print("  " + "-" * 74)
+        keep = None
+        for name, p in PROFILES.items():
+            rws, bmk = sweep(prices, bench, step=p["step"], max_pos=p["max_pos"],
+                             hold_min=p["hold_min"], verbose=False)
+            if not rws:
+                continue
+            b = rws[0]
+            print(f"  {name:<14}{b['setup']:<22}{b['total_return']:>8.1f}%"
+                  f"{b['sharpe']:>8.2f}{b['max_dd']:>8.1f}%{b['trades']:>8}")
+            if name == a.profile:
+                keep = rws
+        print("  " + "-" * 74)
+        print(f"  NIFTY buy & hold: {bmk['total_return']:.1f}%  maxDD {bmk['max_dd']:.1f}%")
+        print(f"  Fewer trades is not a compromise for you - it is less cost drag and")
+        print(f"  fewer decisions to get wrong.\n")
+        if keep and not a.demo:
+            save_best(keep)
+        return
+
+    print(f"  profile: {a.profile}  ({prof['note']})")
+    rows, bm = sweep(prices, bench, step=step, max_pos=max_pos,
+                     hold_min=hold_min, profile=a.profile)
+    if not a.demo:
+        save_best(rows)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,9 @@
+# T-Amp - classic player for YouTube Music. Everything installs from pip; nothing else to set up.
+PySide6>=6.7            # the window, drawn in code
+numpy>=1.26
+scipy>=1.11             # the equaliser's filters
+sounddevice>=0.4.6      # speakers (PortAudio ships inside the Windows wheel)
+imageio-ffmpeg>=0.5     # a bundled ffmpeg.exe that decodes the streams
+yt-dlp[default]>=2025.11.12   # finds the audio stream for a song
+ytmusicapi>=1.8         # YouTube Music search (no API key, no login)
+deno>=2.0               # the JavaScript runtime yt-dlp needs to unlock YouTube's audio formats

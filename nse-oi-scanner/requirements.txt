@@ -1,0 +1,6 @@
+fyers-apiv3>=3.0.0
+streamlit>=1.30
+plotly>=5.18
+# matplotlib / pandas / numpy were direct dependencies of the chart-image and
+# report generation that has since been deleted. Nothing imports them now;
+# Streamlit brings its own pandas.
