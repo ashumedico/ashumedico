@@ -1,0 +1,126 @@
+name: T-Amp Windows build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['t-amp-v*']        # a version tag publishes a GitHub Release with the .exe
+    paths: ['t-amp/**', '.github/workflows/t-amp-windows.yml']
+  pull_request:
+    paths: ['t-amp/**', '.github/workflows/t-amp-windows.yml']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Also publish this build as release t-amp-v<version>, e.g. 1.0.0 (empty = just build)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: t-amp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: t-amp/requirements.txt
+      - name: Install
+        run: python -m pip install -r requirements.txt pytest pyinstaller
+      - name: Tests (audio engine, EQ, visualiser, UI offscreen, parsing, updater)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          T_AMP_SHOTS: ${{ github.workspace }}\t-amp\shots
+        run: python -m pytest tests -q
+      - name: Build T-Amp.exe
+        run: python build.py
+      - name: Built exe finds its own ffmpeg and JavaScript runtime
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\T-Amp\T-Amp.exe -ArgumentList '--selftest','--no-audio' -Wait -PassThru
+          $r = Get-Content "$env:APPDATA\T-Amp\selftest.txt"
+          $r
+          if (-not ($r -match '^\[PASS\] ffmpeg')) { Write-Error 'bundled ffmpeg failed'; exit 1 }
+          if (-not ($r -match '^\[PASS\] javascript runtime')) { Write-Error 'bundled deno failed'; exit 1 }
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\T-Amp -DestinationPath T-Amp-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: T-Amp-windows
+          path: t-amp/T-Amp-windows.zip
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: t-amp/shots
+          if-no-files-found: ignore
+
+  live-youtube:
+    # The built exe, end to end against real YouTube Music: search -> stream -> 3 s of decoded audio.
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: T-Amp-windows
+      - name: Self-test the exe against YouTube Music
+        shell: pwsh
+        run: |
+          Expand-Archive T-Amp-windows.zip -DestinationPath .
+          $p = Start-Process -FilePath T-Amp\T-Amp.exe -ArgumentList '--selftest','--no-audio' -Wait -PassThru
+          Get-Content "$env:APPDATA\T-Amp\selftest.txt"
+          if ($p.ExitCode -eq 3) {
+            # Search passed; YouTube refused streams to this datacenter IP. Any other failure stays red.
+            Write-Output "::warning title=YouTube bot check::YouTube asked this GitHub runner (datacenter IP) to sign in before serving streams. Live search passed; run SELFTEST.bat on a home connection to check streaming."
+            exit 0
+          }
+          exit $p.ExitCode
+
+  release:
+    # For a t-amp-v* tag, or a manual run given a version; only after the exe built, passed its
+    # tests and its live check. A manual run creates the tag on the exact commit it built.
+    if: startsWith(github.ref, 'refs/tags/t-amp-v') || (github.event_name == 'workflow_dispatch' && inputs.release != '')
+    needs: [build, live-youtube]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: T-Amp-windows
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if ! [[ "$RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::release must look like 1.0.0, got '$RELEASE'"; exit 1
+            fi
+            tag="t-amp-v$RELEASE"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          version="${tag#t-amp-v}"
+          cat > notes.md <<'EOF'
+          A classic Winamp-style player for YouTube Music, for Windows 10/11 (64-bit).
+
+          **Install:** download **T-Amp-windows.zip** below, unzip it anywhere, and double-click `T-Amp\T-Amp.exe`.
+          The folder is self-contained (Python, Qt, ffmpeg and the JavaScript runtime are inside); nothing else to install.
+
+          The exe is not code-signed, so Windows may show *"Windows protected your PC"*: click **More info -> Run anyway**.
+
+          **First check:** run it once with `T-Amp.exe --selftest` (or `SELFTEST.bat` from the source folder).
+          It ends by playing 3 s of a song aloud; the report is in `%APPDATA%\T-Amp\selftest.txt`.
+          Built and tested on a Windows runner, where live YouTube Music search passed; YouTube's bot
+          check blocks streams to GitHub's servers, so home-connection playback is what that self-test proves.
+          EOF
+          gh release create "$tag" T-Amp-windows.zip --target "$GITHUB_SHA" \
+            --repo "$GITHUB_REPOSITORY" --title "T-Amp $version" --notes-file notes.md
