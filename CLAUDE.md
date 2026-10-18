@@ -130,6 +130,12 @@ expiring (an env var a test harness sets), never a config flag — and a process
 a number is never allowed to *send* an order. *A banner said "not one number here is real" and four
 tickets below it quoted a stop to the paisa. Reading is not a safety mechanism.*
 
+## Financial freedom → `.claude/skills/financial-freedom/`
+`/financial-freedom` — turn income into passive income on safe assets: **backup → debt-free
+(highest rate first) → a corpus that pays living**. The rupee waterfall, prepay-vs-invest after tax,
+FOIR and emergency cover, an Indian SWR and the real-return lifetime of a corpus, and levers ranked
+by measured effect. *On safe assets the biggest lever is salary growth, not yield.* Not financial advice.
+
 ## The bar → `.claude/skills/solution-first/`
 `/solution-first` — **always on, every task.** Never hand back an excuse, a caveat or a limitation
 as the deliverable. Research the real answer (vendor docs, the API's own response, the source), fix
