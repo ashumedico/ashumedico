@@ -25,7 +25,8 @@ live search, downloading a song, 3 seconds of decoded audio, and 3 seconds playe
 the player's own engine (you will hear the song). The report is saved to
 `%APPDATA%\T-Amp\selftest.txt`. If a song won't play, the full reason is in
 `%APPDATA%\T-Amp\playback.log` (the title display scrolls it too). If T-Amp ever closes
-on its own, the reason is in `%APPDATA%\T-Amp\crash.log`.
+on its own, the reason is in `%APPDATA%\T-Amp\crash.log`, including a crash inside the
+sound driver.
 
 ## What's in it
 
@@ -101,6 +102,11 @@ in the background halfway through the current one.
   your browser (Firefox is the dependable one on Windows; Chrome and Edge lock their cookie
   store) or a `cookies.txt` export. T-Amp then stops rather than skipping through the whole
   playlist.
+- **Locking the PC, the screensaver and the display sleeping don't end the song.** If Windows
+  takes the sound device away (speakers in an HDMI monitor vanish when it sleeps), T-Amp holds
+  its place, shows *NO AUDIO DEVICE*, and carries on the moment the device is back. After you
+  unlock or wake the PC it reopens the output, so the sound follows Windows' current default
+  device. **Signing out** is different: Windows closes every program then, T-Amp included.
 - Search results are for region **IN** (`"region"` in `%APPDATA%\T-Amp\state.json`).
 - For personal listening. Streams come straight from YouTube, so YouTube's terms
   apply. Inspired by Winamp 2; not affiliated with Winamp or YouTube, and no Winamp
