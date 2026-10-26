@@ -116,7 +116,8 @@ class Player(QObject):
 
     @property
     def buffering(self) -> bool:
-        return self.status == "connecting" or (self.status == "playing" and self.engine.state == "buffering")
+        return self.status == "connecting" or (self.status == "playing" and (
+            self.engine.state == "buffering" or self.engine.device_down))
 
     @property
     def message(self) -> str:
@@ -307,6 +308,11 @@ class Player(QObject):
         req = self._req
         if skip and self._fails < max(2, len(self.tracks)) and len(self.tracks) > 1:
             QTimer.singleShot(self.SKIP_DELAY_MS, lambda: self._skip_after_fail(req))
+
+    def audio_moved(self, reason: str) -> None:
+        """Windows may have changed the sound device (unlock, wake, display on): reopen the output."""
+        self._log(f"{reason}: reopening the audio output")
+        self.engine.reset_output()
 
     def _log(self, msg: str) -> None:
         """Full error text to playback.log - the title display only has room for the start of it."""
@@ -554,8 +560,14 @@ class Player(QObject):
                 else:
                     self._fail(ev[1])
             elif ev[0] == "device":
-                self.stop()
-                self.flash(f"AUDIO DEVICE: {ev[1]}", 10.0)
+                # Locked screen, screensaver, display asleep, headset gone: the song waits, it doesn't end.
+                self._log(f"audio device unavailable, waiting for it: {ev[1]}")
+                self.flash("NO AUDIO DEVICE RIGHT NOW - THE SONG CARRIES ON WHEN IT IS BACK", 15.0)
+            elif ev[0] == "device_ok":
+                self._log(f"audio device back: {ev[1] or 'default output'}")
+                self.flash(f"AUDIO BACK ON {ev[1].upper()}" if ev[1] else "AUDIO BACK", 4.0)
+            elif ev[0] == "device_reset":
+                self._log(f"audio output reopened ({ev[1]})")
         if self.status == "playing":
             mono = self.engine.audible_samples(2048)
             if not self._proven and self.engine.state == "playing" and self.position > self._start_at + 3:
