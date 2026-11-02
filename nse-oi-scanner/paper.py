@@ -1,0 +1,811 @@
+"""
+paper.py  —  paper trading, run daily, judged against what the backtest promised.
+
+Paper results on their own are close to useless for weeks: twenty trades tell you almost
+nothing, and a good run feels like proof while a bad one feels like failure. What makes
+them worth keeping is the comparison. The backtest made a specific claim - this win rate,
+this average trade. Paper trading is the experiment that claim has to survive. So every
+report here puts the two side by side and says whether live is inside the range the
+backtest would produce by chance.
+
+It also trades the OPTION, not the stock. A paper book that records "the stock went up
+0.8%" would flatter every result, because the account pays premium, spread and decay.
+
+    python paper.py            # take today's signal, mark open trades, show the book
+    python paper.py --report   # just the scorecard
+    python paper.py --reset    # start the book over (asks first)
+
+Nothing here places a real order. It writes to paper_trades.json only - and `--demo`
+writes to paper_trades.synthetic.json instead, so an invented fill can never end up in
+the record he judges the system by.
+
+NOT financial advice.
+"""
+import os, json, math, argparse
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
+BOOK = "paper_trades.json"
+
+try:
+    import config
+except ImportError:
+    class _C:
+        CAPITAL = 200000; RISK_PCT = 0.05; MAX_POSITIONS = 1
+    config = _C()
+
+G, R, Y, B, DIM, X = "\033[92m", "\033[91m", "\033[93m", "\033[96m", "\033[90m", "\033[0m"
+if os.name == "nt" and not (os.environ.get("WT_SESSION") or os.environ.get("TERM")):
+    G = R = Y = B = DIM = X = ""
+
+
+def now():
+    return datetime.now(IST)
+
+
+def book_path(synthetic=False):
+    """Which book to write. Synthetic runs NEVER touch the real one.
+
+    The paper book is the record he judges the system by - the only honest answer to
+    "does this actually work". `--demo` used to write invented trades straight into it,
+    and a synthetic fill in a track record is not a labelling problem, it is a corrupted
+    measurement: three months later nobody can tell which rows were real, and the whole
+    file has to be thrown away. Separate file, permanently.
+    """
+    return "paper_trades.synthetic.json" if synthetic else BOOK
+
+
+def load(synthetic=False):
+    p = book_path(synthetic)
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"open": [], "closed": [], "started": now().isoformat(),
+            **({"synthetic": True} if synthetic else {})}
+
+
+def save(bk, synthetic=False):
+    with open(book_path(synthetic), "w") as f:
+        json.dump(bk, f, indent=2)
+
+
+def _live_qty(t):
+    """How much of this position the broker CONFIRMED, for sizing an exit.
+
+    Absent and zero are different facts, and conflating them here would have been the
+    same mistake this whole layer exists to fix - one door further along. A trade written
+    before live_qty existed has no confirmation either way: that is UNKNOWN, and treating
+    it as zero would silently strip the exit off every position already open in his book
+    the day he upgrades. A position the system cannot exit is precisely the trap the
+    drawdown halt is written to avoid.
+
+    So: present means confirmed, and 0 then genuinely means nothing was bought. Absent
+    falls back to the recorded quantity and lets broker.place() do the real check - it
+    asks the exchange what is held, which is a better answer than either guess.
+    """
+    v = t.get("live_qty")
+    return int(t.get("qty") or 0) if v is None else int(v)
+
+
+# ---------------- taking a trade ----------------
+def take(bk, card, point, max_pos=None, modelled_ok=False):
+    """Record the ticket exactly as the check-in printed it - same size, same stop, same
+    targets. A paper book that improves on the ticket is measuring a different strategy.
+
+    max_pos overrides the config cap. The backtest needs that: it was passing its own
+    slot count and being silently held to config.MAX_POSITIONS instead, so a run asked to
+    hold eight positions quietly held one and reported the result as if it had held eight.
+    """
+    cap = int(max_pos if max_pos is not None
+              else getattr(config, "MAX_POSITIONS", 1) or 1)
+    if len(bk["open"]) >= cap:
+        return None, f"{len(bk['open'])}/{cap} slot bhare hain"
+    if any(p["name"] == card["name"] for p in bk["open"]):
+        return None, f"{card['name']} pehle se book mein hai"
+    # ...AND NOT AGAIN TODAY AFTER IT CLOSED. The check above only ever looked at OPEN
+    # positions, so the moment a trade closed the same name was eligible again on the next
+    # run. Six identical PERSISTENT rows reached the scorecard that way - same entry
+    # premium, same reason - and the scorecard read them as six trades. It reported 86%
+    # won and +84% of capital from what was, at most, two distinct trades.
+    #
+    # One entry per name per day. That is what "one or two trades a day" means, and the
+    # book is the record the whole system is judged by: a duplicated row does not overstate
+    # the result a little, it multiplies whichever way that trade happened to go.
+    if not modelled_ok:
+        today_ = now().date().isoformat()
+        for p in (bk.get("closed") or []):
+            if p.get("name") != card["name"]:
+                continue
+            if str(p.get("opened") or "")[:10] == today_:
+                return None, (f"{card['name']} aaj pehle hi liya aur band ho gaya - "
+                              f"ek naam, ek din mein ek baar")
+    o = card.get("option") or {}
+    if not o:
+        return None, "option leg nahi bana"
+    # A modelled premium is not a fill. Recording one as the entry price makes every
+    # result downstream - win rate, average trade, the comparison against the backtest -
+    # a measurement of the model rather than of the market, and there is no way to tell
+    # afterwards which rows were which. The book stays clean or it is not evidence.
+    #
+    # modelled_ok is for the BACKTEST, and only for it. A backtest over 900 days has no
+    # chain to quote from - historical option chains do not exist - so every premium in it
+    # is modelled by construction, and refusing them returns zero trades rather than an
+    # honest result. It runs on its own in-memory dict and never opens paper_trades.json,
+    # so nothing it models can reach the live record. The first version of this check
+    # missed that and silently emptied the backtest.
+    if (o.get("premium_source") or "") == "estimated" and not modelled_ok:
+        return None, (f"{card['name']}: premium estimated, chain se koi quote nahi - "
+                      f"book mein nahi daal raha")
+    t = {
+        "name": card["name"], "symbol": card.get("symbol"),
+        "opened": now().isoformat(),
+        "spot_in": card["spot"],
+        "strike": o["strike"], "type": o["type"], "expiry": o.get("expiry"),
+        "premium_in": o["premium"], "premium_source": o.get("premium_source"),
+        "tradingsymbol": o.get("tradingsymbol"),
+        # the bid-ask THIS strike was actually quoting, so the book is costed on what it
+        # faced rather than on a universe average
+        "spread_pct_measured": ((o.get("quality") or {}).get("spread_pct")
+                                if (o.get("quality") or {}).get("spread_src") == "measured"
+                                else None),
+        "qty": card["size"]["qty"], "lot": card["size"]["lot"],
+        "cost": card["size"].get("cost_per_lot", 0) * card["size"]["lots"],
+        # the stock-level plan the option inherits
+        "stop": card["stock"]["stop"], "t1": card["stock"]["t1"], "t2": card["stock"]["t2"],
+        "opt_stop": o.get("stop"), "opt_t1": o.get("t1"), "opt_t2": o.get("t2"),
+        # The trail rides at the same distance as the original stop: the risk that was
+        # acceptable at entry is the risk that stays acceptable, and a distance derived
+        # from the name's own volatility travels with it.
+        "high_water": card["spot"],
+        "trail_dist": round(abs(card["spot"] - card["stock"]["stop"]), 2),
+        "signal_date": (point or {}).get("signal_date"),
+        "freshness": (point or {}).get("freshness"),
+        "oi": (point or {}).get("signal"),
+        "half_booked": False,
+        # +1 = CE, bought on a rise. -1 = PE, bought on a fall. BOTH ARE BUYS: max loss is
+        # the premium either way. Nothing here writes an option - that would be a margin
+        # position with open-ended risk, and it is not what this system does.
+        "dir": -1 if o.get("type") == "PE" else 1,
+    }
+    # The live order goes out BESIDE the paper record, never instead of it. Paper is the
+    # measurement and has to stay complete whether or not the live leg fills - and if the
+    # two ever diverge, that divergence is itself the thing worth knowing.
+    #
+    # live_qty is the number that matters afterwards, and it is CONFIRMED, not assumed.
+    # broker.buy() returning ok means the order was accepted and given an id; the book
+    # used to treat that as a position. Every exit downstream now sizes off live_qty, so
+    # an order that was acknowledged and never traded sends nothing later.
+    t["live_qty"] = 0
+    try:
+        import broker
+        ok, detail = broker.buy(t["tradingsymbol"], t["qty"], tag=f"entry:{t['name']}")
+        t["live_entry"] = {"ok": ok, "detail": str(detail)[:200]}
+        if ok:
+            filled, row, ferr = _confirm_fill(broker, detail)
+            t["live_entry"].update({"filled_qty": filled, "confirm_error": ferr,
+                                    "broker_status": (row or {}).get("status")})
+            t["live_qty"] = int(filled or 0)
+            # THE RESTING STOP. The trailing stop lives in the session loop and dies with
+            # it - close the window and nothing is watching. This one sits at the exchange
+            # and survives a dead process. It cannot trail, so the two are complements:
+            # the loop's stop for when he is watching, this one for when he is not.
+            if t["live_qty"] > 0 and o.get("stop"):
+                sok, sdetail = broker.stop_loss(t["tradingsymbol"], t["live_qty"],
+                                                o["stop"], tag=f"rest-sl:{t['name']}")
+                t["stop_order"] = {"ok": sok, "id": sdetail if sok else None,
+                                   "detail": str(sdetail)[:200], "trigger": o["stop"]}
+    except Exception as e:      # noqa
+        t["live_entry"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
+    bk["open"].append(t)
+    return t, None
+
+
+def _confirm_fill(broker, order_id, tries=6, wait=2.0):
+    """Ask the broker what actually traded, for a few seconds. (filled, row, error).
+
+    A market order on a liquid strike fills in well under a second, but the orderbook can
+    lag it, so a single immediate read would report 0 and be believed. Polling briefly and
+    then reporting UNKNOWN is the honest shape: None here never becomes a quantity, so an
+    unconfirmed entry simply sends no exit rather than guessing one.
+    """
+    import time as _t
+    filled, row, err = None, None, "not checked"
+    for i in range(tries):
+        filled, row, err = broker.fill_of(order_id)
+        if filled:
+            return filled, row, None
+        if i < tries - 1:
+            _t.sleep(wait)
+    return filled, row, err
+
+
+# ---------------- marking to market ----------------
+SESSION_OPEN = (9, 15)
+SESSION_CLOSE = (15, 30)
+
+
+def market_minutes_between(a, b):
+    """Minutes the market was actually OPEN between two timestamps.
+
+    Wall-clock elapsed is the wrong measure for a trade's age: a position opened at 15:00
+    Friday is not 3 days old on Monday morning, it is one hour old. Counting only session
+    minutes is what makes a bar-based timeout mean the same thing across an overnight or
+    a weekend."""
+    if b <= a:
+        return 0.0
+    total, day = 0.0, a
+    while day.date() <= b.date():
+        if day.weekday() < 5:                      # Sat/Sun have no session
+            o = day.replace(hour=SESSION_OPEN[0], minute=SESSION_OPEN[1],
+                            second=0, microsecond=0)
+            c = day.replace(hour=SESSION_CLOSE[0], minute=SESSION_CLOSE[1],
+                            second=0, microsecond=0)
+            lo, hi = max(o, a), min(c, b)
+            if hi > lo:
+                total += (hi - lo).total_seconds() / 60.0
+        day = (day + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return total
+
+
+def bars_held(t, bar_minutes=None):
+    bm = float(bar_minutes if bar_minutes is not None
+               else getattr(config, "BAR_MINUTES", 375))
+    mins = market_minutes_between(datetime.fromisoformat(t["opened"]), now())
+    return mins / max(bm, 1)
+
+
+def book_half(t, spot_now):
+    """Book half AT T1 - but only as many WHOLE LOTS as half actually is.
+
+    NSE F&O sells in lot multiples and nothing else. On one lot of 1225, "half" is 612.5,
+    which is not an order anybody can place. The paper book used to score half out at T1
+    regardless, while the live account went on holding the whole position - so every trade
+    that tagged T1 and came back made paper look better than the account, and the
+    scorecard he checks against the backtest was measuring a trade that cannot be taken.
+
+    With LOTS_PER_TRADE = 1 there is no half. T1 stops being a booking and becomes what it
+    can honestly be: the moment the stop is guaranteed to be at least breakeven, with the
+    trail carrying the rest. Nothing is scored that was not sellable.
+    """
+    lot = int(t.get("lot") or 0)
+    lots = int(t["qty"] // lot) if lot else 0
+    half_lots = lots // 2
+    if half_lots < 1:
+        return (f"T1 - {lots or 1} lot hai, aadha book nahi ho sakta (lot ke multiple mein "
+                f"hi bikta hai). Stop {t['stop']} pe - ab yahan se sirf trail.")
+
+    qty = half_lots * lot
+    prem = option_exit_premium(t, spot_now)
+    t["booked"] = {"qty": qty, "premium": round(prem, 2), "at": now().isoformat()}
+    t["qty"] = t["qty"] - qty            # the rest rides; close() prices only the rest
+    # Sell only what the broker confirmed was bought. The paper leg books its half either
+    # way - it is the measurement - but the live leg is capped by the live position.
+    live_half = min(qty, _live_qty(t))
+    try:
+        import broker
+        if live_half > 0:
+            ok, detail = broker.sell(t.get("tradingsymbol"), live_half,
+                                     tag=f"t1:{t['name']}")
+            t["booked"]["live"] = {"ok": ok, "qty": live_half, "detail": str(detail)[:200]}
+            if ok:
+                t["live_qty"] = int(t.get("live_qty") or 0) - live_half
+        else:
+            t["booked"]["live"] = {"ok": False, "qty": 0,
+                                   "detail": "no confirmed live position to book against"}
+    except Exception as e:      # noqa
+        t["booked"]["live"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
+    return (f"T1 - {half_lots} lot ({qty}) book @ {prem:.2f}, "
+            f"{lots - half_lots} lot chal raha hai, stop {t['stop']} pe")
+
+
+def step(t, px, bars):
+    """One bar against one open trade: trail it, and decide whether it is finished.
+
+    Returns (reason_or_None, events). This is THE exit contract - trail, rupee target,
+    stop, T2, the T1 half-book, timeout - and it lives in one function so that the
+    backtest and the live loop cannot drift apart. They already did once, when the
+    backtest ranked candidates one way and the live selector another, and the system spent
+    weeks trading a strategy nobody had tested. A backtest that reimplements the exits is
+    measuring a different program from the one that runs at 9:20am.
+
+    The caller decides what a bar IS - wall-clock for the live loop, an index for the
+    backtest - and passes `bars` in. Nothing here reads the clock.
+    """
+    events = []
+    t["spot_now"] = px
+    t["bars_held"] = round(bars, 1)
+
+    # Trail, bar by bar. The stop only ever ratchets UP - a stop that can loosen is
+    # not a stop, it is a hope. High-water is the best mark seen since entry, not the
+    # true intraday high, and it is worth knowing which: between marks the price can
+    # go higher and come back, and this will not have seen it.
+    d = _dir(t)
+    if getattr(config, "TRAIL", True) and t.get("trail_dist"):
+        # "High water" is the best price seen IN THE TRADE'S DIRECTION - the lowest
+        # print for a put. The ratchet then tightens the stop downward for a long and
+        # upward for a short. Written as max()/minus, a put's stop would loosen every
+        # time the stock fell, which is the opposite of a trail.
+        best = max if d > 0 else min
+        t["high_water"] = best(t.get("high_water", t["spot_in"]), px)
+        trailed = round(t["high_water"] - d * t["trail_dist"], 2)
+        if (trailed > t["stop"]) if d > 0 else (trailed < t["stop"]):
+            old = t["stop"]
+            t["stop"] = trailed
+            locked = (t["stop"] - t["spot_in"]) * d
+            events.append((t["name"],
+                           f"stop {old} -> {trailed}"
+                           + (f"  ({locked:+.2f} locked in)" if locked > 0 else "")))
+
+    hold_bars = float(getattr(config, "HOLD_BARS", 10))
+    reason = None
+
+    # A plain rupee target: book this much NET and leave. Net is the point - spread
+    # and charges here are about twice a Rs 500 target, so an exit taken on the gross
+    # number books a loss while reporting a win.
+    rs_target = float(getattr(config, "TARGET_RUPEES", 0) or 0)
+    if rs_target > 0 and net_pnl_now(t, px) >= rs_target:
+        reason = "RS TARGET"
+
+    # Distances travelled in the trade's own direction, so one set of comparisons
+    # serves both books. A put's stop sits ABOVE entry and its targets BELOW; reading
+    # them with a long's "px <= stop" would stop out every put on the tick it opened.
+    hit_stop = (px <= t["stop"]) if d > 0 else (px >= t["stop"])
+    hit_t2 = (px >= t["t2"]) if d > 0 else (px <= t["t2"])
+    hit_t1 = (px >= t["t1"]) if d > 0 else (px <= t["t1"])
+    if reason:
+        pass
+    elif hit_stop:
+        reason = "STOP"
+    elif hit_t2:
+        reason = "T2"
+    elif hit_t1 and not t["half_booked"]:
+        t["half_booked"] = True
+        # Breakeven is a FLOOR, not an assignment. By the time T1 prints, the trail
+        # has usually ratcheted past entry already, and setting the stop to entry
+        # would hand back everything it locked in - which is the exact behaviour the
+        # trail exists to prevent. On a put the floor is a ceiling: tighter means
+        # LOWER for a long and HIGHER for a short.
+        t["stop"] = (max(t["stop"], t["spot_in"]) if d > 0
+                     else min(t["stop"], t["spot_in"]))
+        events.append((t["name"], book_half(t, px)))
+        return None, events
+    elif bars >= hold_bars * 2:
+        # Timeout in BARS, not days. On a 15-minute chart a "25 day" timeout never
+        # fires, so a 2.5-hour thesis would sit open for weeks and be scored as if
+        # that had been the plan.
+        reason = "TIMEOUT"
+    return reason, events
+
+
+def mark(bk, quotes, stale_days):
+    """Move open paper trades forward against live spot. Exits follow the same contract
+    the ticket printed: stop, T1 half, T2 rest, timeout. No discretion - the point is to
+    measure the rules, not the trader."""
+    events = []
+    for t in list(bk["open"]):
+        px = quotes.get(t["symbol"])
+        if not px:
+            continue
+        reason, evs = step(t, px, bars_held(t))
+        events.extend(evs)
+        if reason:
+            close(bk, t, px, reason)
+            events.append((t["name"], f"BAND - {reason}"))
+    return events
+
+
+def net_pnl_now(t, spot_now):
+    """What this position would put in the account if closed at this mark - after the
+    spread and every statutory charge, not before them."""
+    prem = option_exit_premium(t, spot_now)
+    gross = (prem - t["premium_in"]) * t["qty"]
+    # THE SPREAD THIS TRADE ACTUALLY FACED, not the config average.
+    # The chain now supplies bid and ask, so the ticket records the measured spread at
+    # entry. Costing every trade at the same assumed 2% makes an illiquid strike look as
+    # cheap to trade as a liquid one - and this P&L feeds the drawdown halt, so an
+    # under-costed book is a halt that fires late.
+    sp = t.get("spread_pct_measured")
+    spread = float(sp if sp else getattr(config, "OPTION_SPREAD_PCT", 0.02)) \
+        * t["premium_in"] * t["qty"]
+    try:
+        import charges as CH
+        stat = CH.round_trip(t["premium_in"], t["qty"], prem)["total"]
+    except Exception:
+        stat = 0.0
+    return gross - spread - stat
+
+
+def _dir(t):
+    """+1 for a CE, -1 for a PE. Read from the contract type when an older record has no
+    dir field, so a book written before shorts existed still marks correctly."""
+    d = t.get("dir")
+    if d in (1, -1):
+        return d
+    return -1 if t.get("type") == "PE" else 1
+
+
+def option_exit_premium(t, spot_now, delta=0.60):
+    """What the option is worth when the stock is at spot_now.
+
+    Delta-approximated, because a paper book cannot re-query a chain for every historical
+    mark. It is stated rather than hidden: this is the same 0.6 the ticket sized with, so
+    the paper P&L is consistent with the plan the ticket printed.
+
+    A PUT GAINS WHEN THE STOCK FALLS. Without the direction term this returned a loss on
+    every winning put and a gain on every losing one - stops would have fired on the
+    winners and targets on the losers, and the paper book would have reported the mirror
+    image of what the account did.
+    """
+    return max(0.5, t["premium_in"] + delta * (spot_now - t["spot_in"]) * _dir(t))
+
+
+def close(bk, t, spot_now, reason):
+    prem_out = option_exit_premium(t, spot_now)
+    # Whatever was actually sold at T1 is priced at the premium it was actually sold at -
+    # recorded then, not re-derived now. t["qty"] is what is still open, so the two legs
+    # never double-count. The old code assumed exactly half at the T1 *spot*, which was
+    # both a quantity that could not be traded and a price nobody got.
+    bk_leg = t.get("booked") or {}
+    b_qty = int(bk_leg.get("qty") or 0)
+    b_prem = float(bk_leg.get("premium") or t["premium_in"])
+    if not bk_leg and t.get("half_booked"):
+        # A trade opened before booking became real. Score it the way it was opened,
+        # rather than silently restating a position that is already on the books.
+        prem_t1 = option_exit_premium(t, t["t1"])
+        gross = (prem_t1 - t["premium_in"]) * t["qty"] / 2 + \
+                (prem_out - t["premium_in"]) * t["qty"] / 2
+        total_q = t["qty"]
+        blended = (prem_t1 + prem_out) / 2
+    else:
+        gross = (b_prem - t["premium_in"]) * b_qty + \
+                (prem_out - t["premium_in"]) * t["qty"]
+        total_q = b_qty + t["qty"]
+        blended = ((b_prem * b_qty + prem_out * t["qty"]) / total_q) if total_q else prem_out
+    # Real costs, on every share that moved - both legs pay the spread and both pay STT.
+    # Bid-ask is the big one; STT, exchange fees, stamp and GST are small but they are not
+    # zero, and a paper book that omits them slowly convinces you of an edge the ledger
+    # will not pay out.
+    # measured at entry when the chain supplied bid/ask; the config average otherwise
+    spread = float(t.get("spread_pct_measured")
+                   or getattr(config, "OPTION_SPREAD_PCT", 0.02))
+    spread_cost = spread * t["premium_in"] * total_q
+    try:
+        import charges as CH
+        statutory = CH.round_trip(t["premium_in"], total_q, blended)["total"]
+    except Exception:
+        statutory = 0.0
+    cost = spread_cost + statutory
+    t.update({"closed": now().isoformat(), "spot_out": spot_now,
+              "premium_out": round(prem_out, 2), "reason": reason,
+              "pnl": round(gross - cost), "spread_cost": round(spread_cost),
+              "statutory_cost": round(statutory), "total_cost": round(cost),
+              "pnl_pct_of_capital": round(100 * (gross - cost) /
+                                          float(getattr(config, "CAPITAL", 200000)), 2)})
+    try:
+        import broker
+        # CANCEL THE RESTING STOP FIRST. An SL-M left at the exchange after the position
+        # is gone is not a leftover order, it is a naked short waiting for a price. If the
+        # cancel fails because that stop already fired, the position is already flat - and
+        # the sell below then meets broker.place()'s own "nothing held" refusal, which is
+        # the correct end to that sequence rather than a second exit.
+        so = t.get("stop_order") or {}
+        if so.get("id"):
+            cok, cdetail = broker.cancel(so["id"])
+            t["stop_order"]["cancelled"] = {"ok": cok, "detail": str(cdetail)[:200]}
+        live_qty = _live_qty(t)
+        if live_qty > 0:
+            ok, detail = broker.sell(t.get("tradingsymbol"), live_qty,
+                                     tag=f"exit:{t['name']}")
+            t["live_exit"] = {"ok": ok, "qty": live_qty, "detail": str(detail)[:200]}
+            if ok:
+                t["live_qty"] = 0
+        else:
+            t["live_exit"] = {"ok": False, "qty": 0,
+                              "detail": "no confirmed live position - nothing sent"}
+    except Exception as e:      # noqa
+        t["live_exit"] = {"ok": False, "detail": f"broker error: {e}"[:200]}
+    bk["open"] = [p for p in bk["open"] if p is not t]
+    bk["closed"].append(t)
+
+
+# ---------------- the scorecard, against the backtest ----------------
+def expectation():
+    """What the validated setup claimed. Read from disk if a sweep has been saved."""
+    for f in ("rrg_best_setup.json",):
+        if os.path.exists(f):
+            try:
+                with open(f) as fh:
+                    d = json.load(fh)
+                r = d.get("result") or d
+                if r.get("win_rate"):
+                    return {"win_rate": r.get("win_rate"), "trades": r.get("trades"),
+                            "source": f, "label": d.get("label") or d.get("rule")}
+            except Exception:
+                pass
+    return None
+
+
+def binomial_band(n, p):
+    """Range of win counts a fair run of the backtest's win rate would produce ~95% of
+    the time. Live results inside this band are not evidence of anything yet - which is
+    the single most useful thing a small paper sample can tell you."""
+    if not n:
+        return None
+    mean = n * p
+    sd = math.sqrt(max(n * p * (1 - p), 1e-9))
+    return max(0, mean - 2 * sd), min(n, mean + 2 * sd)
+
+
+def report(bk):
+    closed, open_ = bk.get("closed", []), bk.get("open", [])
+    print(f"\n  {B}PAPER BOOK{X}   {DIM}shuru {bk.get('started','?')[:10]}{X}")
+    print("  " + "=" * 68)
+    if open_:
+        print(f"  {B}KHULE ({len(open_)}){X}")
+        for t in open_:
+            live = t.get("spot_now")
+            mv = (f"{(option_exit_premium(t, live) / t['premium_in'] - 1) * 100:+.0f}%"
+                  if live else "?")
+            print(f"    {t['name']:<12} {t['strike']:g}{t['type']} @ {t['premium_in']}"
+                  f"   ab {mv}   {DIM}stop {t['stop']} | t1 {t['t1']}{X}")
+        print()
+    if not closed:
+        print(f"  {DIM}Abhi tak koi trade band nahi hua. Roz chalata reh.{X}")
+        print("  " + "=" * 68 + "\n")
+        return
+    wins = [t for t in closed if t["pnl"] > 0]
+    pnl = sum(t["pnl"] for t in closed)
+    cap = float(getattr(config, "CAPITAL", 200000))
+    print(f"  {'NAAM':<12}{'IN':>9}{'OUT':>9}{'KYUN':>10}{'P&L':>12}")
+    for t in closed[-12:]:
+        col = G if t["pnl"] > 0 else R
+        print(f"    {t['name']:<10}{t['premium_in']:>9.1f}{t['premium_out']:>9.1f}"
+              f"{t['reason']:>10}{col}{t['pnl']:>+12,}{X}")
+    print("  " + "-" * 68)
+    wr = 100.0 * len(wins) / len(closed)
+    col = G if pnl >= 0 else R
+    print(f"  {len(closed)} trades   {len(wins)} jeete ({wr:.0f}%)   "
+          f"kul {col}Rs {pnl:+,}{X} ({pnl/cap*100:+.1f}% capital)")
+
+    exp = expectation()
+    if exp and exp.get("win_rate"):
+        band = binomial_band(len(closed), exp["win_rate"] / 100.0)
+        lo, hi = band
+        inside = lo <= len(wins) <= hi
+        print("  " + "-" * 68)
+        print(f"  {DIM}Backtest ne {exp['win_rate']}% win rate ka daava kiya tha"
+              f" ({exp.get('label') or 'saved setup'}){X}")
+        print(f"  {DIM}{len(closed)} trades pe wo {lo:.0f}-{hi:.0f} jeet deta"
+              f" - tere paas {len(wins)} hain{X}")
+        if inside:
+            print(f"  {Y}Abhi tak sab normal range mein hai - na proof, na problem."
+                  f" Chalate reh.{X}")
+        elif len(wins) < lo:
+            print(f"  {R}Backtest se neeche hai. Ek baar aur {max(10, len(closed))} "
+                  f"trades dekh, phir setup pe shak karna banta hai.{X}")
+        else:
+            print(f"  {G}Backtest se upar - achha, par itne kam trades pe luck bhi "
+                  f"aisa hi dikhta hai.{X}")
+    else:
+        print(f"  {DIM}Backtest ka result save nahi hai, toh comparison nahi ho sakta."
+              f"\n  Icon '6 - Find Best Setup' chala ke rrg_best_setup.json banao.{X}")
+    print("  " + "=" * 68 + "\n")
+
+
+# ---------------- main ----------------
+def square_off_all(bk, quotes, why="EOD"):
+    """Close everything at the last marked price. Intraday means intraday: a position
+    left open overnight is a different trade than the one the signal justified, and
+    scoring it as the same one quietly rewrites the strategy being tested."""
+    done = []
+    for t in list(bk["open"]):
+        px = quotes.get(t["symbol"]) or t.get("spot_now")
+        if px:
+            close(bk, t, px, why)
+            done.append(t["name"])
+    return done
+
+
+def _squareoff_time():
+    """SQUAREOFF from config, as a datetime today. Falls back to ten minutes before the
+    bell if it is missing or unparseable - never later, because later is the broker's
+    turn."""
+    raw = str(getattr(config, "SQUAREOFF", "") or "").strip()
+    n = now()
+    default = n.replace(hour=SESSION_CLOSE[0], minute=SESSION_CLOSE[1] - 10,
+                        second=0, microsecond=0)
+    try:
+        hh, mm = (int(x) for x in raw.split(":")[:2])
+        t = n.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        return min(t, default)
+    except Exception:
+        return default
+
+
+def next_bar_time(bar_minutes):
+    """The next candle close, on the grid the exchange actually uses (from 09:15)."""
+    n = now()
+    open_t = n.replace(hour=SESSION_OPEN[0], minute=SESSION_OPEN[1], second=5, microsecond=0)
+    if n < open_t:
+        return open_t + timedelta(minutes=bar_minutes)
+    elapsed = (n - open_t).total_seconds() / 60.0
+    k = int(elapsed // bar_minutes) + 1
+    return open_t + timedelta(minutes=k * bar_minutes)
+
+
+def session_loop(a):
+    """Trade the whole session, waking at each candle close - which is what a full-time
+    trader on a 15-minute chart actually does. Five fixed checkpoints a day cannot exit a
+    2.5-hour thesis on time; this can."""
+    import time as _time
+    bm = int(getattr(config, "BAR_MINUTES", 15))
+    # Square off when HIS config says to, not ten minutes before the bell. PRODUCT_TYPE is
+    # INTRADAY, so if we do not close the position the broker will - at market, at a time
+    # of its choosing, and the trailing stop computed in this loop never gets to fire.
+    # Leaving before that is the whole point of naming a time.
+    close_t = _squareoff_time()
+    print(f"  {B}SESSION MODE{X}  {DIM}har {bm} min pe candle close - "
+          f"{close_t:%H:%M} pe square off. Ctrl+C se band.{X}")
+    try:
+        import broker
+        if broker.armed() and not broker.killed():
+            print(f"  {R}LIVE - asli order jayenge.{X}")
+    except Exception:
+        pass
+    # The most important sentence in this program. The trailing stop is computed here,
+    # in this loop, and fired as a market order when it breaks. It is NOT resting at the
+    # exchange. Close this window, sleep the machine, drop the connection - and nothing
+    # is watching the position at all.
+    print(f"  {Y}Stop is window ke andar chalta hai, exchange pe nahi.{X}")
+    print(f"  {Y}Window band = koi stop nahi. Isko khula chhod.{X}\n")
+    while True:
+        run_once(a)
+        nxt = next_bar_time(bm)
+        if nxt >= close_t:
+            print(f"\n  {Y}Session khatam - sab square off kar raha hoon.{X}")
+            bk = load(a.demo)
+            if bk["open"]:
+                q = ({t["symbol"]: t.get("spot_now") for t in bk["open"]} if a.demo
+                     else __import__("rrg_engine").live_quote(
+                         [t["symbol"] for t in bk["open"] if t.get("symbol")]))
+                for nm in square_off_all(bk, q):
+                    print(f"  {Y}>> {nm}: EOD square off{X}")
+                save(bk, a.demo)
+            report(load(a.demo))
+            return
+        wait = max(5, (nxt - now()).total_seconds())
+        # Entries wait for the candle to close, because that is what the signal is built
+        # on. EXITS cannot: a stop or a rupee target reached at 10:03 and acted on at
+        # 10:15 is not the trade that was planned. So while anything is open, watch it
+        # every WATCH_SECONDS instead of sleeping through the bar.
+        watch = int(getattr(config, "WATCH_SECONDS", 60) or 60)
+        print(f"  {DIM}agla candle close {nxt:%H:%M} - {int(wait/60)} min{X}"
+              + (f"{DIM}, position khuli hai toh har {watch}s dekh raha hoon{X}"
+                 if load(a.demo)["open"] else ""))
+        try:
+            end = now() + timedelta(seconds=wait)
+            while now() < end:
+                bk = load(a.demo)
+                if not bk["open"]:
+                    _time.sleep(min(watch, (end - now()).total_seconds()))
+                    continue
+                _time.sleep(min(watch, max(1, (end - now()).total_seconds())))
+                bk = load(a.demo)
+                if not bk["open"]:
+                    continue
+                q = ({t["symbol"]: t.get("spot_now") for t in bk["open"]} if a.demo
+                     else __import__("rrg_engine").live_quote(
+                         [t["symbol"] for t in bk["open"] if t.get("symbol")]))
+                for nm, what in mark(bk, q, 99):
+                    print(f"  {Y}>> {nm}: {what}{X}")
+                save(bk, a.demo)
+        except KeyboardInterrupt:
+            print(f"\n  {Y}Band kar diya. Book waise ka waisa hai.{X}")
+            return
+        print()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--report", action="store_true", help="only the scorecard")
+    ap.add_argument("--session", action="store_true",
+                    help="trade the whole session, waking at every candle close")
+    ap.add_argument("--reset", action="store_true")
+    ap.add_argument("--demo", action="store_true")
+    a = ap.parse_args()
+
+    bk = load(a.demo)
+    if a.reset:
+        if input("  Poora paper book mita doon? (haan/nahi): ").strip().lower() in ("haan", "y", "yes"):
+            save({"open": [], "closed": [], "started": now().isoformat()}, a.demo)
+            print("  Book saaf. Aaj se naya.")
+        return
+    if a.report:
+        report(bk)
+        return
+    if a.session:
+        session_loop(a)
+        return
+    run_once(a)
+
+
+def run_once(a):
+    # `--demo` is a test flag, not a mode. It fabricates fills, so it needs the same
+    # permission every other fabrication needs, and it writes to its own book.
+    import real_only as RO
+    if a.demo and not RO.allowed():
+        print(f"\n  {R}--demo refused.{X} {DIM}Invented fills in the book you judge the "
+              f"system by are not a labelling problem, they are a corrupted "
+              f"measurement.{X}")
+        print(f"  {DIM}{RO.FIX}{X}\n")
+        return 2
+    bk = load(a.demo)
+    import rrg_engine as E, rrg_strategy as S, trade_card as TC, checkin as C
+
+    try:
+        import broker
+        live = broker.armed() and not broker.killed()
+    except Exception:
+        live = False
+    tag = (f"{R}LIVE + PAPER - asli order ja rahe hain{X}" if live
+           else f"{DIM}(paper only - koi asli order nahi){X}")
+    print("\n" + "=" * 70)
+    print(f"  {B}PAPER TRADING{X}   {now():%a %d %b %Y · %H:%M IST}   {tag}")
+    print("=" * 70)
+
+    if a.demo:
+        points, prices, bench = E.demo_points()
+        quotes = {t["symbol"]: t["spot_in"] * 1.02 for t in bk["open"] if t.get("symbol")}
+    else:
+        # The token expires daily. A scheduled run that finds no token must say so loudly:
+        # a paper book with silent gaps is worse than no paper book, because the gaps are
+        # invisible later and the record looks complete.
+        if not os.path.exists(getattr(config, "TOKEN_FILE", "access_token.txt")):
+            print(f"  {R}TOKEN NAHI HAI - aaj ka paper trade MISS ho gaya.{X}")
+            print(f"  {DIM}Subah ek baar '1 - Fyers Login' chala de, phir ye apne aap "
+                  f"chalta rahega.{X}\n")
+            return
+        try:
+            points, prices, bench = E.live_points(tail=6)
+        except Exception as e:      # noqa
+            print(f"  {R}Data nahi aaya - aaj ka paper trade MISS:{X} {e}")
+            print(f"  {DIM}Token expire? icon '1 - Fyers Login' chala.{X}\n")
+            return
+        quotes = E.live_quote([t["symbol"] for t in bk["open"] if t.get("symbol")])
+
+    # 1. move what is already open
+    for name, what in mark(bk, quotes, C._stale_after()):
+        print(f"  {Y}>> {name}: {what}{X}")
+
+    # 2. take today's signal, if there is room
+    rule, params, _ = S.load_best()
+    sel = S.select(points, rule, params, max_pos=4)
+    held = {t["name"] for t in bk["open"]}
+    for cand in sel["longs"]:
+        if cand["name"] in held:
+            continue
+        closes = prices.get(cand["symbol"]) or [cand["close"]]
+        card = TC.build_card(cand, closes, expiry_label="paper",
+                             days_to_expiry=TC.min_days_for_thesis())
+        cost = card["size"].get("cost_per_lot", 0) * card["size"]["lots"]
+        if cost > float(getattr(config, "CAPITAL", 200000)):
+            continue
+        t, why = take(bk, card, cand)
+        if t:
+            print(f"  {G}>> LIYA (paper): {t['name']} {t['strike']:g}{t['type']} "
+                  f"@ {t['premium_in']}   qty {t['qty']}   Rs {t['cost']:,}{X}")
+        else:
+            print(f"  {DIM}naya nahi liya - {why}{X}")
+        break
+    else:
+        print(f"  {DIM}Aaj koi setup pass nahi hua.{X}")
+
+    save(bk, a.demo)
+    report(bk)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,297 @@
+"""
+option_chain.py  —  the piece the futures-only scanner was missing.
+
+For any F&O underlying it pulls the Fyers option chain and computes what actually
+moves derivatives:
+  • PCR  (Put/Call OI ratio)          -> bias
+  • Max Pain                          -> where writers want expiry to land
+  • Support / Resistance              -> highest Put-OI / Call-OI strikes (the walls)
+  • Call-writing / Put-writing        -> where fresh option OI is being sold
+  • ATM +/- N strike-wise OI ladder
+
+    python option_chain.py NSE:NIFTY50-INDEX          # live (needs token)
+    python option_chain.py --dry-run                  # synthetic chain, no Fyers
+
+NOT financial advice. Signals are inputs; the decision is yours.
+"""
+import sys, os, argparse
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+try:
+    import config
+except ImportError:
+    class _C:
+        CLIENT_ID = ""; TOKEN_FILE = "access_token.txt"; OC_STRIKES = 10
+    config = _C()
+
+
+LAST_EXPIRIES = []      # tradeable expiries from the most recent live chain
+LAST_LOT = None         # real lot size from the most recent live chain
+LAST_EPOCH = None       # expiry epoch the most recent chain actually belongs to
+LAST_FIELDS = []        # field names the last chain actually carried (for diagnosis)
+
+
+def expiries(min_days=0):
+    """Tradeable expiries from the last live chain as (label, days_away, epoch),
+    nearest first. Fyers hands back epochs; days-away is what a trade decision needs."""
+    out, today = [], datetime.now(IST).date()
+    for e in LAST_EXPIRIES or []:
+        ep = e.get("expiry")
+        try:
+            d = datetime.fromtimestamp(int(ep), IST).date()
+        except Exception:
+            continue
+        days = (d - today).days
+        if days >= min_days:
+            # Label is BUILT from the parsed date, not taken from Fyers' "date" field.
+            # That field arrives as 25-08-2026, so anything matching on a month name -
+            # "AUG" - silently found nothing. Deriving it gives one shape everywhere:
+            # NSE's own 25AUG, which reads on a ticket and matches when spoken.
+            out.append((d.strftime("%d%b").upper(), days, str(ep)))
+    return sorted(out, key=lambda t: t[1])
+
+
+MAX_SERIES_OUT = 1      # near month, or the one after it. Never further.
+
+
+def pick_expiry(min_days, max_out=None):
+    """The near month if it has enough life left, otherwise the next one. Never beyond.
+
+    Stock options carry almost all their open interest in the near month, so a contract
+    two series out is quotable but not tradeable in size. The rule also has to survive a
+    bad min_days: when a stale config asked for 60 days, an unbounded search happily
+    returned September while the trader wanted August, and nothing said why.
+
+    So the choice is bounded to the first `max_out + 1` series. If none of them clears
+    min_days, the furthest of those is returned and the caller warns - which is the honest
+    outcome, rather than reaching for a series nobody wants to be filled in.
+    """
+    allx = expiries(-3650)
+    if not allx:
+        return (None, None, None)
+    near = allx[:int(MAX_SERIES_OUT if max_out is None else max_out) + 1]
+    for e in near:
+        if e[1] >= min_days:
+            return e
+    return near[-1]
+
+
+def analyse(chain, spot):
+    """chain: list of {strike, type('CE'/'PE'), oi, ltp, oi_chg}. Returns metrics dict."""
+    ce = {c["strike"]: c for c in chain if c["type"] == "CE"}
+    pe = {c["strike"]: c for c in chain if c["type"] == "PE"}
+    strikes = sorted(set(ce) | set(pe))
+    tot_ce = sum(c["oi"] for c in ce.values())
+    tot_pe = sum(c["oi"] for c in pe.values())
+    pcr = round(tot_pe / tot_ce, 2) if tot_ce else 0
+
+    # walls
+    resistance = max(ce.values(), key=lambda c: c["oi"])["strike"] if ce else None
+    support    = max(pe.values(), key=lambda c: c["oi"])["strike"] if pe else None
+
+    # max pain: strike E minimising total intrinsic payout to option buyers
+    def pain(E):
+        p = 0
+        for K in strikes:
+            if K in ce: p += ce[K]["oi"] * max(0, E - K)
+            if K in pe: p += pe[K]["oi"] * max(0, K - E)
+        return p
+    max_pain = min(strikes, key=pain) if strikes else None
+
+    # writing: biggest positive OI change on the sell side
+    call_writing = max((c for c in ce.values() if c.get("oi_chg", 0) > 0),
+                       key=lambda c: c.get("oi_chg", 0), default=None)
+    put_writing  = max((c for c in pe.values() if c.get("oi_chg", 0) > 0),
+                       key=lambda c: c.get("oi_chg", 0), default=None)
+
+    if pcr >= 1.2:   bias = "BULLISH (put writers in control)"
+    elif pcr <= 0.7: bias = "BEARISH (call writers in control)"
+    else:            bias = "NEUTRAL / range-bound"
+
+    return {"spot": spot, "pcr": pcr, "max_pain": max_pain, "support": support,
+            "resistance": resistance, "bias": bias,
+            "tot_ce": tot_ce, "tot_pe": tot_pe,
+            "call_writing": call_writing, "put_writing": put_writing,
+            "ce": ce, "pe": pe, "strikes": strikes}
+
+
+def _quiet_fyers():
+    """Silence the Fyers SDK's per-request DEBUG lines.
+
+    Naming the loggers was not enough: the SDK logs through "FyersAPIRequest" and sets
+    that logger's own level, which beats anything set on the root. So every logger whose
+    name mentions fyers is pinned to WARNING, and the sweep is repeated after the client
+    is built because the SDK configures logging when it is instantiated, not on import.
+    """
+    import logging
+    for name in list(logging.root.manager.loggerDict) + [
+            "FyersAPIRequest", "fyers_apiv3", "fyersApi", "fyers_logger"]:
+        if "yers" in str(name):
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.WARNING)
+            lg.propagate = False
+    logging.getLogger().setLevel(logging.WARNING)
+
+
+def fetch_live(symbol, timestamp=""):
+    """timestamp: expiry epoch (from expiries()). Empty string = the nearest expiry,
+    which is Fyers' default and is exactly the one you must NOT trade near expiry."""
+    from fyers_apiv3 import fyersModel
+    global LAST_EXPIRIES, LAST_LOT, LAST_EPOCH, LAST_FIELDS
+    if not os.path.exists(config.TOKEN_FILE):
+        raise RuntimeError("No token. Run: python fyers_auth.py")
+    token = open(config.TOKEN_FILE).read().strip()
+    # Fyers' SDK logs a DEBUG line per API call to stdout, which buries the ticket under
+    # request traces. Quieten it and send its log file to a folder rather than the cwd.
+    _quiet_fyers()
+    fy = fyersModel.FyersModel(client_id=config.CLIENT_ID, token=token, is_async=False)
+    r = fy.optionchain({"symbol": symbol, "strikecount": getattr(config, "OC_STRIKES", 10),
+                        "timestamp": str(timestamp or "")})
+    if not isinstance(r, dict) or r.get("s") != "ok":
+        raise RuntimeError(f"optionchain error: {r}")
+    d = r["data"]
+    spot = d.get("expiryData", [{}]) and d.get("underlyingValue") or 0
+    # Fyers returns the tradeable expiries and the real lot size. Both matter: an option
+    # expiring in days cannot carry a multi-week target, and a wrong lot makes the
+    # quantity unbuyable.
+    LAST_EXPIRIES = d.get("expiryData", []) or []
+    LAST_EPOCH = str(timestamp) if timestamp else (
+        str(LAST_EXPIRIES[0].get("expiry")) if LAST_EXPIRIES else None)
+    # Lot size, whatever Fyers decides to call it today. A live SONACOMS chain came back
+    # with no "lot_size" at all, which turned into quantity 0 on a ticket - a number that
+    # looks like an answer and is not. Try the known spellings, and record which fields
+    # the response really had so a future absence can be diagnosed instead of guessed.
+    LAST_LOT = None
+    LAST_FIELDS = sorted({k for o in d.get("optionsChain", [])[:3] for k in o})
+    for o in d.get("optionsChain", []):
+        if o.get("option_type") not in ("CE", "PE"):
+            continue
+        for key in ("lot_size", "lotSize", "lot", "minimum_lot", "min_lot", "marketLot"):
+            v = o.get(key)
+            if v:
+                try:
+                    LAST_LOT = int(float(v))
+                except Exception:
+                    continue
+                break
+        if LAST_LOT:
+            break
+    chain = []
+    for o in d.get("optionsChain", []):
+        ot = o.get("option_type")
+        if ot not in ("CE", "PE"):
+            continue
+        # BID, ASK and VOLUME were being discarded here, and their absence was papered
+        # over with `OPTION_SPREAD_PCT = 0.02` - the same 2% assumed for every strike on
+        # every name. For an option BUYER the spread is the largest single cost and it is
+        # not a constant: it is a few paise on a liquid ATM strike and a quarter of the
+        # premium on an illiquid one. Assuming it is how a backtest shows an edge the
+        # ledger will not pay out. Fyers spells these differently across versions, so
+        # every known spelling is tried and LAST_FIELDS records what actually arrived.
+        def pick(*names):
+            for n in names:
+                v = o.get(n)
+                if v not in (None, ""):
+                    return v
+            return None
+
+        chain.append({"strike": o.get("strike_price"), "type": ot,
+                      "oi": o.get("oi", 0), "ltp": o.get("ltp", 0),
+                      "oi_chg": o.get("oichng", 0),
+                      "bid": pick("bid", "bid_price", "bp", "buy_price"),
+                      "ask": pick("ask", "ask_price", "ap", "sell_price"),
+                      "volume": pick("volume", "vol", "v", "traded_qty"),
+                      "prev_oi": pick("prev_oi", "previous_oi"),
+                      # The exchange's own tradeable symbol. Never construct this string
+                      # from strike and expiry - a hand-built symbol that is one character
+                      # wrong is either a rejected order or, worse, a different contract.
+                      "symbol": o.get("symbol")})
+    return chain, spot or d.get("underlyingValue", 0)
+
+
+def tradeable_chain(symbol, min_days):
+    """The chain you can actually trade: the first expiry that outlasts `min_days`.
+
+    Fyers' default chain is the NEAREST expiry. Run that in the last week of a series and
+    every ticket quotes an option that dies before the target can print. So: read the
+    expiry list, choose one with room, then re-fetch that series so the premium shown is
+    the one he would really pay. Returns (chain, label, days_to_expiry, lot_size).
+    """
+    chain, _ = fetch_live(symbol)
+    lbl, days, ep = pick_expiry(min_days)
+    if ep and str(ep) != str(LAST_EPOCH):
+        chain, _ = fetch_live(symbol, timestamp=ep)
+    return chain, lbl, days, LAST_LOT
+
+
+def fetch_dry(symbol="NSE:NIFTY50-INDEX", spot=24200):
+    step = 100 if spot > 5000 else 50 if spot > 1000 else 10
+    atm = round(spot / step) * step
+    chain = []
+    for i in range(-6, 7):
+        K = atm + i * step
+        # puts pile up below spot (support), calls above (resistance)
+        ce_oi = max(2000, int(90000 * (1 - abs(i - 2) / 8)))
+        pe_oi = max(2000, int(95000 * (1 - abs(i + 2) / 8)))
+        # PRICE THE DEMO OPTION, do not invent a ladder.
+        # This used to be `max(1, 200 - i*30)` - a fixed rupee ladder built for a
+        # NIFTY-sized spot. On a Rs 180 stock it quoted the ATM call at Rs 200, which the
+        # card's own sanity check correctly rejected as impossible, so the demo fell back
+        # to an estimate and implied vol, delta, gamma and theta all came out None. The
+        # demo could render the option layer and could not exercise it. Black-Scholes at
+        # a plausible 30% vol gives premiums that are consistent with the spot, so every
+        # greek and every gate is computed on the demo exactly as it will be live.
+        # The dry chain carries bid/ask/volume too, and the spread WIDENS away from the
+        # money exactly as a real one does. A demo whose every strike quotes a perfect
+        # 0.1% spread cannot exercise the liquidity gate, and a gate that is never
+        # exercised is a gate nobody has seen work.
+        try:
+            import option_metrics as _OM
+            _t = _OM.years_to_expiry(25)
+            ce_px = max(0.05, round(_OM.price(spot, K, _t, 0.30, "CE"), 2))
+            pe_px = max(0.05, round(_OM.price(spot, K, _t, 0.30, "PE"), 2))
+        except Exception:      # noqa
+            ce_px = max(0.05, round(max(0.0, spot - K) + 0.02 * spot, 2))
+            pe_px = max(0.05, round(max(0.0, K - spot) + 0.02 * spot, 2))
+        for typ, oi, mid in (("CE", ce_oi, ce_px), ("PE", pe_oi, pe_px)):
+            half = max(0.05, mid * (0.004 + 0.006 * abs(i)))     # wider further out
+            # An explicitly NON-TRADEABLE symbol. It must exist so the ticket can render
+            # its whole option layer in demo - spread, liquidity, implied vol, theta, the
+            # gates - and it is prefixed DEMO: so no order path can ever mistake it for
+            # a contract. Never hand-build a symbol that LOOKS real; build one that
+            # obviously is not.
+            nm = str(symbol).split(":")[-1].replace("-EQ", "").replace("-INDEX", "")
+            chain.append({"strike": K, "type": typ, "oi": oi, "ltp": mid,
+                          "oi_chg": ((i - 1) if typ == "CE" else (-i + 1)) * 1500,
+                          "bid": round(mid - half, 2), "ask": round(mid + half, 2),
+                          "volume": max(0, int(oi * 0.35 / max(1, abs(i) + 1))),
+                          "symbol": f"DEMO:{nm}{int(K)}{typ}"})
+    return chain, spot
+
+
+def render(sym, m):
+    print(f"\n  OPTION CHAIN  ·  {sym}   spot {m['spot']}")
+    print("  " + "-" * 54)
+    print(f"  PCR .............. {m['pcr']}   -> {m['bias']}")
+    print(f"  Max Pain ......... {m['max_pain']}")
+    print(f"  Support (Put wall) {m['support']}     Resistance (Call wall) {m['resistance']}")
+    if m["call_writing"]:
+        print(f"  Fresh CALL writing at {m['call_writing']['strike']}  (+{m['call_writing']['oi_chg']:,} OI)  -> resistance building")
+    if m["put_writing"]:
+        print(f"  Fresh PUT  writing at {m['put_writing']['strike']}  (+{m['put_writing']['oi_chg']:,} OI)  -> support building")
+    print("  " + "-" * 54)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("symbol", nargs="?", default="NSE:NIFTY50-INDEX")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    chain, spot = fetch_dry(a.symbol) if a.dry_run else fetch_live(a.symbol)
+    render(a.symbol + (" [DRY]" if a.dry_run else ""), analyse(chain, spot))
+
+
+if __name__ == "__main__":
+    main()
