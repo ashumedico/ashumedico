@@ -25,6 +25,13 @@ from .youtube import Track, fmt_time, parse_link
 SNAP = 10
 WM_HOTKEY = 0x0312
 MEDIA_KEYS = {1: 0xB3, 2: 0xB0, 3: 0xB1, 4: 0xB2}   # play/pause, next, prev, stop
+# Moments when Windows may have moved or revived the sound device under a playing song.
+WM_WTSSESSION_CHANGE = 0x02B1
+WTS_BACK = {0x1: "console reconnected", 0x3: "remote session reconnected", 0x8: "session unlocked"}
+WM_POWERBROADCAST = 0x0218
+PBT_BACK = {0x7: "resumed from sleep", 0x12: "resumed from sleep"}
+PBT_POWERSETTINGCHANGE = 0x8013
+GUID_CONSOLE_DISPLAY_STATE = "6fe69556-704a-47a0-8f24-c28d936fda47"
 
 
 def app_icon() -> QIcon:
@@ -84,6 +91,7 @@ class MediaKeys(QAbstractNativeEventFilter):
 
 
 INSTANCE_KEY = "t-amp-single-instance"
+_fault_file = None  # kept open for faulthandler for the life of the process
 
 
 def hand_over_to_running() -> bool:
@@ -122,6 +130,13 @@ class Shell(QWidget):
         self._search_docked = True
         self._move_from: tuple[QPoint, QPoint] | None = None
         self.media_keys: MediaKeys | None = None
+        self._watched_hwnd = 0
+        self._display_on = True
+        self._audio_reason = ""
+        self._audio_check = QTimer(self)
+        self._audio_check.setSingleShot(True)
+        self._audio_check.setInterval(1500)
+        self._audio_check.timeout.connect(self._reopen_audio)
         self.eq.setVisible(bool(s["show_eq"]))
         self.pl.setVisible(bool(s["show_pl"]))
         if s["always_on_top"]:
@@ -531,6 +546,57 @@ class Shell(QWidget):
         super().showEvent(e)
         if self.player.settings["media_keys"] and self.media_keys is None:
             self._register_media_keys(True)
+        self._watch_session()
+
+    # ---- lock / screensaver / sleep (Windows) ------------------------------------------------------
+    def _watch_session(self) -> None:
+        """Ask Windows to tell this window about unlock, wake and the display coming back on."""
+        if sys.platform != "win32":
+            return
+        hwnd = int(self.winId())
+        if hwnd == self._watched_hwnd:
+            return  # already registered (the native window is recreated by always-on-top)
+        import ctypes
+        import uuid
+        try:
+            ctypes.windll.wtsapi32.WTSRegisterSessionNotification(ctypes.c_void_p(hwnd), 0)
+            guid = (ctypes.c_ubyte * 16).from_buffer_copy(uuid.UUID(GUID_CONSOLE_DISPLAY_STATE).bytes_le)
+            ctypes.windll.user32.RegisterPowerSettingNotification(ctypes.c_void_p(hwnd), ctypes.byref(guid), 0)
+        except Exception:  # no session service: the engine's stall watchdog still covers it
+            return
+        self._watched_hwnd = hwnd
+
+    def nativeEvent(self, event_type, message):
+        if sys.platform == "win32" and event_type == b"windows_generic_MSG":
+            try:
+                self._session_message(message)
+            except Exception:  # a malformed broadcast must never take the window down
+                pass
+        return super().nativeEvent(event_type, message)
+
+    def _session_message(self, message) -> None:
+        import ctypes.wintypes
+        import uuid
+        msg = ctypes.wintypes.MSG.from_address(int(message))
+        if msg.message == WM_WTSSESSION_CHANGE and msg.wParam in WTS_BACK:
+            self._audio_may_have_moved(WTS_BACK[msg.wParam])
+        elif msg.message == WM_POWERBROADCAST and msg.wParam in PBT_BACK:
+            self._audio_may_have_moved(PBT_BACK[msg.wParam])
+        elif msg.message == WM_POWERBROADCAST and msg.wParam == PBT_POWERSETTINGCHANGE and msg.lParam:
+            raw = ctypes.string_at(msg.lParam, 21)  # POWERBROADCAST_SETTING: GUID, DWORD length, data
+            if raw[:16] == uuid.UUID(GUID_CONSOLE_DISPLAY_STATE).bytes_le:
+                on = raw[20] != 0  # 0 off, 1 on, 2 dimmed
+                if on and not self._display_on:
+                    self._audio_may_have_moved("display back on")
+                self._display_on = on
+
+    def _audio_may_have_moved(self, reason: str) -> None:
+        if self.player.status in ("playing", "paused", "connecting"):
+            self._audio_reason = reason
+            self._audio_check.start()  # let Windows finish bringing the device back first
+
+    def _reopen_audio(self) -> None:
+        self.player.audio_moved(self._audio_reason)
 
     def _register_media_keys(self, on: bool) -> None:
         if self.media_keys is not None:
@@ -594,6 +660,13 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # very old Windows: cosmetic only
             pass
     crash_log = _install_crash_log()
+    global _fault_file
+    try:  # a native crash (a driver, PortAudio) leaves its traceback in crash.log too
+        import faulthandler
+        _fault_file = open(crash_log, "a", encoding="utf-8")
+        faulthandler.enable(_fault_file, all_threads=True)
+    except OSError:
+        pass
     app = QApplication(argv[:1])
     app.setApplicationName("T-Amp")
     app.setWindowIcon(app_icon())

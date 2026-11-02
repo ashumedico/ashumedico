@@ -39,10 +39,18 @@ class FakeDevice:
 
     def _run(self):
         while not self._stop.is_set():
+            if self.frozen:  # Windows took the device away: it simply stops asking for audio
+                time.sleep(0.01)
+                continue
             buf = np.zeros((self.block, 2), dtype=np.float32)
             self.engine._callback(buf, self.block, None, None)
             self.out.append(buf.copy())
             time.sleep(self.block / SR / self.speed)
+
+    frozen = False
+
+    def freeze(self):
+        self.frozen = True
 
     def close(self):
         self._stop.set()
@@ -345,4 +353,99 @@ def test_seek_while_downloading_then_from_the_finished_file(tone, tmp_path):
     assert eng._session.decoder.feed is None
     events = []
     assert wait_for(lambda: events.extend(eng.poll()) or ("finished",) in events, 10), events
+    eng.close()
+
+
+
+# ---- the sound device going away: lock screen, screensaver, display asleep, headset unplugged ---------
+class FlakyOutputs:
+    """Hands out fake devices; can refuse to open some (no device yet) like Windows while locked."""
+
+    def __init__(self, fail_next=0, speed=2.0):
+        self.fail_next, self.speed, self.devices = fail_next, speed, []
+
+    def __call__(self, engine):
+        if self.fail_next > 0:
+            self.fail_next -= 1
+            raise RuntimeError("Error opening OutputStream: Unanticipated host error [PaErrorCode -9999]")
+        d = FakeDevice(engine, speed=self.speed)
+        self.devices.append(d)
+        return d
+
+
+@pytest.fixture(scope="module")
+def long_tone():
+    p = os.path.join(tempfile.mkdtemp(), "long.wav")
+    make_tone(p, seconds=40.0)
+    return p
+
+
+@pytest.fixture()
+def quick_recovery(monkeypatch):
+    import tamp.engine as engine_mod
+    monkeypatch.setattr(engine_mod, "STALL_S", 0.4)
+    monkeypatch.setattr(engine_mod, "DEVICE_RETRY_S", 0.2)
+
+
+def _pump(eng, events, cond, timeout):
+    end = time.time() + timeout
+    while time.time() < end:
+        events.extend(eng.poll())
+        if cond():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_a_device_that_goes_silent_is_reopened_and_the_song_carries_on(long_tone, quick_recovery):
+    outs = FlakyOutputs()
+    eng = AudioEngine(FFMPEG, samplerate=SR, output=outs)
+    eng.open(long_tone, duration=40.0)
+    events = []
+    assert _pump(eng, events, lambda: eng.position > 0.5, 10)
+    p0 = eng.position
+    outs.devices[0].freeze()                       # screensaver / lock: no more callbacks
+    assert _pump(eng, events, lambda: len(outs.devices) == 2, 5), events
+    assert any(e[0] == "device_reset" for e in events)
+    assert _pump(eng, events, lambda: eng.position > p0 + 0.5, 5), "playback continues on the new device"
+    assert not any(e[0] in ("finished", "error") for e in events), events
+    assert abs(eng.position - p0) < 3, "it resumed from the same spot, not from the top"
+    eng.close()
+
+
+def test_no_device_for_a_while_waits_then_resumes(long_tone, quick_recovery):
+    outs = FlakyOutputs(fail_next=4)               # locked: opening fails a few times
+    eng = AudioEngine(FFMPEG, samplerate=SR, output=outs)
+    eng.open(long_tone, duration=40.0)
+    events = []
+    assert eng.device_down
+    assert _pump(eng, events, lambda: outs.devices and eng.position > 0.3, 8), events
+    kinds = [e[0] for e in events]
+    assert kinds.count("device") <= 1 and "device_ok" in kinds, kinds  # said once, not every retry
+    assert not eng.device_down
+    eng.close()
+
+
+def test_stop_while_the_device_is_gone_reports_it_again_on_the_next_play(long_tone, quick_recovery):
+    outs = FlakyOutputs(fail_next=2)
+    eng = AudioEngine(FFMPEG, samplerate=SR, output=outs)
+    eng.open(long_tone, duration=40.0)
+    assert [e[0] for e in eng.poll()] == ["device"]
+    eng.stop()                                     # gave up waiting
+    eng.open(long_tone, duration=40.0)             # still no device
+    assert [e[0] for e in eng.poll()] == ["device"]  # the new song says so too, not silence
+    eng.close()
+
+
+def test_reset_output_keeps_the_place(long_tone):
+    outs = FlakyOutputs()
+    eng = AudioEngine(FFMPEG, samplerate=SR, output=outs)
+    eng.open(long_tone, duration=40.0)
+    events = []
+    assert _pump(eng, events, lambda: eng.position > 1.0, 10)
+    p = eng.position
+    eng.reset_output()                             # unlock / wake / display on
+    assert len(outs.devices) == 2
+    assert abs(eng.position - p) < 0.5
+    assert _pump(eng, events, lambda: eng.position > p + 0.5, 5)
     eng.close()

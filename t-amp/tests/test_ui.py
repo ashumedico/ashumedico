@@ -427,3 +427,60 @@ def test_clicks_the_user_has_moved_past_never_reach_youtube(app, audio_file, tmp
     assert player.playing.title == "Blinding Lights"
     assert "id000000002" not in asked and "id000000003" not in asked, asked
     player.shutdown()
+
+
+
+def test_losing_the_audio_device_does_not_stop_the_song(app, audio_file, tmp_path, monkeypatch):
+    """Lock screen / screensaver: the device can't be opened for a while. The song must wait, not end."""
+    import tamp.engine as engine_mod
+    monkeypatch.setattr(engine_mod, "DEVICE_RETRY_S", 0.2)
+    fails = {"left": 3}
+
+    def outputs(engine):
+        if fails["left"]:
+            fails["left"] -= 1
+            raise RuntimeError("Error opening OutputStream: Invalid device [PaErrorCode -9996]")
+        return Device(engine)
+    settings = Settings(str(tmp_path / "state.json"))
+    engine = AudioEngine(FFMPEG, samplerate=SR, output=outputs)
+    player = Player(settings, engine=engine, music=CannedSearch(), fetcher=LocalResolver(audio_file))
+    _alive.append((player, engine))
+    player.add_tracks(tracks(2))
+    player.play_index(0)
+    assert pump(app, 3, until=lambda: "NO AUDIO DEVICE" in player.message)
+    assert player.status == "playing" and player.buffering
+    assert pump(app, 5, until=lambda: player.position > 0.5), "it plays once the device is back"
+    assert player.status == "playing" and player.current == 0
+    player.shutdown()
+
+
+def test_windows_unlock_wake_and_display_on_reopen_the_audio(rig):
+    """The structures Windows sends, built by hand: each 'you're back' message schedules a reopen."""
+    import ctypes
+    import ctypes.wintypes
+    import uuid
+
+    from tamp.app import GUID_CONSOLE_DISPLAY_STATE, WM_POWERBROADCAST, WM_WTSSESSION_CHANGE
+    app, player, shell, *_ = rig
+    player.status = "playing"
+
+    def send(message, wparam, lparam=0):
+        shell._audio_check.stop()
+        msg = ctypes.wintypes.MSG()
+        msg.message, msg.wParam, msg.lParam = message, wparam, lparam
+        shell._session_message(ctypes.addressof(msg))
+        return shell._audio_check.isActive()
+
+    def display(state):
+        buf = ctypes.create_string_buffer(uuid.UUID(GUID_CONSOLE_DISPLAY_STATE).bytes_le
+                                          + (4).to_bytes(4, "little") + state.to_bytes(4, "little"))
+        return send(WM_POWERBROADCAST, 0x8013, ctypes.addressof(buf))
+
+    assert send(WM_WTSSESSION_CHANGE, 0x8)            # unlocked
+    assert not send(WM_WTSSESSION_CHANGE, 0x7)        # locked: nothing to do yet
+    assert send(WM_POWERBROADCAST, 0x12)              # woke from sleep
+    assert not display(0)                             # display off
+    assert display(1)                                 # ...and back on
+    assert not display(2)                             # dimmed is still on: no reopen
+    player.status = "stopped"
+    assert not send(WM_WTSSESSION_CHANGE, 0x8), "nothing playing: leave the device alone"

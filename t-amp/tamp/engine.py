@@ -24,6 +24,8 @@ PREBUFFER_S = 0.35     # audio needed before a fresh start begins to play
 REBUFFER_S = 1.5       # ...and after the network ran dry mid-song
 MAX_AHEAD_S = 20.0     # how far ffmpeg may decode ahead of the speakers
 IDLE_CLOSE_S = 120.0   # paused this long -> release the device so Windows can sleep
+DEVICE_RETRY_S = 2.0   # no output device (locked, display off, headset gone): try again this often
+STALL_S = 2.5          # the device stopped asking for audio this long -> reopen it
 
 
 def ffmpeg_command(ffmpeg: str, source: str, samplerate: int, start: float = 0.0,
@@ -246,6 +248,11 @@ class AudioEngine:
         self._fade = 0.0
         self._stream = None
         self._latency = 0.0
+        self._last_cb = 0.0          # when the sound card last asked for audio
+        self._retry_at = 0.0         # next attempt to open an output that wasn't there
+        self._quiet_resets = 0       # reopens in a row that brought no audio back (backs off)
+        self.device_down = False     # playing, but no output device to play to right now
+        self.device_name = ""
         self._events: collections.deque = collections.deque()
         self._scratch = np.zeros((8192, CHANNELS), dtype=np.float32)
         self._vis = np.zeros(16384, dtype=np.float32)
@@ -294,10 +301,19 @@ class AudioEngine:
         """End the song and release the sound device."""
         self.halt()
         self._close_stream()
+        self.device_down = False  # the next play reports a missing device afresh
         self._vis[:] = 0.0
 
     def close(self) -> None:
         self.stop()
+
+    def reset_output(self) -> None:
+        """Reopen the output on whatever device Windows uses now (after unlock, wake, display on)."""
+        if self._stream is None:
+            return  # nothing open: the next play or resume opens the current device anyway
+        self._close_stream()
+        if self._session is not None and not self._paused:
+            self._ensure_stream()
 
     # ---- state the UI reads ----------------------------------------------------------------
     @property
@@ -342,11 +358,12 @@ class AudioEngine:
         """Called by the UI ~30x/s. Returns ('finished',), ('error', message, position) or
         ('device', message), each once."""
         s = self._session
-        out = list(self._events)
-        self._events.clear()
+        out: list[tuple] = []
         if s is None:
             if self._stream is not None and time.monotonic() - self._idle_since > IDLE_CLOSE_S / 4:
                 self._close_stream()  # nothing queued for a while: let Windows have the device back
+            out.extend(self._events)
+            self._events.clear()
             return out
         dec = s.decoder
         if not s.reported and dec.done and dec.returncode not in (0, None) and s.buf.frames == 0:
@@ -364,11 +381,27 @@ class AudioEngine:
                 out.append(("error", "stream ended early", self.position))
             else:
                 out.append(("finished",))
-        if self._paused and self._stream is not None and time.monotonic() - self._paused_at > IDLE_CLOSE_S:
-            self._close_stream()
-        if self._stream is not None and not self._paused and self._stream_died():
-            self._close_stream()
-            self._ensure_stream()
+        now = time.monotonic()
+        if self._paused:
+            if self._stream is not None and now - self._paused_at > IDLE_CLOSE_S:
+                self._close_stream()
+        elif self._stream is None:
+            if now >= self._retry_at:
+                self._ensure_stream()  # the device went away (lock, screensaver, headset): keep trying
+        else:
+            quiet = now - self._last_cb
+            if quiet < 0.5:
+                self._quiet_resets = 0
+            died = self._stream_died()
+            if died or quiet > STALL_S * 2 ** min(self._quiet_resets, 4):
+                # Windows took the device away under us. Reopen it - on whatever is the default now -
+                # and carry on from the same spot; the decoded audio is still waiting in the buffer.
+                out.append(("device_reset", "stopped" if died else f"silent for {quiet:.1f} s"))
+                self._quiet_resets += 1
+                self._close_stream()
+                self._ensure_stream()
+        out.extend(self._events)
+        self._events.clear()
         return out
 
     # ---- internals -------------------------------------------------------------------------
@@ -384,29 +417,51 @@ class AudioEngine:
         if old is not None:
             old.decoder.stop()
 
-    def _ensure_stream(self) -> None:
+    def _ensure_stream(self) -> bool:
+        """Open the output. On failure, say so once and let poll() retry - never give up the song."""
         if self._stream is not None:
-            return
-        if self._make_output is not None:
-            self._stream = self._make_output(self)
-        else:
-            sd = self._sd
-            try:
-                # Re-scan devices so headphones plugged in since launch become the default.
-                sd._terminate()
-                sd._initialize()
-            except Exception:  # private API moved: keep the device list we have
-                pass
-            try:
-                self._stream = sd.OutputStream(
+            return True
+        stream = None
+        try:
+            if self._make_output is not None:
+                stream = self._make_output(self)
+            else:
+                sd = self._sd
+                try:
+                    # Re-scan devices so headphones plugged in since launch become the default.
+                    sd._terminate()
+                    sd._initialize()
+                except Exception:  # private API moved: keep the device list we have
+                    pass
+                stream = sd.OutputStream(
                     samplerate=self.samplerate, channels=CHANNELS, dtype="float32",
                     latency="high", callback=self._callback)
-                self._stream.start()
-            except Exception as exc:  # no device, device busy, unsupported rate
-                self._stream = None
+                stream.start()
+        except Exception as exc:  # no device, device busy, unsupported rate, session locked
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:  # half-open on a device that isn't there
+                    pass
+            self._retry_at = time.monotonic() + DEVICE_RETRY_S
+            if not self.device_down:
+                self.device_down = True
                 self._events.append(("device", str(exc)))
-                return
-        self._latency = float(getattr(self._stream, "latency", 0.0) or 0.0)
+            return False
+        self._stream = stream
+        self._latency = float(getattr(stream, "latency", 0.0) or 0.0)
+        self._last_cb = time.monotonic()
+        self.device_name = self._name_of(stream)
+        if self.device_down:
+            self.device_down = False
+            self._events.append(("device_ok", self.device_name))
+        return True
+
+    def _name_of(self, stream) -> str:
+        try:
+            return str(self._sd.query_devices(stream.device)["name"]) if self._sd else str(getattr(stream, "name", ""))
+        except Exception:  # a device list mid-change: the name is cosmetic
+            return ""
 
     def _close_stream(self) -> None:
         st, self._stream = self._stream, None
@@ -421,6 +476,7 @@ class AudioEngine:
         return bool(st is not None and hasattr(st, "active") and not st.active and not getattr(st, "closed", False))
 
     def _callback(self, outdata, frames, time_info, status) -> None:
+        self._last_cb = time.monotonic()
         s = self._session
         if frames > len(self._scratch):  # a driver asked for a bigger block than ever before
             self._scratch = np.zeros((frames, CHANNELS), dtype=np.float32)
