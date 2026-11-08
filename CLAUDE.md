@@ -136,6 +136,16 @@ tickets below it quoted a stop to the paisa. Reading is not a safety mechanism.*
 FOIR and emergency cover, an Indian SWR and the real-return lifetime of a corpus, and levers ranked
 by measured effect. *On safe assets the biggest lever is salary growth, not yield.* Not financial advice.
 
+## Deep work → `.claude/skills/deep-work/`
+`/deep-work` — plan the day so the important work gets done: Eisenhower sort → the 3/3/3 day →
+eat the frog first, then Pomodoro, time blocks, tight deadlines (Parkinson) and the four real
+conditions for flow. Every plan names one thing to drop and protects family, sleep and training.
+
+## Persuasion craft → `.claude/skills/persuasion-craft/`
+`/persuasion-craft` — eight launch rules (Jobs) rebuilt for Medical Affairs: one-line value,
+outcomes before features, simple, story, audience first, the whole experience, a clear evidence-based
+position, persistence with something new. A one-page pitch template; UCPMP via `@compliance-redteam`.
+
 ## The bar → `.claude/skills/solution-first/`
 `/solution-first` — **always on, every task.** Never hand back an excuse, a caveat or a limitation
 as the deliverable. Research the real answer (vendor docs, the API's own response, the source), fix
