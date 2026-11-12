@@ -146,6 +146,12 @@ conditions for flow. Every plan names one thing to drop and protects family, sle
 outcomes before features, simple, story, audience first, the whole experience, a clear evidence-based
 position, persistence with something new. A one-page pitch template; UCPMP via `@compliance-redteam`.
 
+## APAC move → `.claude/skills/apac-move/`
+`/apac-move` — the 12-month programme to a signed regional Medical Affairs role in APAC: one-line
+positioning, target tiers (internal first), four parallel tracks (internal · external · visibility ·
+readiness), a weekly cadence, interview/case/negotiation drills scored out of 10, and an outcome
+scorecard. *Interviews and posts are inputs; only a signed offer is done.*
+
 ## The bar → `.claude/skills/solution-first/`
 `/solution-first` — **always on, every task.** Never hand back an excuse, a caveat or a limitation
 as the deliverable. Research the real answer (vendor docs, the API's own response, the source), fix
