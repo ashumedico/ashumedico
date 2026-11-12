@@ -1,0 +1,49 @@
+# --- secrets and anything personal. This repo is PUBLIC. ---
+config.py
+config.py.bak-*
+access_token.txt
+
+# --- runtime state: the book, the positions, the orders ---
+positions.json
+paper_book.json
+paper_trades.json
+paper_trades.synthetic.json
+orders.jsonl
+journal.jsonl
+STOP_TRADING.txt
+logs/
+
+# --- generated reports and pages ---
+journal_report.md
+robustness_report.txt
+hypothesis_report.txt
+lot_audit.txt
+order.html
+
+# --- caches and market snapshots (refetched, never authoritative) ---
+cache/
+oi_snapshot.json
+oi_baseline.json
+fno_symbols.txt
+fno_lots.json
+fno_lots_v2.json
+rrg_best_setup.json
+alerts_sent.json
+signals_*.csv
+scanner.log
+
+__pycache__/
+*.pyc
+
+# --- PyInstaller build output ---
+build/
+dist/
+*.spec
+
+# generated per-scan snapshots - regenerate, never commit
+tradingview/AashishScreener_live.pine
+tradingview/watchlist.txt
+# recorded implied-vol series - his data, and this repo is public
+iv_history.json
+oi_history.json
+iv_history.json.tmp

@@ -1,0 +1,219 @@
+<title>Privacy Removal Mission</title>
+<style>
+  :root{
+    --ground:#eef2f6; --surface:#ffffff; --surface-2:#f5f8fb; --ink:#15202e; --ink-soft:#586a7c;
+    --line:#dce4ec; --accent:#0d9c99; --accent-soft:#0d9c9922;
+    --good:#1f9d63; --good-bg:#1f9d6318; --warn:#bf7d16; --warn-bg:#bf7d1618;
+    --crit:#d1495b; --crit-bg:#d1495b18; --info:#2f6fb0; --info-bg:#2f6fb018;
+    --shadow:0 1px 2px #16202e0d, 0 8px 24px #16202e0a;
+    --font-ui:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,sans-serif;
+    --font-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#080d15; --surface:#101a27; --surface-2:#0d1521; --ink:#e7eef6; --ink-soft:#899cae;
+      --line:#1d2a3a; --accent:#22c9c1; --accent-soft:#22c9c11f;
+      --good:#37c384; --good-bg:#37c38420; --warn:#e0a63a; --warn-bg:#e0a63a20;
+      --crit:#e56b79; --crit-bg:#e56b7920; --info:#5aa0e6; --info-bg:#5aa0e620;
+      --shadow:0 1px 2px #0006, 0 10px 30px #0005;
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#eef2f6; --surface:#ffffff; --surface-2:#f5f8fb; --ink:#15202e; --ink-soft:#586a7c;
+    --line:#dce4ec; --accent:#0d9c99; --accent-soft:#0d9c9922;
+    --good:#1f9d63; --good-bg:#1f9d6318; --warn:#bf7d16; --warn-bg:#bf7d1618;
+    --crit:#d1495b; --crit-bg:#d1495b18; --info:#2f6fb0; --info-bg:#2f6fb018;
+    --shadow:0 1px 2px #16202e0d, 0 8px 24px #16202e0a;
+  }
+  :root[data-theme="dark"]{
+    --ground:#080d15; --surface:#101a27; --surface-2:#0d1521; --ink:#e7eef6; --ink-soft:#899cae;
+    --line:#1d2a3a; --accent:#22c9c1; --accent-soft:#22c9c11f;
+    --good:#37c384; --good-bg:#37c38420; --warn:#e0a63a; --warn-bg:#e0a63a20;
+    --crit:#e56b79; --crit-bg:#e56b7920; --info:#5aa0e6; --info-bg:#5aa0e620;
+    --shadow:0 1px 2px #0006, 0 10px 30px #0005;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--font-ui);
+    line-height:1.5;-webkit-font-smoothing:antialiased;padding:clamp(16px,4vw,40px)}
+  .wrap{max-width:980px;margin:0 auto}
+  .mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  .label{text-transform:uppercase;letter-spacing:.09em;font-size:11px;font-weight:600;color:var(--ink-soft)}
+
+  /* header */
+  header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:26px}
+  .brand{display:flex;gap:14px;align-items:center}
+  .shield{width:46px;height:46px;border-radius:12px;background:linear-gradient(150deg,var(--accent),#0d9c99 120%);
+    display:grid;place-items:center;font-size:24px;box-shadow:var(--shadow);flex:none}
+  h1{font-size:clamp(20px,3.6vw,27px);margin:0;letter-spacing:-.02em;text-wrap:balance;font-weight:700}
+  .sub{color:var(--ink-soft);font-size:14px;margin-top:2px}
+  .toggle{background:var(--surface);border:1px solid var(--line);color:var(--ink-soft);border-radius:9px;
+    padding:8px 12px;font-size:13px;cursor:pointer;font-family:var(--font-ui);display:flex;gap:7px;align-items:center}
+  .toggle:hover{border-color:var(--accent);color:var(--ink)}
+  .toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* summary */
+  .summary{display:grid;grid-template-columns:auto 1fr;gap:18px;background:var(--surface);border:1px solid var(--line);
+    border-radius:18px;padding:22px;box-shadow:var(--shadow);margin-bottom:22px}
+  @media(max-width:620px){.summary{grid-template-columns:1fr}}
+  .ring{width:132px;height:132px;border-radius:50%;display:grid;place-items:center;flex:none;
+    background:conic-gradient(var(--accent) calc(var(--pct)*1%), var(--line) 0)}
+  .ring-in{width:104px;height:104px;border-radius:50%;background:var(--surface);display:grid;place-items:center;text-align:center}
+  .ring-in .big{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1}
+  .ring-in .cap{font-size:11px;color:var(--ink-soft);margin-top:3px;text-transform:uppercase;letter-spacing:.06em}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:620px){.tiles{grid-template-columns:repeat(2,1fr)}}
+  .tile{background:var(--surface-2);border:1px solid var(--line);border-radius:13px;padding:14px}
+  .tile .n{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  .tile .t{margin-top:7px}
+  .tile.crit .n{color:var(--crit)} .tile.warn .n{color:var(--warn)}
+  .tile.good .n{color:var(--good)} .tile.accent .n{color:var(--accent)}
+
+  /* table */
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:22px}
+  .phead{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .phead h2{font-size:15px;margin:0;letter-spacing:-.01em}
+  .scroll{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;min-width:640px}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);font-weight:600;text-align:left;
+    padding:11px 20px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+  td{padding:14px 20px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  tr:hover td{background:var(--surface-2)}
+  .site{font-weight:600} .chan{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft)}
+  .expo{font-size:12.5px;color:var(--ink-soft)}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap}
+  .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  .p-sent{color:var(--warn);background:var(--warn-bg)} .p-clear{color:var(--good);background:var(--good-bg)}
+  .p-self{color:var(--info);background:var(--info-bg)}
+  .sev{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;letter-spacing:.02em}
+  .sev-hi{color:var(--crit);background:var(--crit-bg)} .sev-md{color:var(--warn);background:var(--warn-bg)}
+  .sev-lo{color:var(--ink-soft);background:var(--surface-2)}
+  .cd{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:600;font-size:13px}
+  .cd small{font-weight:400;color:var(--ink-soft)}
+
+  /* recheck + note */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:620px){.cols{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 10px;font-size:14px;letter-spacing:-.01em}
+  .card p{margin:0;color:var(--ink-soft);font-size:13.5px}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+  .kv:last-child{border-bottom:0} .kv b{font-weight:600}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--good);margin-right:7px;box-shadow:0 0 0 3px var(--good-bg)}
+  footer{text-align:center;color:var(--ink-soft);font-size:12px;margin-top:26px;line-height:1.7}
+  a{color:var(--accent)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="shield">🛡️</div>
+      <div>
+        <h1>Privacy Removal Mission</h1>
+        <div class="sub">Aashishsingh Rajput · data-broker opt-out · <span class="mono" id="asof"></span></div>
+      </div>
+    </div>
+    <button class="toggle" id="tg" aria-label="Toggle theme"><span id="tgi">◐</span> Theme</button>
+  </header>
+
+  <section class="summary">
+    <div class="ring" style="--pct:87.5">
+      <div class="ring-in">
+        <div>
+          <div class="big mono">7<span style="font-size:16px;color:var(--ink-soft)">/8</span></div>
+          <div class="cap">Submitted</div>
+        </div>
+      </div>
+    </div>
+    <div class="tiles">
+      <div class="tile crit"><div class="n">8</div><div class="t label">Sites exposed</div></div>
+      <div class="tile warn"><div class="n">7</div><div class="t label">Requests sent</div></div>
+      <div class="tile good"><div class="n">0</div><div class="t label">Confirmed clear</div></div>
+      <div class="tile accent"><div class="n mono" id="daysleft">30</div><div class="t label">Days on clock</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><h2>Removal requests</h2><span class="label">deadline · 30 days from 10 Jul</span></div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Site</th><th>What it exposed</th><th>Channel</th><th>Status</th><th>Clock</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cols">
+    <div class="card">
+      <h3>Weekly auto-recheck</h3>
+      <div class="kv"><span><span class="dot"></span>Status</span><b>Armed</b></div>
+      <div class="kv"><span>Runs</span><b>Sundays · 09:07</b></div>
+      <div class="kv"><span>Next run</span><b class="mono" id="nextrun">—</b></div>
+      <div class="kv"><span>On repeat offenders</span><b>Drafts FTC / DPDP complaint</b></div>
+      <p style="margin-top:12px">Re-searches all 8 sites, re-sends anything ignored, re-removes any re-listing, and sends a summary of what's left.</p>
+    </div>
+    <div class="card">
+      <h3>The exposure picture</h3>
+      <p style="margin-bottom:10px"><b style="color:var(--good)">Consumer people-search: clear.</b> Spokeo, BeenVerified, WhitePages, Radaris hold nothing — you're an India resident, outside their index.</p>
+      <p><b style="color:var(--crit)">Real exposure: B2B contact brokers</b> that scrape professional data. RocketReach is the priority — it publicly listed your <b>email + phone</b>.</p>
+    </div>
+  </section>
+
+  <footer>
+    Draft-only environment: 7 removal emails were queued and sent by you on 10 Jul. Legal basis cited: GDPR Art. 17/21 · CCPA §1798.105 · India DPDP Act 2023.<br>
+    Live tracker: <span class="mono">aios/projects/privacy-data-removal.md</span>
+  </footer>
+</div>
+
+<script>
+  // theme toggle
+  const root=document.documentElement, tg=document.getElementById('tg'), tgi=document.getElementById('tgi');
+  tg.addEventListener('click',()=>{
+    const cur=root.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+    const next=cur==='dark'?'light':'dark'; root.setAttribute('data-theme',next);
+    tgi.textContent=next==='dark'?'◑':'◐';
+  });
+
+  // data
+  const SENT='2026-07-10'; const DAY=864e5;
+  const rows=[
+    {s:'RocketReach', e:'Name · Ferring role · email + phone', sev:'hi', ch:'privacy@rocketreach.co', st:'sent'},
+    {s:'ZoomInfo',    e:'Name · title · contact', sev:'md', ch:'privacy@zoominfo.com', st:'sent'},
+    {s:'Apollo.io',   e:'Contact data', sev:'md', ch:'privacy@apollo.io', st:'sent'},
+    {s:'Lusha',       e:'Contact data', sev:'md', ch:'privacy@lusha.com', st:'sent'},
+    {s:'ContactOut',  e:'Email address', sev:'md', ch:'compliance@contactout.com', st:'sent'},
+    {s:'SignalHire',  e:'Contact data', sev:'md', ch:'support@signalhire.com', st:'sent'},
+    {s:'The Org',     e:'Name · title · org chart', sev:'lo', ch:'privacy@theorg.com', st:'sent'},
+    {s:'ResearchGate',e:'Academic profile', sev:'lo', ch:'self-serve · profile → private', st:'self'},
+  ];
+  const stMap={
+    sent:{cls:'p-sent',txt:'Sent'}, clear:{cls:'p-clear',txt:'Cleared'}, self:{cls:'p-self',txt:'Your move'}
+  };
+  const sevMap={hi:['sev-hi','HIGH'],md:['sev-md','MED'],lo:['sev-lo','LOW']};
+
+  const now=new Date();
+  const deadline=new Date(new Date(SENT).getTime()+30*DAY);
+  const daysLeft=Math.max(0,Math.ceil((deadline-now)/DAY));
+  document.getElementById('daysleft').textContent=daysLeft;
+  document.getElementById('asof').textContent='as of '+now.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+
+  // next Sunday 09:07
+  const nr=new Date(now); nr.setHours(9,7,0,0);
+  do{nr.setDate(nr.getDate()+1)}while(nr.getDay()!==0);
+  document.getElementById('nextrun').textContent=nr.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'});
+
+  const tb=document.getElementById('rows');
+  rows.forEach(r=>{
+    const st=stMap[r.st], sev=sevMap[r.sev];
+    const clock = r.st==='self' ? '<span class="cd"><small>self-serve</small></span>'
+      : `<span class="cd">${daysLeft}<small> / 30 d</small></span>`;
+    tb.insertAdjacentHTML('beforeend',
+      `<tr>
+        <td class="site">${r.s} <span class="sev ${sev[0]}">${sev[1]}</span></td>
+        <td class="expo">${r.e}</td>
+        <td class="chan">${r.ch}</td>
+        <td><span class="pill ${st.cls}">${st.txt}</span></td>
+        <td>${clock}</td>
+      </tr>`);
+  });
+</script>

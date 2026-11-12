@@ -1,0 +1,391 @@
+"""
+gapup.py  —  the Chartink screen, rebuilt here so it runs on the same bars as everything
+else and can be argued with.
+
+THE FILTER, exactly as it is written on Chartink (futures segment):
+
+    Daily Close      >  1 day ago Sma(1 day ago Close, 20)
+    Daily Open       >  1 day ago Close * 1.01
+    Daily Open       <  1 day ago Close * 1.02
+    [0] 15 minute Close > Daily Open           <- DISABLED there, disabled here
+
+It is one idea in three clauses: the name is **above its 20-day mean** (trend), it
+**gapped up between 1% and 2%** this morning (interest, not a moonshot), and - if the
+fourth clause is switched on - it is **still above its own opening price** (the gap has
+not been sold into). The band matters more than it looks: below 1% is noise, above 2% is
+a name that has already made its move before he can get filled.
+
+ON "1 DAY AGO SMA(1 DAY AGO CLOSE, 20)"
+Chartink's phrasing is precise and easy to get wrong. It is the 20-period average of the
+closes **ending yesterday** - today's close is compared against a mean it is not part of.
+Averaging today in would let a big up-day drag its own benchmark up and quietly weaken
+the test. So the window here is closes[-21:-1], never closes[-20:].
+
+WHAT THIS IS NOT
+It is a **screen**, not an edge. Nothing in this file has been walk-forward tested on his
+data, and the last untested thing that reached the main window (RRG) cost -6.3% after
+costs. A name passing here means *worth opening the ticket for*. It never means *place
+this*. Anything that says otherwise on screen is a bug.
+
+    python gapup.py --demo
+"""
+
+DEFAULTS = {
+    "sma_len": 20,
+    "gap_min": 1.01,      # Daily Open > prev Close * this
+    "gap_max": 1.02,      # Daily Open < prev Close * this
+    "use_intraday_gate": False,   # the [0] 15-minute clause, off exactly as he has it
+}
+
+
+def sma(values, n):
+    """Mean of the last n values, or None when there are not n of them.
+
+    None, not zero, and not a shorter mean: a 6-day average called a 20-day average is a
+    different test wearing the same name, and it passes when it should not be asked."""
+    if not values or len(values) < n:
+        return None
+    tail = values[-n:]
+    return sum(tail) / float(n)
+
+
+# A quote and a candle disagreeing by more than this on the previous close is not
+# rounding - it is a corporate action one source has applied and the other has not, and
+# every clause below hangs off that number. It gets said out loud rather than resolved.
+PREV_CLOSE_TOLERANCE = 0.0025          # 0.25%
+
+
+def daily_row(bars, sma_len=20, quote=None):
+    """One name's numbers for today.
+
+    THREE of the four clauses are decided by exactly two numbers - today's OPEN and
+    YESTERDAY'S CLOSE - and a daily candle is a derived view of both. So when a live
+    quote is available its open / prev close / LTP win, because those are the exchange's
+    own published figures and the ones every other screener (his Chartink included) is
+    reading. The candles are still what the 20-day mean is built from; there is no quote
+    for an average.
+
+    When the two sources disagree on the previous close by more than a rounding error,
+    that is recorded and surfaced instead of being silently resolved. A screen that
+    quietly picks one of two conflicting inputs is how a wrong list looks right.
+    """
+    if not bars or len(bars) < sma_len + 2:
+        return None
+    closes = [float(b[4]) for b in bars]
+    today, prev = bars[-1], bars[-2]
+    row = {
+        "open": float(today[1]),
+        "close": float(today[4]),
+        "high": float(today[2]),
+        "low": float(today[3]),
+        "prev_close": float(prev[4]),
+        # the average ENDING YESTERDAY - today is not in its own benchmark
+        "sma_prev": sma(closes[:-1], sma_len),
+        "bars": len(bars),
+        "source": "daily candles",
+        "prev_close_conflict": None,
+    }
+    if quote and quote.get("prev_close"):
+        candle_pc = row["prev_close"]
+        row["prev_close"] = float(quote["prev_close"])
+        if quote.get("open"):
+            row["open"] = float(quote["open"])
+        if quote.get("ltp"):
+            row["close"] = float(quote["ltp"])
+        if quote.get("high"):
+            row["high"] = float(quote["high"])
+        if quote.get("low"):
+            row["low"] = float(quote["low"])
+        row["source"] = "exchange quote"
+
+        # THE LAST DIFFERENCE, CLOSED.
+        # When the quote and the candle disagree on yesterday's close, the history is on
+        # a different basis from the price - a split or bonus that one feed has applied
+        # and the other has not. Warning about it and carrying on would leave the SMA
+        # comparing today's adjusted price against twenty unadjusted ones, which is not
+        # a smaller error than the gap clause, it is a bigger one: a 1:2 split makes
+        # every name look 50% below its own mean and the clause fails for a reason that
+        # has nothing to do with the market.
+        #
+        # The fix is arithmetic, not a caveat. The disagreement IS the adjustment factor,
+        # so the whole close series is rescaled by it and the mean is computed on the
+        # same basis as the price it will be compared against.
+        if candle_pc and abs(row["prev_close"] / candle_pc - 1.0) > PREV_CLOSE_TOLERANCE:
+            factor = row["prev_close"] / candle_pc
+            row["sma_prev"] = sma([c * factor for c in closes[:-1]], sma_len)
+            row["adjusted_by"] = round(factor, 6)
+            row["prev_close_conflict"] = (
+                f"history was on a different basis — the quote's previous close is "
+                f"{row['prev_close']:.2f}, the candle's was {candle_pc:.2f} "
+                f"({(factor - 1) * 100:+.2f}%), which is a corporate action this feed's "
+                f"history has not applied. The {sma_len}-day mean has been rescaled by "
+                f"x{factor:.4f} so it is measured on the same basis as the price.")
+    return row
+
+
+def passes(row, cfg=None, last_intraday=None, side="LONG"):
+    """(bool, [clause dicts]) - every clause named, with the numbers that decided it.
+
+    The clause list is the point. A screen that answers only yes/no cannot be argued with,
+    and a filter he cannot argue with is one he has to take on faith.
+
+    side="SHORT" runs the MIRROR of the same filter, and the mirror is the missing half of
+    the stated requirement: "whether it is on the buying side or on the selling side".
+    The Chartink workspace is gap-up only, so every falling name was invisible - not
+    rejected, never looked at. Each clause flips exactly once:
+
+        close ABOVE the 20-SMA        ->  close BELOW it
+        open 1-2% ABOVE prev close    ->  open 1-2% BELOW it
+        15-min close ABOVE day open   ->  15-min close BELOW it
+
+    The band flips with it, which is the part that is easy to get wrong. On the long side
+    the window is (1.01, 1.02) x prev close; mirrored it is (0.98, 0.99) - computed as
+    2 - gap, so one edit to the band moves both sides together and they cannot drift
+    apart. A short screen quietly still testing the up-side band would return names that
+    gapped the wrong way and look like it was working.
+    """
+    cfg = {**DEFAULTS, **(cfg or {})}
+    short = str(side).upper() == "SHORT"
+    if not row or row.get("sma_prev") is None:
+        return False, [{"clause": "history", "ok": False,
+                        "detail": f"needs {cfg['sma_len'] + 2} daily bars, "
+                                  f"has {row.get('bars', 0) if row else 0}"}]
+
+    pc, op, cl = row["prev_close"], row["open"], row["close"]
+    gmin, gmax = cfg["gap_min"], cfg["gap_max"]
+    if short:
+        gmin, gmax = 2.0 - gmin, 2.0 - gmax        # 1.01/1.02 -> 0.99/0.98
+    near_gap, far_gap = pc * gmin, pc * gmax
+    gap_pct = (op / pc - 1.0) * 100.0 if pc else 0.0
+
+    if short:
+        out = [
+            {"clause": f"Close < SMA{cfg['sma_len']} (ending yesterday)",
+             "ok": cl < row["sma_prev"],
+             "detail": f"{cl:.2f} vs {row['sma_prev']:.2f}"},
+            {"clause": f"Open < prev Close x {gmin:.3f}",
+             "ok": op < near_gap,
+             "detail": f"{op:.2f} vs {near_gap:.2f}  (gap {gap_pct:+.2f}%)"},
+            {"clause": f"Open > prev Close x {gmax:.3f}",
+             "ok": op > far_gap,
+             "detail": f"{op:.2f} vs {far_gap:.2f}"},
+        ]
+    else:
+        out = [
+            {"clause": f"Close > SMA{cfg['sma_len']} (ending yesterday)",
+             "ok": cl > row["sma_prev"],
+             "detail": f"{cl:.2f} vs {row['sma_prev']:.2f}"},
+            {"clause": f"Open > prev Close x {gmin}",
+             "ok": op > near_gap,
+             "detail": f"{op:.2f} vs {near_gap:.2f}  (gap {gap_pct:+.2f}%)"},
+            {"clause": f"Open < prev Close x {gmax}",
+             "ok": op < far_gap,
+             "detail": f"{op:.2f} vs {far_gap:.2f}"},
+        ]
+    if cfg["use_intraday_gate"]:
+        # [0] 15 minute Close vs Daily Open - the latest intraday bar, not the day's close.
+        # Unknown is never a pass: with no intraday bar this clause FAILS rather than
+        # being skipped, because "I could not check" and "it checked out" are not the
+        # same claim and only one of them should let a name through.
+        have = last_intraday is not None
+        ok = have and (float(last_intraday) < op if short else float(last_intraday) > op)
+        out.append({
+            "clause": f"[0] 15-min Close {'<' if short else '>'} Daily Open",
+            "ok": ok,
+            "detail": (f"{float(last_intraday):.2f} vs {op:.2f}" if have
+                       else "no intraday bar — not checked"),
+        })
+    return all(c["ok"] for c in out), out
+
+
+def scan(daily_bars, points=None, cfg=None, last_intraday=None, quotes=None,
+         side="LONG"):
+    """Every F&O name against the filter. Returns rows for the ones that pass.
+
+    daily_bars:    {symbol: [daily candles]}
+    points:        the scan's own points, for the name and today's percent move
+    last_intraday: {symbol: latest 15-minute close}, only read when the gate is on
+    quotes:        {symbol: {open, prev_close, ltp}} from the exchange - preferred over
+                   the candle for the three numbers that decide the filter
+    """
+    cfg = {**DEFAULTS, **(cfg or {})}
+    by_sym = {p["symbol"]: p for p in (points or [])}
+    rows = []
+    for sym, bars in (daily_bars or {}).items():
+        row = daily_row(bars, cfg["sma_len"], (quotes or {}).get(sym))
+        ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym), side)
+        if not ok:
+            continue
+        p = by_sym.get(sym) or {}
+        pc = row["prev_close"]
+        rows.append({
+            "name": p.get("name") or sym.split(":")[-1].replace("-EQ", ""),
+            "symbol": sym,
+            "open": round(row["open"], 2),
+            "prev_close": round(pc, 2),
+            "gap_pct": round((row["open"] / pc - 1.0) * 100.0, 2) if pc else None,
+            "close": round(row["close"], 2),
+            "from_open_pct": round((row["close"] / row["open"] - 1.0) * 100.0, 2)
+                             if row["open"] else None,
+            f"sma{cfg['sma_len']}": round(row["sma_prev"], 2),
+            "above_sma_pct": round((row["close"] / row["sma_prev"] - 1.0) * 100.0, 2),
+            # which feed decided this row, so a disagreement has somewhere to start
+            "src": row["source"],
+            "clauses": clauses,
+            "conflict": row.get("prev_close_conflict"),
+        })
+    # Held the gap best first. The gap is the entry condition; what the name did with it
+    # afterwards is the only new information the morning has produced.
+    rows.sort(key=lambda r: (r["from_open_pct"] is None, -(r["from_open_pct"] or 0)))
+    return rows
+
+
+def near_misses(daily_bars, points=None, cfg=None, last_intraday=None, top=8,
+                quotes=None, side="LONG"):
+    """Names that failed EXACTLY ONE clause, and which one.
+
+    This is the answer to "why is your list different from Chartink's". Two screens with
+    the same rules disagree at the BAND EDGES, because a gap of 0.98% and a gap of 1.02%
+    are the same event and land on opposite sides of a threshold - and the two feeds do
+    not agree to the paisa on what yesterday's close was (Chartink adjusts for corporate
+    actions on its own schedule; Fyers returns its own continuous series). A name missing
+    from one list is usually not a bug, it is a number differing in the third decimal.
+
+    So instead of a shorter list, this shows the ones that came closest and the exact
+    figure that kept them out. Then a disagreement can be checked instead of argued.
+    """
+    cfg = {**DEFAULTS, **(cfg or {})}
+    by_sym = {p["symbol"]: p for p in (points or [])}
+    out = []
+    for sym, bars in (daily_bars or {}).items():
+        row = daily_row(bars, cfg["sma_len"], (quotes or {}).get(sym))
+        if not row:
+            continue
+        ok, clauses = passes(row, cfg, (last_intraday or {}).get(sym), side)
+        if ok:
+            continue
+        failed = [c for c in clauses if not c["ok"]]
+        if len(failed) != 1:
+            continue
+        p = by_sym.get(sym) or {}
+        pc = row["prev_close"]
+        gap = (row["open"] / pc - 1.0) * 100.0 if pc else 0.0
+        clause = failed[0]["clause"]
+        # HOW BADLY it missed has to be measured on the clause that actually failed.
+        # Reporting the gap's distance from the band for a name that failed the SMA test
+        # sorts the list by a number that had nothing to do with the rejection - it looks
+        # like an answer and ranks by noise.
+        if "SMA" in clause:
+            miss = abs(row["close"] / row["sma_prev"] - 1.0) * 100.0
+        elif "15-min" in clause:
+            miss = 0.0          # a gate that could not be evaluated has no distance
+        else:
+            miss = min(abs(gap - (cfg["gap_min"] - 1) * 100),
+                       abs(gap - (cfg["gap_max"] - 1) * 100))
+        out.append({
+            "name": p.get("name") or sym.split(":")[-1].replace("-EQ", ""),
+            "failed": clause,
+            "detail": failed[0]["detail"],
+            "gap_pct": round(gap, 2),
+            "missed_by_pct": round(miss, 2),
+        })
+    out.sort(key=lambda r: r["missed_by_pct"])
+    return out[:top]
+
+
+def explain(symbols, cfg=None, days=90):
+    """Print every number for named symbols, live. The tool for a disagreement.
+
+    `python gapup.py --explain BAJAJFINSV TORNTPHARM` prints what this system believes
+    yesterday's close, today's open and the 20-day mean are for each name, and which
+    clause decided it. Paste the same names into Chartink and the difference stops being
+    "the lists are different" and becomes "your prev close is 2029.10, mine is 2027.55".
+    """
+    cfg = {**DEFAULTS, **(cfg or {})}
+    import rrg_engine as E
+    syms = [s if ":" in s else f"NSE:{s.upper()}-EQ" for s in symbols]
+    E.fetch_history(syms, resolution="D", days=days)
+    bars = E.LAST_BARS or {}
+    try:
+        qs = E.live_ohlc(syms)
+    except Exception as err:      # noqa
+        print(f"  (no live quotes: {err} — falling back to daily candles)")
+        qs = {}
+    print(f"\n  GAP-UP, clause by clause  (SMA{cfg['sma_len']}, band "
+          f"{cfg['gap_min']:g}-{cfg['gap_max']:g})")
+    print("  " + "-" * 70)
+    for s in syms:
+        nm = s.split(":")[-1].replace("-EQ", "")
+        b = bars.get(s)
+        if not b:
+            print(f"  {nm:14s} no daily bars came back for this symbol")
+            continue
+        row = daily_row(b, cfg["sma_len"], qs.get(s))
+        if not row:
+            print(f"  {nm:14s} only {len(b)} daily bars - needs {cfg['sma_len'] + 2}")
+            continue
+        ok, clauses = passes(row, cfg)
+        gap = (row["open"] / row["prev_close"] - 1) * 100
+        print(f"  {nm:14s} {'PASS' if ok else 'fail'}   prev close {row['prev_close']:.2f}"
+              f" · open {row['open']:.2f} (gap {gap:+.2f}%) · close {row['close']:.2f}"
+              f" · sma {row['sma_prev']:.2f}   [{row['source']}]")
+        for c in clauses:
+            print(f"       {'ok ' if c['ok'] else '>> '} {c['clause']:44s} {c['detail']}")
+        if row.get("prev_close_conflict"):
+            print(f"       !! {row['prev_close_conflict']}")
+    print()
+
+
+def _demo():
+    """A hand-built set where each name fails exactly one clause, so the output is
+    readable as a test rather than as a list."""
+    import random
+    rnd = random.Random(7)
+
+    def series(base, n=40, drift=0.002):
+        out = [base]
+        for _ in range(n):
+            out.append(out[-1] * (1 + rnd.gauss(drift, 0.01)))
+        return out
+
+    def bars_from(closes, last_open):
+        b = [[i, c, c * 1.01, c * 0.99, c, 1000] for i, c in enumerate(closes[:-1])]
+        b.append([len(closes), last_open, max(last_open, closes[-1]) * 1.005,
+                  min(last_open, closes[-1]) * 0.995, closes[-1], 1500])
+        return b
+
+    out = {}
+    c = series(500)
+    out["NSE:PASSES-EQ"] = bars_from(c + [c[-1] * 1.02], c[-1] * 1.015)     # in band
+    out["NSE:TOOBIG-EQ"] = bars_from(c + [c[-1] * 1.05], c[-1] * 1.045)     # gap > 2%
+    out["NSE:TOOSMALL-EQ"] = bars_from(c + [c[-1] * 1.004], c[-1] * 1.003)  # gap < 1%
+    d = [500 - i * 3 for i in range(41)]                                    # below SMA
+    out["NSE:BELOWSMA-EQ"] = bars_from(d + [d[-1] * 1.015], d[-1] * 1.015)
+    out["NSE:SHORTHIST-EQ"] = [[i, 100, 101, 99, 100, 10] for i in range(5)]
+    return out
+
+
+if __name__ == "__main__":
+    import sys
+    if "--explain" in sys.argv:
+        i = sys.argv.index("--explain")
+        names = [a for a in sys.argv[i + 1:] if not a.startswith("--")]
+        if not names:
+            print("  usage: python gapup.py --explain BAJAJFINSV TORNTPHARM ...")
+            raise SystemExit(2)
+        explain(names)
+    elif "--demo" in sys.argv:
+        db = _demo()
+        print("\n  GAP-UP SCREEN (demo)\n  " + "-" * 58)
+        for sym, bars in db.items():
+            row = daily_row(bars)
+            ok, cls = passes(row)
+            print(f"  {sym.split(':')[-1]:14s} {'PASS' if ok else 'fail'}")
+            for c in cls:
+                print(f"      {'ok ' if c['ok'] else '   '} {c['clause']:42s} {c['detail']}")
+        print()
+        for r in scan(db):
+            print("  passes:", r["name"], r["gap_pct"], "%")
+        print()
+    else:
+        print(__doc__)
